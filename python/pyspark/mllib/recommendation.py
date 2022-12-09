@@ -17,7 +17,7 @@
 
 import array
 import sys
-from typing import Any, List, NamedTuple, Optional, Tuple, Type, Union
+from collections import namedtuple
 
 from pyspark import SparkContext, since
 from pyspark.rdd import RDD
@@ -25,10 +25,10 @@ from pyspark.mllib.common import JavaModelWrapper, callMLlibFunc, inherit_doc
 from pyspark.mllib.util import JavaLoader, JavaSaveable
 from pyspark.sql import DataFrame
 
-__all__ = ["MatrixFactorizationModel", "ALS", "Rating"]
+__all__ = ['MatrixFactorizationModel', 'ALS', 'Rating']
 
 
-class Rating(NamedTuple):
+class Rating(namedtuple("Rating", ["user", "product", "rating"])):
     """
     Represents a (user, product, rating) tuple.
 
@@ -43,18 +43,12 @@ class Rating(NamedTuple):
     (1, 2, 5.0)
     """
 
-    user: int
-    product: int
-    rating: float
-
-    def __reduce__(self) -> Tuple[Type["Rating"], Tuple[int, int, float]]:
+    def __reduce__(self):
         return Rating, (int(self.user), int(self.product), float(self.rating))
 
 
 @inherit_doc
-class MatrixFactorizationModel(
-    JavaModelWrapper, JavaSaveable, JavaLoader["MatrixFactorizationModel"]
-):
+class MatrixFactorizationModel(JavaModelWrapper, JavaSaveable, JavaLoader):
 
     """A matrix factorisation model trained by regularized alternating
     least-squares.
@@ -139,16 +133,15 @@ class MatrixFactorizationModel(
     ... except OSError:
     ...     pass
     """
-
     @since("0.9.0")
-    def predict(self, user: int, product: int) -> float:
+    def predict(self, user, product):
         """
         Predicts rating for the given user and product.
         """
         return self._java_model.predict(int(user), int(product))
 
     @since("0.9.0")
-    def predictAll(self, user_product: RDD[Tuple[int, int]]) -> RDD[Rating]:
+    def predictAll(self, user_product):
         """
         Returns a list of predicted ratings for input user and product
         pairs.
@@ -160,23 +153,23 @@ class MatrixFactorizationModel(
         return self.call("predict", user_product)
 
     @since("1.2.0")
-    def userFeatures(self) -> RDD[Tuple[int, array.array]]:
+    def userFeatures(self):
         """
         Returns a paired RDD, where the first element is the user and the
         second is an array of features corresponding to that user.
         """
-        return self.call("getUserFeatures").mapValues(lambda v: array.array("d", v))
+        return self.call("getUserFeatures").mapValues(lambda v: array.array('d', v))
 
     @since("1.2.0")
-    def productFeatures(self) -> RDD[Tuple[int, array.array]]:
+    def productFeatures(self):
         """
         Returns a paired RDD, where the first element is the product and the
         second is an array of features corresponding to that product.
         """
-        return self.call("getProductFeatures").mapValues(lambda v: array.array("d", v))
+        return self.call("getProductFeatures").mapValues(lambda v: array.array('d', v))
 
     @since("1.4.0")
-    def recommendUsers(self, product: int, num: int) -> List[Rating]:
+    def recommendUsers(self, product, num):
         """
         Recommends the top "num" number of users for a given product and
         returns a list of Rating objects sorted by the predicted rating in
@@ -185,7 +178,7 @@ class MatrixFactorizationModel(
         return list(self.call("recommendUsers", product, num))
 
     @since("1.4.0")
-    def recommendProducts(self, user: int, num: int) -> List[Rating]:
+    def recommendProducts(self, user, num):
         """
         Recommends the top "num" number of products for a given user and
         returns a list of Rating objects sorted by the predicted rating in
@@ -193,14 +186,14 @@ class MatrixFactorizationModel(
         """
         return list(self.call("recommendProducts", user, num))
 
-    def recommendProductsForUsers(self, num: int) -> RDD[Tuple[int, Tuple[Rating, ...]]]:
+    def recommendProductsForUsers(self, num):
         """
         Recommends the top "num" number of products for all users. The
         number of recommendations returned per user may be less than "num".
         """
         return self.call("wrappedRecommendProductsForUsers", num)
 
-    def recommendUsersForProducts(self, num: int) -> RDD[Tuple[int, Tuple[Rating, ...]]]:
+    def recommendUsersForProducts(self, num):
         """
         Recommends the top "num" number of users for all products. The
         number of recommendations returned per product may be less than
@@ -208,39 +201,36 @@ class MatrixFactorizationModel(
         """
         return self.call("wrappedRecommendUsersForProducts", num)
 
-    @property  # type: ignore[misc]
+    @property
     @since("1.4.0")
-    def rank(self) -> int:
+    def rank(self):
         """Rank for the features in this model"""
         return self.call("rank")
 
     @classmethod
     @since("1.3.1")
-    def load(cls, sc: SparkContext, path: str) -> "MatrixFactorizationModel":
+    def load(cls, sc, path):
         """Load a model from the given path"""
         model = cls._load_java(sc, path)
-        assert sc._jvm is not None
         wrapper = sc._jvm.org.apache.spark.mllib.api.python.MatrixFactorizationModelWrapper(model)
         return MatrixFactorizationModel(wrapper)
 
 
-class ALS:
+class ALS(object):
     """Alternating Least Squares matrix factorization
 
     .. versionadded:: 0.9.0
     """
 
     @classmethod
-    def _prepare(cls, ratings: Any) -> RDD[Rating]:
+    def _prepare(cls, ratings):
         if isinstance(ratings, RDD):
             pass
         elif isinstance(ratings, DataFrame):
             ratings = ratings.rdd
         else:
-            raise TypeError(
-                "Ratings should be represented by either an RDD or a DataFrame, "
-                "but got %s." % type(ratings)
-            )
+            raise TypeError("Ratings should be represented by either an RDD or a DataFrame, "
+                            "but got %s." % type(ratings))
         first = ratings.first()
         if isinstance(first, Rating):
             pass
@@ -251,16 +241,8 @@ class ALS:
         return ratings
 
     @classmethod
-    def train(
-        cls,
-        ratings: Union[RDD[Rating], RDD[Tuple[int, int, float]]],
-        rank: int,
-        iterations: int = 5,
-        lambda_: float = 0.01,
-        blocks: int = -1,
-        nonnegative: bool = False,
-        seed: Optional[int] = None,
-    ) -> MatrixFactorizationModel:
+    def train(cls, ratings, rank, iterations=5, lambda_=0.01, blocks=-1, nonnegative=False,
+              seed=None):
         """
         Train a matrix factorization model given an RDD of ratings by users
         for a subset of products. The ratings matrix is approximated as the
@@ -295,30 +277,13 @@ class ALS:
             of None will use system time as the seed.
             (default: None)
         """
-        model = callMLlibFunc(
-            "trainALSModel",
-            cls._prepare(ratings),
-            rank,
-            iterations,
-            lambda_,
-            blocks,
-            nonnegative,
-            seed,
-        )
+        model = callMLlibFunc("trainALSModel", cls._prepare(ratings), rank, iterations,
+                              lambda_, blocks, nonnegative, seed)
         return MatrixFactorizationModel(model)
 
     @classmethod
-    def trainImplicit(
-        cls,
-        ratings: Union[RDD[Rating], RDD[Tuple[int, int, float]]],
-        rank: int,
-        iterations: int = 5,
-        lambda_: float = 0.01,
-        blocks: int = -1,
-        alpha: float = 0.01,
-        nonnegative: bool = False,
-        seed: Optional[int] = None,
-    ) -> MatrixFactorizationModel:
+    def trainImplicit(cls, ratings, rank, iterations=5, lambda_=0.01, blocks=-1, alpha=0.01,
+                      nonnegative=False, seed=None):
         """
         Train a matrix factorization model given an RDD of 'implicit
         preferences' of users for a subset of products. The ratings matrix
@@ -356,31 +321,21 @@ class ALS:
             of None will use system time as the seed.
             (default: None)
         """
-        model = callMLlibFunc(
-            "trainImplicitALSModel",
-            cls._prepare(ratings),
-            rank,
-            iterations,
-            lambda_,
-            blocks,
-            alpha,
-            nonnegative,
-            seed,
-        )
+        model = callMLlibFunc("trainImplicitALSModel", cls._prepare(ratings), rank,
+                              iterations, lambda_, blocks, alpha, nonnegative, seed)
         return MatrixFactorizationModel(model)
 
 
-def _test() -> None:
+def _test():
     import doctest
     import pyspark.mllib.recommendation
     from pyspark.sql import SQLContext
-
     globs = pyspark.mllib.recommendation.__dict__.copy()
-    sc = SparkContext("local[4]", "PythonTest")
-    globs["sc"] = sc
-    globs["sqlContext"] = SQLContext(sc)
+    sc = SparkContext('local[4]', 'PythonTest')
+    globs['sc'] = sc
+    globs['sqlContext'] = SQLContext(sc)
     (failure_count, test_count) = doctest.testmod(globs=globs, optionflags=doctest.ELLIPSIS)
-    globs["sc"].stop()
+    globs['sc'].stop()
     if failure_count:
         sys.exit(-1)
 

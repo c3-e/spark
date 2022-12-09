@@ -473,25 +473,23 @@ private[columnar] trait DirectCopyColumnType[JvmType] extends ColumnType[JvmType
 
   // copy the bytes from ByteBuffer to UnsafeRow
   override def extract(buffer: ByteBuffer, row: InternalRow, ordinal: Int): Unit = {
-    row match {
-      case mutable: MutableUnsafeRow =>
-        val numBytes = buffer.getInt
-        val cursor = buffer.position()
-        buffer.position(cursor + numBytes)
-        mutable.writer.write(ordinal, buffer.array(),
-          buffer.arrayOffset() + cursor, numBytes)
-      case _ =>
-        setField(row, ordinal, extract(buffer))
+    if (row.isInstanceOf[MutableUnsafeRow]) {
+      val numBytes = buffer.getInt
+      val cursor = buffer.position()
+      buffer.position(cursor + numBytes)
+      row.asInstanceOf[MutableUnsafeRow].writer.write(ordinal, buffer.array(),
+        buffer.arrayOffset() + cursor, numBytes)
+    } else {
+      setField(row, ordinal, extract(buffer))
     }
   }
 
   // copy the bytes from UnsafeRow to ByteBuffer
   override def append(row: InternalRow, ordinal: Int, buffer: ByteBuffer): Unit = {
-    row match {
-      case unsafe: UnsafeRow =>
-        unsafe.writeFieldTo(ordinal, buffer)
-      case _ =>
-        super.append(row, ordinal, buffer)
+    if (row.isInstanceOf[UnsafeRow]) {
+      row.asInstanceOf[UnsafeRow].writeFieldTo(ordinal, buffer)
+    } else {
+      super.append(row, ordinal, buffer)
     }
   }
 }
@@ -516,11 +514,10 @@ private[columnar] object STRING
   }
 
   override def setField(row: InternalRow, ordinal: Int, value: UTF8String): Unit = {
-    row match {
-      case mutable: MutableUnsafeRow =>
-        mutable.writer.write(ordinal, value)
-      case _ =>
-        row.update(ordinal, value.clone())
+    if (row.isInstanceOf[MutableUnsafeRow]) {
+      row.asInstanceOf[MutableUnsafeRow].writer.write(ordinal, value)
+    } else {
+      row.update(ordinal, value.clone())
     }
   }
 
@@ -795,14 +792,13 @@ private[columnar] object CALENDAR_INTERVAL extends ColumnType[CalendarInterval] 
 
   // copy the bytes from ByteBuffer to UnsafeRow
   override def extract(buffer: ByteBuffer, row: InternalRow, ordinal: Int): Unit = {
-    row match {
-      case mutable: MutableUnsafeRow =>
-        val cursor = buffer.position()
-        buffer.position(cursor + defaultSize)
-        mutable.writer.write(ordinal, buffer.array(),
-          buffer.arrayOffset() + cursor, defaultSize)
-      case _ =>
-        setField(row, ordinal, extract(buffer))
+    if (row.isInstanceOf[MutableUnsafeRow]) {
+      val cursor = buffer.position()
+      buffer.position(cursor + defaultSize)
+      row.asInstanceOf[MutableUnsafeRow].writer.write(ordinal, buffer.array(),
+        buffer.arrayOffset() + cursor, defaultSize)
+    } else {
+      setField(row, ordinal, extract(buffer))
     }
   }
 
@@ -833,7 +829,7 @@ private[columnar] object ColumnType {
       case arr: ArrayType => ARRAY(arr)
       case map: MapType => MAP(map)
       case struct: StructType => STRUCT(struct)
-      case udt: UserDefinedType[_] => ColumnType(udt.sqlType)
+      case udt: UserDefinedType[_] => apply(udt.sqlType)
       case other => throw QueryExecutionErrors.unsupportedTypeError(other)
     }
   }

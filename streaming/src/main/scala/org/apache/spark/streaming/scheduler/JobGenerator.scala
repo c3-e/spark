@@ -204,12 +204,10 @@ class JobGenerator(jobScheduler: JobScheduler) extends Logging {
     // If manual clock is being used for testing, then
     // either set the manual clock to the last checkpointed time,
     // or if the property is defined set it to that time
-    clock match {
-      case manualClock: ManualClock =>
-        val lastTime = ssc.initialCheckpoint.checkpointTime.milliseconds
-        val jumpTime = ssc.sc.conf.get(StreamingConf.MANUAL_CLOCK_JUMP)
-        manualClock.setTime(lastTime + jumpTime)
-      case _ => // do nothing
+    if (clock.isInstanceOf[ManualClock]) {
+      val lastTime = ssc.initialCheckpoint.checkpointTime.milliseconds
+      val jumpTime = ssc.sc.conf.get(StreamingConf.MANUAL_CLOCK_JUMP)
+      clock.asInstanceOf[ManualClock].setTime(lastTime + jumpTime)
     }
 
     val batchDuration = ssc.graph.batchDuration

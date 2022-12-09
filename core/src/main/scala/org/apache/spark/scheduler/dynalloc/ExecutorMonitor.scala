@@ -24,7 +24,6 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable
 
 import org.apache.spark._
-import org.apache.spark.errors.SparkCoreErrors
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config._
 import org.apache.spark.resource.ResourceProfile.UNKNOWN_RESOURCE_PROFILE_ID
@@ -355,11 +354,13 @@ private[spark] class ExecutorMonitor(
     val removed = executors.remove(event.executorId)
     if (removed != null) {
       decrementExecResourceProfileCount(removed.resourceProfileId)
-      if (event.reason == ExecutorLossMessage.decommissionFinished ||
-        (event.reason != null && event.reason.startsWith(ExecutorDecommission.msgPrefix))) {
-        metrics.gracefullyDecommissioned.inc()
-      } else if (removed.decommissioning) {
+      if (removed.decommissioning) {
+        if (event.reason == ExecutorLossMessage.decommissionFinished ||
+            event.reason == ExecutorDecommission().message) {
+          metrics.gracefullyDecommissioned.inc()
+        } else {
           metrics.decommissionUnfinished.inc()
+        }
       } else if (removed.pendingRemoval) {
         metrics.driverKilled.inc()
       } else {
@@ -377,10 +378,6 @@ private[spark] class ExecutorMonitor(
   }
 
   override def onBlockUpdated(event: SparkListenerBlockUpdated): Unit = {
-    if (!client.isExecutorActive(event.blockUpdatedInfo.blockManagerId.executorId)) {
-      return
-    }
-
     val exec = ensureExecutorIsTracked(event.blockUpdatedInfo.blockManagerId.executorId,
       UNKNOWN_RESOURCE_PROFILE_ID)
 
@@ -463,8 +460,8 @@ private[spark] class ExecutorMonitor(
   override def checkpointCleaned(rddId: Long): Unit = { }
 
   // Visible for testing.
-  private[scheduler] def isExecutorIdle(id: String): Boolean = {
-    Option(executors.get(id)).map(_.isIdle).getOrElse(throw SparkCoreErrors.noExecutorIdleError(id))
+  private[dynalloc] def isExecutorIdle(id: String): Boolean = {
+    Option(executors.get(id)).map(_.isIdle).getOrElse(throw new NoSuchElementException(id))
   }
 
   // Visible for testing
@@ -489,9 +486,7 @@ private[spark] class ExecutorMonitor(
    * which the `SparkListenerTaskStart` event is posted before the `SparkListenerBlockManagerAdded`
    * event, which is possible because these events are posted in different threads. (see SPARK-4951)
    */
-  // Visible for testing.
-  private[scheduler] def ensureExecutorIsTracked(
-      id: String, resourceProfileId: Int) : Tracker = {
+  private def ensureExecutorIsTracked(id: String, resourceProfileId: Int): Tracker = {
     val numExecsWithRpId = execResourceProfileCount.computeIfAbsent(resourceProfileId, _ => 0)
     val execTracker = executors.computeIfAbsent(id, _ => {
         val newcount = numExecsWithRpId + 1
@@ -530,7 +525,7 @@ private[spark] class ExecutorMonitor(
     }
   }
 
-  private[scheduler] class Tracker(var resourceProfileId: Int) {
+  private class Tracker(var resourceProfileId: Int) {
     @volatile var timeoutAt: Long = Long.MaxValue
 
     // Tracks whether this executor is thought to be timed out. It's used to detect when the list

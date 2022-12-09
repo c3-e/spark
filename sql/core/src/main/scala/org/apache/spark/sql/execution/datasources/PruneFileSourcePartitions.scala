@@ -17,22 +17,51 @@
 
 package org.apache.spark.sql.execution.datasources
 
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.CatalogStatistics
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.planning.PhysicalOperation
 import org.apache.spark.sql.catalyst.plans.logical.{Filter, LeafNode, LogicalPlan, Project}
 import org.apache.spark.sql.catalyst.plans.logical.statsEstimation.FilterEstimation
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2ScanRelation, FileScan}
+import org.apache.spark.sql.types.StructType
 
 /**
  * Prune the partitions of file source based table using partition filters. Currently, this rule
- * is applied to [[HadoopFsRelation]] with [[CatalogFileIndex]].
+ * is applied to [[HadoopFsRelation]] with [[CatalogFileIndex]] and [[DataSourceV2ScanRelation]]
+ * with [[FileScan]].
  *
  * For [[HadoopFsRelation]], the location will be replaced by pruned file index, and corresponding
  * statistics will be updated. And the partition filters will be kept in the filters of returned
  * logical plan.
+ *
+ * For [[DataSourceV2ScanRelation]], both partition filters and data filters will be added to
+ * its underlying [[FileScan]]. And the partition filters will be removed in the filters of
+ * returned logical plan.
  */
-private[sql] object PruneFileSourcePartitions extends Rule[LogicalPlan] {
+private[sql] object PruneFileSourcePartitions
+  extends Rule[LogicalPlan] with PredicateHelper {
+
+  private def getPartitionKeyFiltersAndDataFilters(
+      sparkSession: SparkSession,
+      relation: LeafNode,
+      partitionSchema: StructType,
+      filters: Seq[Expression],
+      output: Seq[AttributeReference]): (ExpressionSet, Seq[Expression]) = {
+    val normalizedFilters = DataSourceStrategy.normalizeExprs(
+      filters.filter(f => f.deterministic && !SubqueryExpression.hasSubquery(f)), output)
+    val partitionColumns =
+      relation.resolve(partitionSchema, sparkSession.sessionState.analyzer.resolver)
+    val partitionSet = AttributeSet(partitionColumns)
+    val (partitionFilters, dataFilters) = normalizedFilters.partition(f =>
+      f.references.subsetOf(partitionSet)
+    )
+    val extraPartitionFilter =
+      dataFilters.flatMap(extractPredicatesWithinOutputSet(_, partitionSet))
+
+    (ExpressionSet(partitionFilters ++ extraPartitionFilter), dataFilters)
+  }
 
   private def rebuildPhysicalOperation(
       projects: Seq[NamedExpression],
@@ -61,15 +90,13 @@ private[sql] object PruneFileSourcePartitions extends Rule[LogicalPlan] {
             _,
             _,
             _))
-        if filters.nonEmpty && fsRelation.partitionSchema.nonEmpty =>
-      val normalizedFilters = DataSourceStrategy.normalizeExprs(
-        filters.filter(f => f.deterministic && !SubqueryExpression.hasSubquery(f)),
+        if filters.nonEmpty && fsRelation.partitionSchemaOption.isDefined =>
+      val (partitionKeyFilters, _) = getPartitionKeyFiltersAndDataFilters(
+        fsRelation.sparkSession, logicalRelation, partitionSchema, filters,
         logicalRelation.output)
-      val (partitionKeyFilters, _) = DataSourceUtils
-        .getPartitionFiltersAndDataFilters(partitionSchema, normalizedFilters)
 
       if (partitionKeyFilters.nonEmpty) {
-        val prunedFileIndex = catalogFileIndex.filterPartitions(partitionKeyFilters)
+        val prunedFileIndex = catalogFileIndex.filterPartitions(partitionKeyFilters.toSeq)
         val prunedFsRelation =
           fsRelation.copy(location = prunedFileIndex)(fsRelation.sparkSession)
         // Change table stats based on the sizeInBytes of pruned files
@@ -87,6 +114,26 @@ private[sql] object PruneFileSourcePartitions extends Rule[LogicalPlan] {
           relation = prunedFsRelation, catalogTable = withStats)
         // Keep partition-pruning predicates so that they are visible in physical planning
         rebuildPhysicalOperation(projects, filters, prunedLogicalRelation)
+      } else {
+        op
+      }
+
+    case op @ PhysicalOperation(projects, filters,
+        v2Relation @ DataSourceV2ScanRelation(_, scan: FileScan, output))
+        if filters.nonEmpty =>
+      val (partitionKeyFilters, dataFilters) =
+        getPartitionKeyFiltersAndDataFilters(scan.sparkSession, v2Relation,
+          scan.readPartitionSchema, filters, output)
+      // if there are only partition filters, or the data filters have not been pushed yet,
+      // trigger push down
+      if ((partitionKeyFilters.nonEmpty && dataFilters.isEmpty)
+        || (dataFilters.nonEmpty && scan.dataFilters.isEmpty)) {
+        val prunedV2Relation =
+          v2Relation.copy(scan = scan.withFilters(partitionKeyFilters.toSeq, dataFilters))
+        // The pushed down partition filters don't need to be reevaluated.
+        val afterScanFilters =
+          ExpressionSet(filters) -- partitionKeyFilters.filter(_.references.nonEmpty)
+        rebuildPhysicalOperation(projects, afterScanFilters.toSeq, prunedV2Relation)
       } else {
         op
       }

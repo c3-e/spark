@@ -31,7 +31,6 @@ import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config.{STORAGE_DECOMMISSION_FALLBACK_STORAGE_CLEANUP, STORAGE_DECOMMISSION_FALLBACK_STORAGE_PATH}
 import org.apache.spark.network.buffer.{ManagedBuffer, NioManagedBuffer}
-import org.apache.spark.network.util.JavaUtils
 import org.apache.spark.rpc.{RpcAddress, RpcEndpointRef, RpcTimeout}
 import org.apache.spark.shuffle.{IndexShuffleBlockResolver, ShuffleBlockInfo}
 import org.apache.spark.shuffle.IndexShuffleBlockResolver.NOOP_REDUCE_ID
@@ -61,17 +60,15 @@ private[storage] class FallbackStorage(conf: SparkConf) extends Logging {
         val indexFile = r.getIndexFile(shuffleId, mapId)
 
         if (indexFile.exists()) {
-          val hash = JavaUtils.nonNegativeHash(indexFile.getName)
           fallbackFileSystem.copyFromLocalFile(
-            new Path(Utils.resolveURI(indexFile.getAbsolutePath)),
-            new Path(fallbackPath, s"$appId/$shuffleId/$hash/${indexFile.getName}"))
+            new Path(indexFile.getAbsolutePath),
+            new Path(fallbackPath, s"$appId/$shuffleId/${indexFile.getName}"))
 
           val dataFile = r.getDataFile(shuffleId, mapId)
           if (dataFile.exists()) {
-            val hash = JavaUtils.nonNegativeHash(dataFile.getName)
             fallbackFileSystem.copyFromLocalFile(
-              new Path(Utils.resolveURI(dataFile.getAbsolutePath)),
-              new Path(fallbackPath, s"$appId/$shuffleId/$hash/${dataFile.getName}"))
+              new Path(dataFile.getAbsolutePath),
+              new Path(fallbackPath, s"$appId/$shuffleId/${dataFile.getName}"))
           }
 
           // Report block statuses
@@ -89,15 +86,12 @@ private[storage] class FallbackStorage(conf: SparkConf) extends Logging {
   }
 
   def exists(shuffleId: Int, filename: String): Boolean = {
-    val hash = JavaUtils.nonNegativeHash(filename)
-    fallbackFileSystem.exists(new Path(fallbackPath, s"$appId/$shuffleId/$hash/$filename"))
+    fallbackFileSystem.exists(new Path(fallbackPath, s"$appId/$shuffleId/$filename"))
   }
 }
 
 private[storage] class NoopRpcEndpointRef(conf: SparkConf) extends RpcEndpointRef(conf) {
-  // scalastyle:off executioncontextglobal
   import scala.concurrent.ExecutionContext.Implicits.global
-  // scalastyle:on executioncontextglobal
   override def address: RpcAddress = null
   override def name: String = "fallback"
   override def send(message: Any): Unit = {}
@@ -174,8 +168,7 @@ private[spark] object FallbackStorage extends Logging {
     }
 
     val name = ShuffleIndexBlockId(shuffleId, mapId, NOOP_REDUCE_ID).name
-    val hash = JavaUtils.nonNegativeHash(name)
-    val indexFile = new Path(fallbackPath, s"$appId/$shuffleId/$hash/$name")
+    val indexFile = new Path(fallbackPath, s"$appId/$shuffleId/$name")
     val start = startReduceId * 8L
     val end = endReduceId * 8L
     Utils.tryWithResource(fallbackFileSystem.open(indexFile)) { inputStream =>
@@ -185,15 +178,14 @@ private[spark] object FallbackStorage extends Logging {
         index.skip(end - (start + 8L))
         val nextOffset = index.readLong()
         val name = ShuffleDataBlockId(shuffleId, mapId, NOOP_REDUCE_ID).name
-        val hash = JavaUtils.nonNegativeHash(name)
-        val dataFile = new Path(fallbackPath, s"$appId/$shuffleId/$hash/$name")
+        val dataFile = new Path(fallbackPath, s"$appId/$shuffleId/$name")
         val f = fallbackFileSystem.open(dataFile)
         val size = nextOffset - offset
         logDebug(s"To byte array $size")
         val array = new Array[Byte](size.toInt)
         val startTimeNs = System.nanoTime()
         f.seek(offset)
-        f.readFully(array)
+        f.read(array)
         logDebug(s"Took ${(System.nanoTime() - startTimeNs) / (1000 * 1000)}ms")
         f.close()
         new NioManagedBuffer(ByteBuffer.wrap(array))

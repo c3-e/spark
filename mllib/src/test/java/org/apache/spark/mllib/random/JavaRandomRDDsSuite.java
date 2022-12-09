@@ -117,6 +117,7 @@ public class JavaRandomRDDsSuite extends SharedSparkSession {
 
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testUniformVectorRDD() {
     long m = 100L;
     int n = 10;
@@ -132,6 +133,7 @@ public class JavaRandomRDDsSuite extends SharedSparkSession {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testNormalVectorRDD() {
     long m = 100L;
     int n = 10;
@@ -147,6 +149,7 @@ public class JavaRandomRDDsSuite extends SharedSparkSession {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testLogNormalVectorRDD() {
     double mean = 4.0;
     double std = 2.0;
@@ -164,6 +167,7 @@ public class JavaRandomRDDsSuite extends SharedSparkSession {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testPoissonVectorRDD() {
     double mean = 2.0;
     long m = 100L;
@@ -180,6 +184,7 @@ public class JavaRandomRDDsSuite extends SharedSparkSession {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testExponentialVectorRDD() {
     double mean = 2.0;
     long m = 100L;
@@ -196,6 +201,7 @@ public class JavaRandomRDDsSuite extends SharedSparkSession {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testGammaVectorRDD() {
     double shape = 1.0;
     double jscale = 2.0;
@@ -228,6 +234,7 @@ public class JavaRandomRDDsSuite extends SharedSparkSession {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testRandomVectorRDD() {
     UniformGenerator generator = new UniformGenerator();
     long m = 100L;

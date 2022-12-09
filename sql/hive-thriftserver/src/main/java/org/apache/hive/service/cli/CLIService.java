@@ -46,8 +46,6 @@ import org.apache.hive.service.cli.session.HiveSession;
 import org.apache.hive.service.cli.session.SessionManager;
 import org.apache.hive.service.rpc.thrift.TOperationHandle;
 import org.apache.hive.service.rpc.thrift.TProtocolVersion;
-import org.apache.hive.service.rpc.thrift.TRowSet;
-import org.apache.hive.service.rpc.thrift.TTableSchema;
 import org.apache.hive.service.server.HiveServer2;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,14 +56,14 @@ import org.slf4j.LoggerFactory;
  */
 public class CLIService extends CompositeService implements ICLIService {
 
-  private static final Logger LOG = LoggerFactory.getLogger(CLIService.class);
-
   public static final TProtocolVersion SERVER_VERSION;
 
   static {
     TProtocolVersion[] protocols = TProtocolVersion.values();
     SERVER_VERSION = protocols[protocols.length - 1];
   }
+
+  private final Logger LOG = LoggerFactory.getLogger(CLIService.class.getName());
 
   private HiveConf hiveConf;
   private SessionManager sessionManager;
@@ -498,9 +496,9 @@ public class CLIService extends CompositeService implements ICLIService {
    * @see org.apache.hive.service.cli.ICLIService#getResultSetMetadata(org.apache.hive.service.cli.OperationHandle)
    */
   @Override
-  public TTableSchema getResultSetMetadata(OperationHandle opHandle)
+  public TableSchema getResultSetMetadata(OperationHandle opHandle)
       throws HiveSQLException {
-    TTableSchema tableSchema = sessionManager.getOperationManager()
+    TableSchema tableSchema = sessionManager.getOperationManager()
         .getOperation(opHandle).getParentSession().getResultSetMetadata(opHandle);
     LOG.debug(opHandle + ": getResultSetMetadata()");
     return tableSchema;
@@ -510,16 +508,16 @@ public class CLIService extends CompositeService implements ICLIService {
    * @see org.apache.hive.service.cli.ICLIService#fetchResults(org.apache.hive.service.cli.OperationHandle)
    */
   @Override
-  public TRowSet fetchResults(OperationHandle opHandle)
+  public RowSet fetchResults(OperationHandle opHandle)
       throws HiveSQLException {
     return fetchResults(opHandle, Operation.DEFAULT_FETCH_ORIENTATION,
         Operation.DEFAULT_FETCH_MAX_ROWS, FetchType.QUERY_OUTPUT);
   }
 
   @Override
-  public TRowSet fetchResults(OperationHandle opHandle, FetchOrientation orientation,
-      long maxRows, FetchType fetchType) throws HiveSQLException {
-    TRowSet rowSet = sessionManager.getOperationManager().getOperation(opHandle)
+  public RowSet fetchResults(OperationHandle opHandle, FetchOrientation orientation,
+                             long maxRows, FetchType fetchType) throws HiveSQLException {
+    RowSet rowSet = sessionManager.getOperationManager().getOperation(opHandle)
         .getParentSession().fetchResults(opHandle, orientation, maxRows, fetchType);
     LOG.debug(opHandle + ": fetchResults()");
     return rowSet;

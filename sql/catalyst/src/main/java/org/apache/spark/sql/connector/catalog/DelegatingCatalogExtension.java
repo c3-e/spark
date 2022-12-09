@@ -20,8 +20,10 @@ package org.apache.spark.sql.connector.catalog;
 import java.util.Map;
 
 import org.apache.spark.annotation.Evolving;
-import org.apache.spark.sql.catalyst.analysis.*;
-import org.apache.spark.sql.connector.catalog.functions.UnboundFunction;
+import org.apache.spark.sql.catalyst.analysis.NamespaceAlreadyExistsException;
+import org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException;
+import org.apache.spark.sql.catalyst.analysis.NoSuchTableException;
+import org.apache.spark.sql.catalyst.analysis.TableAlreadyExistsException;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
@@ -39,7 +41,6 @@ public abstract class DelegatingCatalogExtension implements CatalogExtension {
 
   private CatalogPlugin delegate;
 
-  @Override
   public final void setDelegateCatalog(CatalogPlugin delegate) {
     this.delegate = delegate;
   }
@@ -65,16 +66,6 @@ public abstract class DelegatingCatalogExtension implements CatalogExtension {
   @Override
   public Table loadTable(Identifier ident) throws NoSuchTableException {
     return asTableCatalog().loadTable(ident);
-  }
-
-  @Override
-  public Table loadTable(Identifier ident, long timestamp) throws NoSuchTableException {
-    return asTableCatalog().loadTable(ident, timestamp);
-  }
-
-  @Override
-  public Table loadTable(Identifier ident, String version) throws NoSuchTableException {
-    return asTableCatalog().loadTable(ident, version);
   }
 
   @Override
@@ -156,36 +147,15 @@ public abstract class DelegatingCatalogExtension implements CatalogExtension {
   }
 
   @Override
-  public boolean dropNamespace(
-      String[] namespace,
-      boolean cascade) throws NoSuchNamespaceException, NonEmptyNamespaceException {
-    return asNamespaceCatalog().dropNamespace(namespace, cascade);
-  }
-
-  @Override
-  public UnboundFunction loadFunction(Identifier ident) throws NoSuchFunctionException {
-    return asFunctionCatalog().loadFunction(ident);
-  }
-
-  @Override
-  public Identifier[] listFunctions(String[] namespace) throws NoSuchNamespaceException {
-    return asFunctionCatalog().listFunctions(namespace);
-  }
-
-  @Override
-  public boolean functionExists(Identifier ident) {
-    return asFunctionCatalog().functionExists(ident);
+  public boolean dropNamespace(String[] namespace) throws NoSuchNamespaceException {
+    return asNamespaceCatalog().dropNamespace(namespace);
   }
 
   private TableCatalog asTableCatalog() {
-    return (TableCatalog) delegate;
+    return (TableCatalog)delegate;
   }
 
   private SupportsNamespaces asNamespaceCatalog() {
-    return (SupportsNamespaces) delegate;
-  }
-
-  private FunctionCatalog asFunctionCatalog() {
-    return (FunctionCatalog) delegate;
+    return (SupportsNamespaces)delegate;
   }
 }

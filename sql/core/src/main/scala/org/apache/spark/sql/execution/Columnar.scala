@@ -32,7 +32,6 @@ import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.execution.vectorized.{OffHeapColumnVector, OnHeapColumnVector, WritableColumnVector}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
-import org.apache.spark.util.Utils
 
 /**
  * Holds a user defined rule that can be used to inject columnar implementations of various
@@ -67,7 +66,7 @@ trait ColumnarToRowTransition extends UnaryExecNode
  */
 case class ColumnarToRowExec(child: SparkPlan) extends ColumnarToRowTransition with CodegenSupport {
   // supportsColumnar requires to be only called on driver side, see also SPARK-37779.
-  assert(Utils.isInRunningSparkTask || child.supportsColumnar)
+  assert(TaskContext.get != null || child.supportsColumnar)
 
   override def output: Seq[Attribute] = child.output
 
@@ -258,13 +257,12 @@ private object RowToColumnConverter {
 
   private def getConverterForType(dataType: DataType, nullable: Boolean): TypeConverter = {
     val core = dataType match {
-      case BinaryType => BinaryConverter
       case BooleanType => BooleanConverter
       case ByteType => ByteConverter
       case ShortType => ShortConverter
-      case IntegerType | DateType | _: YearMonthIntervalType => IntConverter
+      case IntegerType | DateType => IntConverter
       case FloatType => FloatConverter
-      case LongType | TimestampType | TimestampNTZType | _: DayTimeIntervalType => LongConverter
+      case LongType | TimestampType => LongConverter
       case DoubleType => DoubleConverter
       case StringType => StringConverter
       case CalendarIntervalType => CalendarConverter
@@ -285,13 +283,6 @@ private object RowToColumnConverter {
       }
     } else {
       core
-    }
-  }
-
-  private object BinaryConverter extends TypeConverter {
-    override def append(row: SpecializedGetters, column: Int, cv: WritableColumnVector): Unit = {
-      val bytes = row.getBinary(column)
-      cv.appendByteArray(bytes, 0, bytes.length)
     }
   }
 
@@ -363,7 +354,7 @@ private object RowToColumnConverter {
     override def append(row: SpecializedGetters, column: Int, cv: WritableColumnVector): Unit = {
       cv.appendStruct(false)
       val data = row.getStruct(column, childConverters.length)
-      for (i <- childConverters.indices) {
+      for (i <- 0 until childConverters.length) {
         childConverters(i).append(data, i, cv.getChild(i))
       }
     }
@@ -537,8 +528,8 @@ case class ApplyColumnarRulesAndInsertTransitions(
   private def insertTransitions(plan: SparkPlan, outputsColumnar: Boolean): SparkPlan = {
     if (outputsColumnar) {
       insertRowToColumnar(plan)
-    } else if (plan.supportsColumnar && !plan.supportsRowBased) {
-      // `outputsColumnar` is false but the plan only outputs columnar format, so add a
+    } else if (plan.supportsColumnar) {
+      // `outputsColumnar` is false but the plan outputs columnar format, so add a
       // to-row transition here.
       ColumnarToRowExec(insertRowToColumnar(plan))
     } else if (!plan.isInstanceOf[ColumnarToRowTransition]) {
@@ -550,9 +541,11 @@ case class ApplyColumnarRulesAndInsertTransitions(
 
   def apply(plan: SparkPlan): SparkPlan = {
     var preInsertPlan: SparkPlan = plan
-    columnarRules.foreach(r => preInsertPlan = r.preColumnarTransitions(preInsertPlan))
+    columnarRules.foreach((r : ColumnarRule) =>
+      preInsertPlan = r.preColumnarTransitions(preInsertPlan))
     var postInsertPlan = insertTransitions(preInsertPlan, outputsColumnar)
-    columnarRules.reverse.foreach(r => postInsertPlan = r.postColumnarTransitions(postInsertPlan))
+    columnarRules.reverse.foreach((r : ColumnarRule) =>
+      postInsertPlan = r.postColumnarTransitions(postInsertPlan))
     postInsertPlan
   }
 }

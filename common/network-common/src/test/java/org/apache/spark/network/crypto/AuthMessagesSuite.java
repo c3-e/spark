@@ -17,8 +17,6 @@
 
 package org.apache.spark.network.crypto;
 
-import java.util.Arrays;
-
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import static org.junit.Assert.assertEquals;
@@ -35,8 +33,9 @@ public class AuthMessagesSuite {
 
   private static byte[] byteArray() {
     byte[] bytes = new byte[COUNTER++];
-    Arrays.fill(bytes, (byte) COUNTER);
-    return bytes;
+    for (int i = 0; i < bytes.length; i++) {
+      bytes[i] = (byte) COUNTER;
+    } return bytes;
   }
 
   @Test

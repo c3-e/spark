@@ -151,8 +151,8 @@ class StreamingDeduplicationSuite extends StateStoreMetricsTest {
       .withWatermark("eventTime", "10 seconds")
       .dropDuplicates()
       .withWatermark("eventTime", "10 seconds")
-      .groupBy(window($"eventTime", "5 seconds") as Symbol("window"))
-      .agg(count("*") as Symbol("count"))
+      .groupBy(window($"eventTime", "5 seconds") as 'window)
+      .agg(count("*") as 'count)
       .select($"window".getField("start").cast("long").as[Long], $"count".as[Long])
 
     testStream(windowedaggregate)(

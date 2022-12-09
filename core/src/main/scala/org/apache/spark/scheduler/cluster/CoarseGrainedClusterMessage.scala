@@ -85,9 +85,6 @@ private[spark] object CoarseGrainedClusterMessages {
     }
   }
 
-  case class ShufflePushCompletion(shuffleId: Int, shuffleMergeId: Int, mapIndex: Int)
-    extends CoarseGrainedClusterMessage
-
   // Internal messages in driver
   case object ReviveOffers extends CoarseGrainedClusterMessage
 
@@ -151,7 +148,7 @@ private[spark] object CoarseGrainedClusterMessages {
   case class KillExecutors(executorIds: Seq[String]) extends CoarseGrainedClusterMessage
 
   // Used internally by executors to shut themselves down.
-  case class Shutdown(exitCode: Int = 0) extends CoarseGrainedClusterMessage
+  case object Shutdown extends CoarseGrainedClusterMessage
 
   // The message to check if `CoarseGrainedSchedulerBackend` thinks the executor is alive or not.
   case class IsExecutorAlive(executorId: String) extends CoarseGrainedClusterMessage

@@ -33,7 +33,6 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.types.DayTimeIntervalType._
 import org.apache.spark.sql.types.YearMonthIntervalType.YEAR
 import org.apache.spark.unsafe.types.CalendarInterval
-import org.apache.spark.util.collection.Utils
 /**
  * Random data generators for Spark SQL DataTypes. These generators do not generate uniformly random
  * values; instead, they're biased to return "interesting" values (such as maximum / minimum values)
@@ -341,7 +340,7 @@ object RandomDataGenerator {
               count += 1
             }
             val values = Seq.fill(keys.size)(valueGenerator())
-            Utils.toMap(keys, values)
+            keys.zip(values).toMap
           }
         }
       case StructType(fields) =>

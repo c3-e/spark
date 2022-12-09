@@ -83,10 +83,6 @@ This feature is disabled by default and available on all coarse-grained cluster 
 [Mesos coarse-grained mode](running-on-mesos.html#mesos-run-modes) and [K8s mode](running-on-kubernetes.html).
 
 
-### Caveats
-
-- In [standalone mode](spark-standalone.html), without explicitly setting `spark.executor.cores`, each executor will get all the available cores of a worker. In this case, when dynamic allocation enabled, spark will possibly acquire much more executors than expected. When you want to use dynamic allocation in [standalone mode](spark-standalone.html), you are recommended to explicitly set cores for each executor before the issue [SPARK-30299](https://issues.apache.org/jira/browse/SPARK-30299) got fixed.
-
 ### Configuration and Setup
 
 There are two ways for using this feature.
@@ -168,12 +164,9 @@ shuffle state written by an executor may continue to be served beyond the execut
 In addition to writing shuffle files, executors also cache data either on disk or in memory.
 When an executor is removed, however, all cached data will no longer be accessible.  To mitigate this,
 by default executors containing cached data are never removed.  You can configure this behavior with
-`spark.dynamicAllocation.cachedExecutorIdleTimeout`. When set `spark.shuffle.service.fetch.rdd.enabled`
-to `true`, Spark can use ExternalShuffleService for fetching disk persisted RDD blocks. In case of 
-dynamic allocation if this feature is enabled executors having only disk persisted blocks are considered
-idle after `spark.dynamicAllocation.executorIdleTimeout` and will be released accordingly. In future releases,
-the cached data may be preserved through an off-heap storage similar in spirit to how shuffle files are preserved 
-through the external shuffle service.
+`spark.dynamicAllocation.cachedExecutorIdleTimeout`.  In future releases, the cached data may be
+preserved through an off-heap storage similar in spirit to how shuffle files are preserved through
+the external shuffle service.
 
 # Scheduling Within an Application
 

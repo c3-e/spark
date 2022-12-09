@@ -31,8 +31,6 @@ abstract class ParquetSchemaPruningSuite extends SchemaPruningSuite with Adaptiv
   override protected val dataSourceName: String = "parquet"
   override protected val vectorizedReaderEnabledKey: String =
     SQLConf.PARQUET_VECTORIZED_READER_ENABLED.key
-  override protected val vectorizedReaderNestedEnabledKey: String =
-    SQLConf.PARQUET_VECTORIZED_READER_NESTED_COLUMN_ENABLED.key
 
 }
 

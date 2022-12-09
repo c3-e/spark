@@ -30,7 +30,6 @@ private[spark] trait SchedulerBackend {
 
   def start(): Unit
   def stop(): Unit
-  def stop(exitCode: Int): Unit = stop()
   /**
    * Update the current offers and schedule tasks
    */

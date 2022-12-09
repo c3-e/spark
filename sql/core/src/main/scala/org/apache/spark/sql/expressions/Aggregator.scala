@@ -19,6 +19,7 @@ package org.apache.spark.sql.expressions
 
 import org.apache.spark.sql.{Encoder, TypedColumn}
 import org.apache.spark.sql.catalyst.encoders.encoderFor
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete}
 import org.apache.spark.sql.execution.aggregate.TypedAggregateExpression
 
 /**
@@ -97,7 +98,11 @@ abstract class Aggregator[-IN, BUF, OUT] extends Serializable {
     implicit val bEncoder = bufferEncoder
     implicit val cEncoder = outputEncoder
 
-    val expr = TypedAggregateExpression(this).toAggregateExpression()
+    val expr =
+      AggregateExpression(
+        TypedAggregateExpression(this),
+        Complete,
+        isDistinct = false)
 
     new TypedColumn[IN, OUT](expr, encoderFor[OUT])
   }

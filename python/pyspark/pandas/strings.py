@@ -25,6 +25,7 @@ from typing import (
     List,
     Optional,
     Union,
+    TYPE_CHECKING,
     cast,
     no_type_check,
 )
@@ -36,11 +37,13 @@ from pyspark.sql.types import StringType, BinaryType, ArrayType, LongType, MapTy
 from pyspark.sql import functions as F
 from pyspark.sql.functions import pandas_udf
 
-import pyspark.pandas as ps
 from pyspark.pandas.spark import functions as SF
 
+if TYPE_CHECKING:
+    import pyspark.pandas as ps  # noqa: F401 (SPARK-34943)
 
-class StringMethods:
+
+class StringMethods(object):
     """String methods for pandas-on-Spark Series"""
 
     def __init__(self, series: "ps.Series"):
@@ -71,7 +74,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_capitalize(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_capitalize(s) -> "ps.Series[str]":
             return s.str.capitalize()
 
         return self._data.pandas_on_spark.transform_batch(pandas_capitalize)
@@ -98,7 +102,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_title(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_title(s) -> "ps.Series[str]":
             return s.str.title()
 
         return self._data.pandas_on_spark.transform_batch(pandas_title)
@@ -171,7 +176,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_swapcase(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_swapcase(s) -> "ps.Series[str]":
             return s.str.swapcase()
 
         return self._data.pandas_on_spark.transform_batch(pandas_swapcase)
@@ -222,7 +228,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_startswith(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_startswith(s) -> "ps.Series[bool]":
             return s.str.startswith(pattern, na)
 
         return self._data.pandas_on_spark.transform_batch(pandas_startswith)
@@ -273,7 +280,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_endswith(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_endswith(s) -> "ps.Series[bool]":
             return s.str.endswith(pattern, na)
 
         return self._data.pandas_on_spark.transform_batch(pandas_endswith)
@@ -325,7 +333,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_strip(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_strip(s) -> "ps.Series[str]":
             return s.str.strip(to_strip)
 
         return self._data.pandas_on_spark.transform_batch(pandas_strip)
@@ -365,7 +374,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_lstrip(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_lstrip(s) -> "ps.Series[str]":
             return s.str.lstrip(to_strip)
 
         return self._data.pandas_on_spark.transform_batch(pandas_lstrip)
@@ -405,7 +415,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_rstrip(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_rstrip(s) -> "ps.Series[str]":
             return s.str.rstrip(to_strip)
 
         return self._data.pandas_on_spark.transform_batch(pandas_rstrip)
@@ -459,7 +470,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_get(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_get(s) -> "ps.Series[str]":
             return s.str.get(i)
 
         return self._data.pandas_on_spark.transform_batch(pandas_get)
@@ -495,7 +507,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_isalnum(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_isalnum(s) -> "ps.Series[bool]":
             return s.str.isalnum()
 
         return self._data.pandas_on_spark.transform_batch(pandas_isalnum)
@@ -520,7 +533,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_isalpha(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_isalpha(s) -> "ps.Series[bool]":
             return s.str.isalpha()
 
         return self._data.pandas_on_spark.transform_batch(pandas_isalpha)
@@ -570,7 +584,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_isdigit(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_isdigit(s) -> "ps.Series[bool]":
             return s.str.isdigit()
 
         return self._data.pandas_on_spark.transform_batch(pandas_isdigit)
@@ -593,7 +608,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_isspace(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_isspace(s) -> "ps.Series[bool]":
             return s.str.isspace()
 
         return self._data.pandas_on_spark.transform_batch(pandas_isspace)
@@ -617,7 +633,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_isspace(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_isspace(s) -> "ps.Series[bool]":
             return s.str.islower()
 
         return self._data.pandas_on_spark.transform_batch(pandas_isspace)
@@ -641,7 +658,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_isspace(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_isspace(s) -> "ps.Series[bool]":
             return s.str.isupper()
 
         return self._data.pandas_on_spark.transform_batch(pandas_isspace)
@@ -671,7 +689,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_istitle(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_istitle(s) -> "ps.Series[bool]":
             return s.str.istitle()
 
         return self._data.pandas_on_spark.transform_batch(pandas_istitle)
@@ -729,7 +748,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_isnumeric(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_isnumeric(s) -> "ps.Series[bool]":
             return s.str.isnumeric()
 
         return self._data.pandas_on_spark.transform_batch(pandas_isnumeric)
@@ -779,7 +799,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_isdecimal(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_isdecimal(s) -> "ps.Series[bool]":
             return s.str.isdecimal()
 
         return self._data.pandas_on_spark.transform_batch(pandas_isdecimal)
@@ -822,7 +843,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_center(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_center(s) -> "ps.Series[str]":
             return s.str.center(width, fillchar)
 
         return self._data.pandas_on_spark.transform_batch(pandas_center)
@@ -941,7 +963,8 @@ class StringMethods:
         dtype: bool
         """
 
-        def pandas_contains(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_contains(s) -> "ps.Series[bool]":
             return s.str.contains(pat, case, flags, na, regex)
 
         return self._data.pandas_on_spark.transform_batch(pandas_contains)
@@ -991,7 +1014,8 @@ class StringMethods:
         dtype: int64
         """
 
-        def pandas_count(s) -> ps.Series[int]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_count(s) -> "ps.Series[int]":
             return s.str.count(pat, flags)
 
         return self._data.pandas_on_spark.transform_batch(pandas_count)
@@ -1074,7 +1098,8 @@ class StringMethods:
         dtype: int64
         """
 
-        def pandas_find(s) -> ps.Series[int]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_find(s) -> "ps.Series[int]":
             return s.str.find(sub, start, end)
 
         return self._data.pandas_on_spark.transform_batch(pandas_find)
@@ -1158,9 +1183,7 @@ class StringMethods:
         dtype: object
         """
         # type hint does not support to specify array type yet.
-        @pandas_udf(  # type: ignore[call-overload]
-            returnType=ArrayType(StringType(), containsNull=True)
-        )
+        @pandas_udf(returnType=ArrayType(StringType(), containsNull=True))  # type: ignore
         def pudf(s: pd.Series) -> pd.Series:
             return s.str.findall(pat, flags)
 
@@ -1204,7 +1227,8 @@ class StringMethods:
         >>> s.str.index('a', start=2) # doctest: +SKIP
         """
 
-        def pandas_index(s) -> ps.Series[np.int64]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_index(s) -> "ps.Series[np.int64]":
             return s.str.index(sub, start, end)
 
         return self._data.pandas_on_spark.transform_batch(pandas_index)
@@ -1253,7 +1277,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_join(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_join(s) -> "ps.Series[str]":
             return s.str.join(sep)
 
         return self._data.pandas_on_spark.transform_batch(pandas_join)
@@ -1323,7 +1348,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_ljust(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_ljust(s) -> "ps.Series[str]":
             return s.str.ljust(width, fillchar)
 
         return self._data.pandas_on_spark.transform_batch(pandas_ljust)
@@ -1389,7 +1415,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_match(s) -> ps.Series[bool]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_match(s) -> "ps.Series[bool]":
             return s.str.match(pat, case, flags, na)
 
         return self._data.pandas_on_spark.transform_batch(pandas_match)
@@ -1412,7 +1439,8 @@ class StringMethods:
             A Series of normalized strings.
         """
 
-        def pandas_normalize(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_normalize(s) -> "ps.Series[str]":
             return s.str.normalize(form)
 
         return self._data.pandas_on_spark.transform_batch(pandas_normalize)
@@ -1460,7 +1488,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_pad(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_pad(s) -> "ps.Series[str]":
             return s.str.pad(width, side, fillchar)
 
         return self._data.pandas_on_spark.transform_batch(pandas_pad)
@@ -1605,7 +1634,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_replace(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_replace(s) -> "ps.Series[str]":
             return s.str.replace(pat, repl, n=n, case=case, flags=flags, regex=regex)
 
         return self._data.pandas_on_spark.transform_batch(pandas_replace)
@@ -1660,7 +1690,8 @@ class StringMethods:
         dtype: int64
         """
 
-        def pandas_rfind(s) -> ps.Series[int]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_rfind(s) -> "ps.Series[int]":
             return s.str.rfind(sub, start, end)
 
         return self._data.pandas_on_spark.transform_batch(pandas_rfind)
@@ -1703,7 +1734,8 @@ class StringMethods:
         >>> s.str.rindex('a', start=2) # doctest: +SKIP
         """
 
-        def pandas_rindex(s) -> ps.Series[np.int64]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_rindex(s) -> "ps.Series[np.int64]":
             return s.str.rindex(sub, start, end)
 
         return self._data.pandas_on_spark.transform_batch(pandas_rindex)
@@ -1744,7 +1776,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_rjust(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_rjust(s) -> "ps.Series[str]":
             return s.str.rjust(width, fillchar)
 
         return self._data.pandas_on_spark.transform_batch(pandas_rjust)
@@ -1809,7 +1842,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_slice(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_slice(s) -> "ps.Series[str]":
             return s.str.slice(start, stop, step)
 
         return self._data.pandas_on_spark.transform_batch(pandas_slice)
@@ -1885,7 +1919,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_slice_replace(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_slice_replace(s) -> "ps.Series[str]":
             return s.str.slice_replace(start, stop, repl)
 
         return self._data.pandas_on_spark.transform_batch(pandas_slice_replace)
@@ -2020,7 +2055,7 @@ class StringMethods:
         # type hint does not support to specify array type yet.
         return_type = ArrayType(StringType(), containsNull=True)
 
-        @pandas_udf(returnType=return_type)  # type: ignore[call-overload]
+        @pandas_udf(returnType=return_type)  # type: ignore
         def pudf(s: pd.Series) -> pd.Series:
             return s.str.split(pat, n)
 
@@ -2167,7 +2202,7 @@ class StringMethods:
         # type hint does not support to specify array type yet.
         return_type = ArrayType(StringType(), containsNull=True)
 
-        @pandas_udf(returnType=return_type)  # type: ignore[call-overload]
+        @pandas_udf(returnType=return_type)  # type: ignore
         def pudf(s: pd.Series) -> pd.Series:
             return s.str.rsplit(pat, n)
 
@@ -2222,7 +2257,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_translate(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_translate(s) -> "ps.Series[str]":
             return s.str.translate(table)
 
         return self._data.pandas_on_spark.transform_batch(pandas_translate)
@@ -2273,7 +2309,8 @@ class StringMethods:
         dtype: object
         """
 
-        def pandas_wrap(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_wrap(s) -> "ps.Series[str]":
             return s.str.wrap(width, **kwargs)
 
         return self._data.pandas_on_spark.transform_batch(pandas_wrap)
@@ -2315,15 +2352,16 @@ class StringMethods:
         added to the left of it (:func:`str.zfill` would have moved it to the
         left). 1000 remains unchanged as it is longer than width.
 
-        >>> s.str.zfill(3)  # doctest: +SKIP
-        0     -01
+        >>> s.str.zfill(3)
+        0     0-1
         1     001
         2    1000
         3    None
         dtype: object
         """
 
-        def pandas_zfill(s) -> ps.Series[str]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_zfill(s) -> "ps.Series[str]":
             return s.str.zfill(width)
 
         return self._data.pandas_on_spark.transform_batch(pandas_zfill)

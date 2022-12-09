@@ -29,7 +29,6 @@ import org.apache.spark.sql.api.java._
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, OuterScopes}
 import org.apache.spark.sql.catalyst.expressions.{Literal, ScalaUDF}
-import org.apache.spark.sql.catalyst.expressions.Cast._
 import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.{QueryExecution, SimpleMode}
@@ -101,41 +100,19 @@ class UDFSuite extends QueryTest with SharedSparkSession {
 
   test("error reporting for incorrect number of arguments - builtin function") {
     val df = spark.emptyDataFrame
-    checkError(
-      exception = intercept[AnalysisException] {
-        df.selectExpr("substr('abcd', 2, 3, 4)")
-      },
-      errorClass = "WRONG_NUM_ARGS",
-      parameters = Map(
-        "functionName" -> toSQLId("substr"),
-        "expectedNum" -> "[2, 3]",
-        "actualNum" -> "4"
-      ),
-      context = ExpectedContext(
-        fragment = "substr('abcd', 2, 3, 4)",
-        start = 0,
-        stop = 22)
-    )
+    val e = intercept[AnalysisException] {
+      df.selectExpr("substr('abcd', 2, 3, 4)")
+    }
+    assert(e.getMessage.contains("Invalid number of arguments for function substr. Expected:"))
   }
 
   test("error reporting for incorrect number of arguments - udf") {
     val df = spark.emptyDataFrame
-    checkError(
-      exception = intercept[AnalysisException] {
-        spark.udf.register("foo", (_: String).length)
-        df.selectExpr("foo(2, 3, 4)")
-      },
-      errorClass = "WRONG_NUM_ARGS",
-      parameters = Map(
-        "functionName" -> toSQLId("foo"),
-        "expectedNum" -> "1",
-        "actualNum" -> "3"
-      ),
-      context = ExpectedContext(
-        fragment = "foo(2, 3, 4)",
-        start = 0,
-        stop = 11)
-    )
+    val e = intercept[AnalysisException] {
+      spark.udf.register("foo", (_: String).length)
+      df.selectExpr("foo(2, 3, 4)")
+    }
+    assert(e.getMessage.contains("Invalid number of arguments for function foo. Expected:"))
   }
 
   test("error reporting for undefined functions") {
@@ -447,7 +424,7 @@ class UDFSuite extends QueryTest with SharedSparkSession {
       ("N", Integer.valueOf(3), null)).toDF("a", "b", "c")
 
     val udf1 = udf((a: String, b: Int, c: Any) => a + b + c)
-    val df = input.select(udf1($"a", $"b", $"c"))
+    val df = input.select(udf1('a, 'b, 'c))
     checkAnswer(df, Seq(Row("null1x"), Row(null), Row("N3null")))
 
     // test Java UDF. Java UDF can't have primitive inputs, as it's generic typed.
@@ -456,7 +433,7 @@ class UDFSuite extends QueryTest with SharedSparkSession {
         t1 + t2 + t3
       }
     }, StringType)
-    val df2 = input.select(udf2($"a", $"b", $"c"))
+    val df2 = input.select(udf2('a, 'b, 'c))
     checkAnswer(df2, Seq(Row("null1x"), Row("Mnully"), Row("N3null")))
   }
 
@@ -492,6 +469,11 @@ class UDFSuite extends QueryTest with SharedSparkSession {
         Row(1.1) :: Row(0.0) :: Nil)
     }
 
+  }
+
+  test("use untyped Scala UDF should fail by default") {
+    val e = intercept[AnalysisException](udf((x: Int) => x, IntegerType))
+    assert(e.getMessage.contains("You're using untyped Scala UDF"))
   }
 
   test("SPARK-26308: udf with decimal") {
@@ -545,7 +527,7 @@ class UDFSuite extends QueryTest with SharedSparkSession {
       .format(dtf)
     val plusSec = udf((i: java.time.Instant) => i.plusSeconds(1))
     val df = spark.sql("SELECT TIMESTAMP '2019-02-26 23:59:59Z' as t")
-      .select(plusSec($"t").cast(StringType))
+      .select(plusSec('t).cast(StringType))
     checkAnswer(df, Row(expected) :: Nil)
   }
 
@@ -553,7 +535,7 @@ class UDFSuite extends QueryTest with SharedSparkSession {
     val expected = java.time.LocalDate.parse("2019-02-27").toString
     val plusDay = udf((i: java.time.LocalDate) => i.plusDays(1))
     val df = spark.sql("SELECT DATE '2019-02-26' as d")
-      .select(plusDay($"d").cast(StringType))
+      .select(plusDay('d).cast(StringType))
     checkAnswer(df, Row(expected) :: Nil)
   }
 
@@ -572,7 +554,7 @@ class UDFSuite extends QueryTest with SharedSparkSession {
     spark.udf.register("buildLocalDateInstantType",
       udf((d: LocalDate, i: Instant) => LocalDateInstantType(d, i)))
     checkAnswer(df.selectExpr(s"buildLocalDateInstantType(d, i) as di")
-      .select($"di".cast(StringType)),
+      .select('di.cast(StringType)),
       Row(s"{$expectedDate, $expectedInstant}") :: Nil)
 
     // test null cases
@@ -602,7 +584,7 @@ class UDFSuite extends QueryTest with SharedSparkSession {
     spark.udf.register("buildTimestampInstantType",
       udf((t: Timestamp, i: Instant) => TimestampInstantType(t, i)))
     checkAnswer(df.selectExpr("buildTimestampInstantType(t, i) as ti")
-      .select($"ti".cast(StringType)),
+      .select('ti.cast(StringType)),
       Row(s"{$expectedTimestamp, $expectedInstant}"))
 
     // test null cases
@@ -621,11 +603,11 @@ class UDFSuite extends QueryTest with SharedSparkSession {
     // without explicit type
     val udf1 = udf((i: String) => null)
     assert(udf1.asInstanceOf[SparkUserDefinedFunction] .dataType === NullType)
-    checkAnswer(Seq("1").toDF("a").select(udf1($"a")), Row(null) :: Nil)
+    checkAnswer(Seq("1").toDF("a").select(udf1('a)), Row(null) :: Nil)
     // with explicit type
     val udf2 = udf((i: String) => null.asInstanceOf[String])
     assert(udf2.asInstanceOf[SparkUserDefinedFunction].dataType === StringType)
-    checkAnswer(Seq("1").toDF("a").select(udf1($"a")), Row(null) :: Nil)
+    checkAnswer(Seq("1").toDF("a").select(udf1('a)), Row(null) :: Nil)
   }
 
   test("SPARK-28321 0-args Java UDF should not be called only once") {
@@ -747,13 +729,8 @@ class UDFSuite extends QueryTest with SharedSparkSession {
     val df = spark.range(1)
       .select(lit(50).as("a"))
       .select(struct("a").as("col"))
-    checkError(
-      exception =
-        intercept[AnalysisException](df.select(myUdf(Column("col")))),
-      errorClass = "UNRESOLVED_COLUMN.WITH_SUGGESTION",
-      parameters = Map(
-        "objectName" -> "`b`",
-        "proposal" -> "`a`"))
+    val error = intercept[AnalysisException](df.select(myUdf(Column("col"))))
+    assert(error.getMessage.contains("cannot resolve 'b' given input columns: [a]"))
   }
 
   test("wrong order of input fields for case class") {
@@ -868,34 +845,6 @@ class UDFSuite extends QueryTest with SharedSparkSession {
       FunctionIdentifier("udaf34388"), Seq(Literal(1))) match {
       case udaf: ScalaUDAF => assert(udaf.name === "udaf34388")
     }
-  }
-
-  test("SPARK-35674: using java.time.LocalDateTime in UDF") {
-    // Regular case
-    val input = Seq(java.time.LocalDateTime.parse("2021-01-01T00:00:00")).toDF("dateTime")
-    val plusYear = udf((l: java.time.LocalDateTime) => l.plusYears(1))
-    val result = input.select(plusYear($"dateTime").as("newDateTime"))
-    checkAnswer(result, Row(java.time.LocalDateTime.parse("2022-01-01T00:00:00")) :: Nil)
-    assert(result.schema === new StructType().add("newDateTime", TimestampNTZType))
-    // UDF produces `null`
-    val nullFunc = udf((_: java.time.LocalDateTime) => null.asInstanceOf[java.time.LocalDateTime])
-    val nullResult = input.select(nullFunc($"dateTime").as("nullDateTime"))
-    checkAnswer(nullResult, Row(null) :: Nil)
-    assert(nullResult.schema === new StructType().add("nullDateTime", TimestampNTZType))
-    // Input parameter of UDF is null
-    val nullInput = Seq(null.asInstanceOf[java.time.LocalDateTime]).toDF("nullDateTime")
-    val constDuration = udf((_: java.time.LocalDateTime) =>
-      java.time.LocalDateTime.parse("2021-01-01T00:00:00"))
-    val constResult = nullInput.select(constDuration($"nullDateTime").as("firstDayOf2021"))
-    checkAnswer(constResult, Row(java.time.LocalDateTime.parse("2021-01-01T00:00:00")) :: Nil)
-    assert(constResult.schema === new StructType().add("firstDayOf2021", TimestampNTZType))
-    // Error in the conversion of UDF result to the internal representation of timestamp without
-    // time zone
-    val overflowFunc = udf((l: java.time.LocalDateTime) => l.plusDays(Long.MaxValue))
-    val e = intercept[SparkException] {
-      input.select(overflowFunc($"dateTime")).collect()
-    }.getCause.getCause
-    assert(e.isInstanceOf[java.lang.ArithmeticException])
   }
 
   test("SPARK-34663, SPARK-35730: using java.time.Duration in UDF") {

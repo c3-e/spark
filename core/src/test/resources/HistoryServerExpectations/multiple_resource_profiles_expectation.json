@@ -7,7 +7,6 @@
   "sparkProperties" : [ ],
   "hadoopProperties" : [ ],
   "systemProperties" : [ ],
-  "metricsProperties": [ ],
   "classpathEntries" : [ ],
   "resourceProfiles" : [ {
     "id" : 0,

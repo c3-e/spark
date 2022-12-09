@@ -33,11 +33,12 @@ object TreePattern extends Enumeration  {
   val GROUPING_ANALYTICS: Value = Value
   val BINARY_ARITHMETIC: Value = Value
   val BINARY_COMPARISON: Value = Value
+  val BOOL_AGG: Value = Value
   val CASE_WHEN: Value = Value
   val CAST: Value = Value
-  val COALESCE: Value = Value
   val CONCAT: Value = Value
   val COUNT: Value = Value
+  val COUNT_IF: Value = Value
   val CREATE_NAMED_STRUCT: Value = Value
   val CURRENT_LIKE: Value = Value
   val DESERIALIZE_TO_OBJECT: Value = Value
@@ -54,7 +55,6 @@ object TreePattern extends Enumeration  {
   val IN_SUBQUERY: Value = Value
   val INSET: Value = Value
   val INTERSECT: Value = Value
-  val INVOKE: Value = Value
   val JSON_TO_STRUCT: Value = Value
   val LAMBDA_FUNCTION: Value = Value
   val LAMBDA_VARIABLE: Value = Value
@@ -73,11 +73,8 @@ object TreePattern extends Enumeration  {
   val PIVOT: Value = Value
   val PLAN_EXPRESSION: Value = Value
   val PYTHON_UDF: Value = Value
-  val REGEXP_EXTRACT_FAMILY: Value = Value
-  val REGEXP_REPLACE: Value = Value
   val RUNTIME_REPLACEABLE: Value = Value
   val SCALAR_SUBQUERY: Value = Value
-  val SCALAR_SUBQUERY_REFERENCE: Value = Value
   val SCALA_UDF: Value = Value
   val SORT: Value = Value
   val SUBQUERY_ALIAS: Value = Value
@@ -87,14 +84,12 @@ object TreePattern extends Enumeration  {
   val TRUE_OR_FALSE_LITERAL: Value = Value
   val WINDOW_EXPRESSION: Value = Value
   val UNARY_POSITIVE: Value = Value
-  val UNPIVOT: Value = Value
   val UPDATE_FIELDS: Value = Value
   val UPPER_OR_LOWER: Value = Value
   val UP_CAST: Value = Value
 
   // Logical plan patterns (alphabetically ordered)
   val AGGREGATE: Value = Value
-  val AS_OF_JOIN: Value = Value
   val COMMAND: Value = Value
   val CTE: Value = Value
   val DISTINCT_LIKE: Value = Value
@@ -111,12 +106,9 @@ object TreePattern extends Enumeration  {
   val NATURAL_LIKE_JOIN: Value = Value
   val OUTER_JOIN: Value = Value
   val PROJECT: Value = Value
-  val RELATION_TIME_TRAVEL: Value = Value
   val REPARTITION_OPERATION: Value = Value
-  val REBALANCE_PARTITIONS: Value = Value
   val UNION: Value = Value
   val UNRESOLVED_RELATION: Value = Value
-  val UNRESOLVED_WITH: Value = Value
   val TYPED_FILTER: Value = Value
   val WINDOW: Value = Value
   val WITH_WINDOW_DEFINITION: Value = Value
@@ -131,9 +123,8 @@ object TreePattern extends Enumeration  {
   val UNRESOLVED_WINDOW_EXPRESSION: Value = Value
 
   // Unresolved Plan patterns (Alphabetically ordered)
-  val UNRESOLVED_FUNC: Value = Value
   val UNRESOLVED_SUBQUERY_COLUMN_ALIAS: Value = Value
-  val UNRESOLVED_TABLE_VALUED_FUNCTION: Value = Value
+  val UNRESOLVED_FUNC: Value = Value
 
   // Execution expression patterns (alphabetically ordered)
   val IN_SUBQUERY_EXEC: Value = Value

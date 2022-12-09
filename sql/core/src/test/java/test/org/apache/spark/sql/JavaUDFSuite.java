@@ -55,6 +55,7 @@ public class JavaUDFSuite implements Serializable {
     spark = null;
   }
 
+  @SuppressWarnings("unchecked")
   @Test
   public void udf1Test() {
     spark.udf().register("stringLengthTest", (String str) -> str.length(), DataTypes.IntegerType);
@@ -63,6 +64,7 @@ public class JavaUDFSuite implements Serializable {
     Assert.assertEquals(4, result.getInt(0));
   }
 
+  @SuppressWarnings("unchecked")
   @Test
   public void udf2Test() {
     spark.udf().register("stringLengthTest",
@@ -79,6 +81,7 @@ public class JavaUDFSuite implements Serializable {
     }
   }
 
+  @SuppressWarnings("unchecked")
   @Test
   public void udf3Test() {
     spark.udf().registerJava("stringLengthTest", StringLengthTest.class.getName(),
@@ -92,6 +95,7 @@ public class JavaUDFSuite implements Serializable {
     Assert.assertEquals(9, result.getInt(0));
   }
 
+  @SuppressWarnings("unchecked")
   @Test
   public void udf4Test() {
     spark.udf().register("inc", (Long i) -> i + 1, DataTypes.LongType);
@@ -107,13 +111,14 @@ public class JavaUDFSuite implements Serializable {
     Assert.assertEquals(55, sum);
   }
 
-  @Test
+  @SuppressWarnings("unchecked")
+  @Test(expected = AnalysisException.class)
   public void udf5Test() {
     spark.udf().register("inc", (Long i) -> i + 1, DataTypes.LongType);
-    Assert.assertThrows(AnalysisException.class,
-      () -> spark.sql("SELECT inc(1, 5)").collectAsList());
+    List<Row> results = spark.sql("SELECT inc(1, 5)").collectAsList();
   }
 
+  @SuppressWarnings("unchecked")
   @Test
   public void udf6Test() {
     spark.udf().register("returnOne", () -> 1, DataTypes.IntegerType);
@@ -121,6 +126,7 @@ public class JavaUDFSuite implements Serializable {
     Assert.assertEquals(1, result.getInt(0));
   }
 
+  @SuppressWarnings("unchecked")
   @Test
   public void udf7Test() {
     String originConf = spark.conf().get(SQLConf.DATETIME_JAVA8API_ENABLED().key());
@@ -136,6 +142,7 @@ public class JavaUDFSuite implements Serializable {
     }
   }
 
+  @SuppressWarnings("unchecked")
   @Test
   public void sourceTest() {
     spark.udf().register("stringLengthTest", (String str) -> str.length(), DataTypes.IntegerType);

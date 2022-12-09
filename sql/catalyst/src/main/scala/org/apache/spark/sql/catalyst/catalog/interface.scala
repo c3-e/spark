@@ -18,7 +18,7 @@
 package org.apache.spark.sql.catalyst.catalog
 
 import java.net.URI
-import java.time.{ZoneId, ZoneOffset}
+import java.time.ZoneOffset
 import java.util.Date
 
 import scala.collection.mutable
@@ -37,7 +37,7 @@ import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.plans.logical.statsEstimation.EstimationUtils
 import org.apache.spark.sql.catalyst.util._
 import org.apache.spark.sql.connector.catalog.CatalogManager
-import org.apache.spark.sql.errors.QueryCompilationErrors
+import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -119,8 +119,7 @@ case class CatalogTablePartition(
     map.put("Partition Values", s"[$specString]")
     map ++= storage.toLinkedHashMap
     if (parameters.nonEmpty) {
-      map.put("Partition Parameters", s"{" +
-        s"${SQLConf.get.redactOptions(parameters).map(p => p._1 + "=" + p._2).mkString(", ")}}")
+      map.put("Partition Parameters", s"{${parameters.map(p => p._1 + "=" + p._2).mkString(", ")}}")
     }
     map.put("Created Time", new Date(createTime).toString)
     val lastAccess = {
@@ -384,16 +383,15 @@ case class CatalogTable(
 
   def toLinkedHashMap: mutable.LinkedHashMap[String, String] = {
     val map = new mutable.LinkedHashMap[String, String]()
-    val tableProperties =
-      SQLConf.get.redactOptions(properties.filterKeys(!_.startsWith(VIEW_PREFIX)).toMap)
-        .toSeq.sortBy(_._1)
-        .map(p => p._1 + "=" + p._2)
+    val tableProperties = properties
+      .filterKeys(!_.startsWith(VIEW_PREFIX))
+      .toSeq.sortBy(_._1)
+      .map(p => p._1 + "=" + p._2).mkString("[", ", ", "]")
     val partitionColumns = partitionColumnNames.map(quoteIdentifier).mkString("[", ", ", "]")
     val lastAccess = {
       if (lastAccessTime <= 0) "UNKNOWN" else new Date(lastAccessTime).toString
     }
 
-    identifier.catalog.foreach(map.put("Catalog", _))
     identifier.database.foreach(map.put("Database", _))
     map.put("Table", identifier.table)
     if (owner != null && owner.nonEmpty) map.put("Owner", owner)
@@ -416,9 +414,7 @@ case class CatalogTable(
       }
     }
 
-    if (tableProperties.nonEmpty) {
-      map.put("Table Properties", tableProperties.mkString("[", ", ", "]"))
-    }
+    if (properties.nonEmpty) map.put("Table Properties", tableProperties)
     stats.foreach(s => map.put("Statistics", s.simpleString))
     map ++= storage.toLinkedHashMap
     if (tracksPartitionsInCatalog) map.put("Partition Provider", "Catalog")
@@ -658,13 +654,10 @@ object CatalogColumnStat extends Logging {
 
   val VERSION = 2
 
-  def getTimestampFormatter(
-      isParsing: Boolean,
-      format: String = "yyyy-MM-dd HH:mm:ss.SSSSSS",
-      zoneId: ZoneId = ZoneOffset.UTC): TimestampFormatter = {
+  private def getTimestampFormatter(isParsing: Boolean): TimestampFormatter = {
     TimestampFormatter(
-      format = format,
-      zoneId = zoneId,
+      format = "yyyy-MM-dd HH:mm:ss.SSSSSS",
+      zoneId = ZoneOffset.UTC,
       isParsing = isParsing)
   }
 
@@ -840,7 +833,7 @@ case class HiveTableRelation(
     tableMeta.stats.map(_.toPlanStats(output, conf.cboEnabled || conf.planStatsEnabled))
       .orElse(tableStats)
       .getOrElse {
-      throw new IllegalStateException("Table stats must be specified.")
+      throw QueryExecutionErrors.tableStatsNotSpecifiedError
     }
   }
 

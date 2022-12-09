@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.execution.streaming.continuous
 
+import scala.util.control.NonFatal
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -24,8 +26,10 @@ import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.metric.CustomMetric
 import org.apache.spark.sql.connector.write.PhysicalWriteInfoImpl
 import org.apache.spark.sql.connector.write.streaming.StreamingWrite
+import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.{SparkPlan, UnaryExecNode}
 import org.apache.spark.sql.execution.metric.SQLMetrics
+import org.apache.spark.sql.execution.streaming.StreamExecution
 
 /**
  * The physical plan for writing data into a continuous processing [[StreamingWrite]].
@@ -61,6 +65,14 @@ case class WriteToContinuousDataSourceExec(write: StreamingWrite, query: SparkPl
     } catch {
       case _: InterruptedException =>
         // Interruption is how continuous queries are ended, so accept and ignore the exception.
+      case cause: Throwable =>
+        cause match {
+          // Do not wrap interruption exceptions that will be handled by streaming specially.
+          case _ if StreamExecution.isInterruptionException(cause, sparkContext) => throw cause
+          // Only wrap non fatal exceptions.
+          case NonFatal(e) => throw QueryExecutionErrors.writingJobAbortedError(e)
+          case _ => throw cause
+        }
     }
 
     sparkContext.emptyRDD

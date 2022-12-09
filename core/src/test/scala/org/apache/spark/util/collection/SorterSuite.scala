@@ -22,10 +22,11 @@ import java.util.Arrays
 import java.util.concurrent.TimeUnit
 
 import org.apache.spark.SparkFunSuite
+import org.apache.spark.internal.Logging
 import org.apache.spark.util.Utils.timeIt
 import org.apache.spark.util.random.XORShiftRandom
 
-class SorterSuite extends SparkFunSuite {
+class SorterSuite extends SparkFunSuite with Logging {
 
   test("equivalent to Arrays.sort") {
     val rand = new XORShiftRandom(123)

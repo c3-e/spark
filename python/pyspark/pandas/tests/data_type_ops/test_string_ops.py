@@ -23,14 +23,15 @@ from pandas.api.types import CategoricalDtype
 
 from pyspark import pandas as ps
 from pyspark.pandas.config import option_context
-from pyspark.pandas.tests.data_type_ops.testing_utils import OpsTestBase
+from pyspark.pandas.tests.data_type_ops.testing_utils import TestCasesUtils
 from pyspark.pandas.typedef.typehints import extension_object_dtypes_available
+from pyspark.testing.pandasutils import PandasOnSparkTestCase
 
 if extension_object_dtypes_available:
     from pandas import StringDtype
 
 
-class StringOpsTest(OpsTestBase):
+class StringOpsTest(PandasOnSparkTestCase, TestCasesUtils):
     @property
     def bool_pdf(self):
         return pd.DataFrame({"this": ["x", "y", "z"], "that": ["z", "y", "x"]})
@@ -160,7 +161,7 @@ class StringOpsTest(OpsTestBase):
         data = ["x", "y", "z"]
         pser = pd.Series(data)
         psser = ps.Series(data)
-        self.assert_eq(pser, psser._to_pandas())
+        self.assert_eq(pser, psser.to_pandas())
         self.assert_eq(ps.from_pandas(pser), psser)
 
     def test_isnull(self):
@@ -236,7 +237,7 @@ class StringOpsTest(OpsTestBase):
 @unittest.skipIf(
     not extension_object_dtypes_available, "pandas extension object dtypes are not available"
 )
-class StringExtensionOpsTest(StringOpsTest):
+class StringExtensionOpsTest(StringOpsTest, PandasOnSparkTestCase, TestCasesUtils):
     @property
     def pser(self):
         return pd.Series(["x", "y", "z", None], dtype="string")
@@ -275,7 +276,7 @@ class StringExtensionOpsTest(StringOpsTest):
         data = ["x", "y", "z", None]
         pser = pd.Series(data, dtype="string")
         psser = ps.Series(data, dtype="string")
-        self.assert_eq(pser, psser._to_pandas())
+        self.assert_eq(pser, psser.to_pandas())
         self.assert_eq(ps.from_pandas(pser), psser)
 
     def test_isnull(self):

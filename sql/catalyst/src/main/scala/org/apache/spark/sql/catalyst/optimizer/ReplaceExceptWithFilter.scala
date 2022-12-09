@@ -87,8 +87,8 @@ object ReplaceExceptWithFilter extends Rule[LogicalPlan] {
     val rightProjectList = projectList(right)
 
     left.output.size == left.output.map(_.name).distinct.size &&
-      !left.exists(_.expressions.exists(SubqueryExpression.hasSubquery)) &&
-        !right.exists(_.expressions.exists(SubqueryExpression.hasSubquery)) &&
+      left.find(_.expressions.exists(SubqueryExpression.hasSubquery)).isEmpty &&
+        right.find(_.expressions.exists(SubqueryExpression.hasSubquery)).isEmpty &&
           Project(leftProjectList, nonFilterChild(skipProject(left))).sameResult(
             Project(rightProjectList, nonFilterChild(skipProject(right))))
   }

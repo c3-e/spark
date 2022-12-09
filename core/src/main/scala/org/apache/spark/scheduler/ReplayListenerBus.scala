@@ -23,6 +23,7 @@ import scala.io.{Codec, Source}
 
 import com.fasterxml.jackson.core.JsonParseException
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException
+import org.json4s.jackson.JsonMethods._
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.ReplayListenerBus._
@@ -85,7 +86,7 @@ private[spark] class ReplayListenerBus extends SparkListenerBus with Logging {
           currentLine = entry._1
           lineNumber = entry._2 + 1
 
-          postToAll(JsonProtocol.sparkEventFromJson(currentLine))
+          postToAll(JsonProtocol.sparkEventFromJson(parse(currentLine)))
         } catch {
           case e: ClassNotFoundException =>
             // Ignore unknown events, parse through the event log file.

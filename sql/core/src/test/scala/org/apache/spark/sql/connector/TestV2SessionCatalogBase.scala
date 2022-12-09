@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.connector
 
+import java.util
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -34,7 +35,7 @@ import org.apache.spark.sql.types.StructType
  */
 private[connector] trait TestV2SessionCatalogBase[T <: Table] extends DelegatingCatalogExtension {
 
-  protected val tables: java.util.Map[Identifier, T] = new ConcurrentHashMap[Identifier, T]()
+  protected val tables: util.Map[Identifier, T] = new ConcurrentHashMap[Identifier, T]()
 
   private val tableCreated: AtomicBoolean = new AtomicBoolean(false)
 
@@ -47,7 +48,7 @@ private[connector] trait TestV2SessionCatalogBase[T <: Table] extends Delegating
       name: String,
       schema: StructType,
       partitions: Array[Transform],
-      properties: java.util.Map[String, String]): T
+      properties: util.Map[String, String]): T
 
   override def loadTable(ident: Identifier): Table = {
     if (tables.containsKey(ident)) {
@@ -68,12 +69,12 @@ private[connector] trait TestV2SessionCatalogBase[T <: Table] extends Delegating
       ident: Identifier,
       schema: StructType,
       partitions: Array[Transform],
-      properties: java.util.Map[String, String]): Table = {
+      properties: util.Map[String, String]): Table = {
     val key = TestV2SessionCatalogBase.SIMULATE_ALLOW_EXTERNAL_PROPERTY
     val propsWithLocation = if (properties.containsKey(key)) {
       // Always set a location so that CREATE EXTERNAL TABLE won't fail with LOCATION not specified.
       if (!properties.containsKey(TableCatalog.PROP_LOCATION)) {
-        val newProps = new java.util.HashMap[String, String]()
+        val newProps = new util.HashMap[String, String]()
         newProps.putAll(properties)
         newProps.put(TableCatalog.PROP_LOCATION, "file:/abc")
         newProps

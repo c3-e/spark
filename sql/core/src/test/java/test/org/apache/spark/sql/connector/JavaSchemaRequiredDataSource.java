@@ -29,7 +29,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 public class JavaSchemaRequiredDataSource implements TableProvider {
 
-  static class MyScanBuilder extends JavaSimpleScanBuilder {
+  class MyScanBuilder extends JavaSimpleScanBuilder {
 
     private StructType schema;
 

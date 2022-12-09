@@ -410,7 +410,7 @@ object CrossValidatorModel extends MLReadable[CrossValidatorModel] {
         val subModelsPath = new Path(path, "subModels")
         for (splitIndex <- 0 until instance.getNumFolds) {
           val splitPath = new Path(subModelsPath, s"fold${splitIndex.toString}")
-          for (paramIndex <- instance.getEstimatorParamMaps.indices) {
+          for (paramIndex <- 0 until instance.getEstimatorParamMaps.length) {
             val modelPath = new Path(splitPath, paramIndex.toString).toString
             instance.subModels(splitIndex)(paramIndex).asInstanceOf[MLWritable].save(modelPath)
           }
@@ -442,7 +442,7 @@ object CrossValidatorModel extends MLReadable[CrossValidatorModel] {
           Array.ofDim[Model[_]](estimatorParamMaps.length))
         for (splitIndex <- 0 until numFolds) {
           val splitPath = new Path(subModelsPath, s"fold${splitIndex.toString}")
-          for (paramIndex <- estimatorParamMaps.indices) {
+          for (paramIndex <- 0 until estimatorParamMaps.length) {
             val modelPath = new Path(splitPath, paramIndex.toString).toString
             _subModels(splitIndex)(paramIndex) =
               DefaultParamsReader.loadParamsInstance(modelPath, sc)

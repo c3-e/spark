@@ -203,7 +203,7 @@ trait Block extends TreeNode[Block] with JavaCode {
 
   override def verboseString(maxFields: Int): String = toString
   override def simpleStringWithNodeId(): String = {
-    throw new IllegalStateException(s"$nodeName does not implement simpleStringWithNodeId")
+    throw QueryExecutionErrors.simpleStringWithNodeIdUnsupportedError(nodeName)
   }
 }
 

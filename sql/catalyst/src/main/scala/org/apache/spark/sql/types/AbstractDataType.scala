@@ -80,18 +80,14 @@ private[sql] class TypeCollection(private val types: Seq[AbstractDataType])
 private[sql] object TypeCollection {
 
   /**
-   * Types that include numeric types and ANSI interval types.
+   * Types that include numeric types and interval type. They are only used in unary_minus,
+   * unary_positive, add and subtract operations.
    */
-  val NumericAndAnsiInterval = TypeCollection(
+  val NumericAndInterval = TypeCollection(
     NumericType,
+    CalendarIntervalType,
     DayTimeIntervalType,
     YearMonthIntervalType)
-
-  /**
-   * Types that include numeric and ANSI interval types, and additionally the legacy interval type.
-   * They are only used in unary_minus, unary_positive, add and subtract operations.
-   */
-  val NumericAndInterval = new TypeCollection(NumericAndAnsiInterval.types :+ CalendarIntervalType)
 
   def apply(types: AbstractDataType*): TypeCollection = new TypeCollection(types)
 
@@ -227,18 +223,7 @@ private[sql] object AnyTimestampType extends AbstractDataType with Serializable 
   def unapply(e: Expression): Boolean = acceptsType(e.dataType)
 }
 
-private[sql] abstract class DatetimeType extends AtomicType
-
 /**
  * The interval type which conforms to the ANSI SQL standard.
  */
 private[sql] abstract class AnsiIntervalType extends AtomicType
-
-private[spark] object AnsiIntervalType extends AbstractDataType {
-  override private[sql] def simpleString: String = "ANSI interval"
-
-  override private[sql] def acceptsType(other: DataType): Boolean =
-    other.isInstanceOf[AnsiIntervalType]
-
-  override private[sql] def defaultConcreteType: DataType = DayTimeIntervalType()
-}

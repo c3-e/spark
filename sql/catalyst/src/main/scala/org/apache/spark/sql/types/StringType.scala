@@ -21,7 +21,6 @@ import scala.math.Ordering
 import scala.reflect.runtime.universe.typeTag
 
 import org.apache.spark.annotation.Stable
-import org.apache.spark.sql.catalyst.types.{PhysicalDataType, PhysicalStringType}
 import org.apache.spark.unsafe.types.UTF8String
 
 /**
@@ -42,8 +41,6 @@ class StringType private() extends AtomicType {
    * The default size of a value of the StringType is 20 bytes.
    */
   override def defaultSize: Int = 20
-
-  override def physicalDataType: PhysicalDataType = PhysicalStringType
 
   private[spark] override def asNullable: StringType = this
 }

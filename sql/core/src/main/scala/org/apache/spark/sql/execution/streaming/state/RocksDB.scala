@@ -63,7 +63,7 @@ class RocksDB(
   private val readOptions = new ReadOptions()  // used for gets
   private val writeOptions = new WriteOptions().setSync(true)  // wait for batched write to complete
   private val flushOptions = new FlushOptions().setWaitForFlush(true)  // wait for flush to complete
-  private var writeBatch = new WriteBatchWithIndex(true)  // overwrite multiple updates to a key
+  private val writeBatch = new WriteBatchWithIndex(true)  // overwrite multiple updates to a key
 
   private val bloomFilter = new BloomFilter()
   private val tableFormatConfig = new BlockBasedTableConfig()
@@ -75,7 +75,6 @@ class RocksDB(
   private val dbOptions = new Options() // options to open the RocksDB
   dbOptions.setCreateIfMissing(true)
   dbOptions.setTableFormatConfig(tableFormatConfig)
-  dbOptions.setMaxOpenFiles(conf.maxOpenFiles)
   private val dbLogger = createLogger() // for forwarding RocksDB native logs to log4j
   dbOptions.setStatistics(new Statistics())
   private val nativeStats = dbOptions.statistics()
@@ -113,30 +112,17 @@ class RocksDB(
         closeDB()
         val metadata = fileManager.loadCheckpointFromDfs(version, workingDir)
         openDB()
-
-        val numKeys = if (!conf.trackTotalNumberOfRows) {
-          // we don't track the total number of rows - discard the number being track
-          -1L
-        } else if (metadata.numKeys < 0) {
-          // we track the total number of rows, but the snapshot doesn't have tracking number
-          // need to count keys now
-          countKeys()
-        } else {
-          metadata.numKeys
-        }
-        numKeysOnWritingVersion = numKeys
-        numKeysOnLoadedVersion = numKeys
-
+        numKeysOnWritingVersion = metadata.numKeys
+        numKeysOnLoadedVersion = metadata.numKeys
         loadedVersion = version
         fileManagerMetrics = fileManager.latestLoadCheckpointMetrics
       }
       if (conf.resetStatsOnLoad) {
         nativeStats.reset
       }
-      // reset resources to prevent side-effects from previous loaded version if it was not cleaned
-      // up correctly
+      // reset resources to prevent side-effects from previous loaded version
       closePrefixScanIterators()
-      resetWriteBatch()
+      writeBatch.clear()
       logInfo(s"Loaded $version")
     } catch {
       case t: Throwable =>
@@ -155,31 +141,29 @@ class RocksDB(
   }
 
   /**
-   * Put the given value for the given key.
+   * Put the given value for the given key and return the last written value.
    * @note This update is not committed to disk until commit() is called.
    */
-  def put(key: Array[Byte], value: Array[Byte]): Unit = {
-    if (conf.trackTotalNumberOfRows) {
-      val oldValue = writeBatch.getFromBatchAndDB(db, readOptions, key)
-      if (oldValue == null) {
-        numKeysOnWritingVersion += 1
-      }
-    }
+  def put(key: Array[Byte], value: Array[Byte]): Array[Byte] = {
+    val oldValue = writeBatch.getFromBatchAndDB(db, readOptions, key)
     writeBatch.put(key, value)
+    if (oldValue == null) {
+      numKeysOnWritingVersion += 1
+    }
+    oldValue
   }
 
   /**
-   * Remove the key if present.
+   * Remove the key if present, and return the previous value if it was present (null otherwise).
    * @note This update is not committed to disk until commit() is called.
    */
-  def remove(key: Array[Byte]): Unit = {
-    if (conf.trackTotalNumberOfRows) {
-      val value = writeBatch.getFromBatchAndDB(db, readOptions, key)
-      if (value != null) {
-        numKeysOnWritingVersion -= 1
-      }
+  def remove(key: Array[Byte]): Array[Byte] = {
+    val value = writeBatch.getFromBatchAndDB(db, readOptions, key)
+    if (value != null) {
+      writeBatch.remove(key)
+      numKeysOnWritingVersion -= 1
     }
-    writeBatch.delete(key)
+    value
   }
 
   /**
@@ -209,26 +193,6 @@ class RocksDB(
         }
       }
       override protected def close(): Unit = { iter.close() }
-    }
-  }
-
-  private def countKeys(): Long = {
-    // This is being called when opening DB, so doesn't need to deal with writeBatch.
-    val iter = db.newIterator()
-    try {
-      logInfo(s"Counting keys - getting iterator from version $loadedVersion")
-
-      iter.seekToFirst()
-
-      var keys = 0L
-      while (iter.isValid) {
-        keys += 1
-        iter.next()
-      }
-
-      keys
-    } finally {
-      iter.close()
     }
   }
 
@@ -320,10 +284,6 @@ class RocksDB(
     } finally {
       db.continueBackgroundWork()
       silentDeleteRecursively(checkpointDir, s"committing $newVersion")
-      // reset resources as either 1) we already pushed the changes and it has been committed or
-      // 2) commit has failed and the current version is "invalidated".
-      closePrefixScanIterators()
-      resetWriteBatch()
       release()
     }
   }
@@ -333,7 +293,7 @@ class RocksDB(
    */
   def rollback(): Unit = {
     closePrefixScanIterators()
-    resetWriteBatch()
+    writeBatch.clear()
     numKeysOnWritingVersion = numKeysOnLoadedVersion
     release()
     logInfo(s"Rolled back to $loadedVersion")
@@ -377,8 +337,6 @@ class RocksDB(
     val readerMemUsage = getDBProperty("rocksdb.estimate-table-readers-mem")
     val memTableMemUsage = getDBProperty("rocksdb.size-all-mem-tables")
     val blockCacheUsage = getDBProperty("rocksdb.block-cache-usage")
-    // Get the approximate memory usage of this writeBatchWithIndex
-    val writeBatchMemUsage = writeBatch.getWriteBatch.getDataSize
     val nativeOpsHistograms = Seq(
       "get" -> DB_GET,
       "put" -> DB_WRITE,
@@ -412,8 +370,7 @@ class RocksDB(
     RocksDBMetrics(
       numKeysOnLoadedVersion,
       numKeysOnWritingVersion,
-      readerMemUsage + memTableMemUsage + blockCacheUsage + writeBatchMemUsage,
-      writeBatchMemUsage,
+      readerMemUsage + memTableMemUsage + blockCacheUsage,
       totalSSTFilesBytes,
       nativeOpsLatencyMicros.toMap,
       commitLatencyMs,
@@ -456,15 +413,8 @@ class RocksDB(
   }
 
   private def closePrefixScanIterators(): Unit = {
-    prefixScanReuseIter.values().asScala.foreach(_.close())
+    prefixScanReuseIter.entrySet().asScala.foreach(_.getValue.close())
     prefixScanReuseIter.clear()
-  }
-
-  /** Create a new WriteBatch, clear doesn't deallocate the native memory */
-  private def resetWriteBatch(): Unit = {
-    writeBatch.clear()
-    writeBatch.close()
-    writeBatch = new WriteBatchWithIndex(true)
   }
 
   private def getDBProperty(property: String): Long = {
@@ -554,9 +504,7 @@ case class RocksDBConf(
     blockCacheSizeMB: Long,
     lockAcquireTimeoutMs: Long,
     resetStatsOnLoad : Boolean,
-    formatVersion: Int,
-    trackTotalNumberOfRows: Boolean,
-    maxOpenFiles: Int)
+    formatVersion: Int)
 
 object RocksDBConf {
   /** Common prefix of all confs in SQLConf that affects RocksDB */
@@ -572,9 +520,6 @@ object RocksDBConf {
   private val BLOCK_CACHE_SIZE_MB_CONF = ConfEntry("blockCacheSizeMB", "8")
   private val LOCK_ACQUIRE_TIMEOUT_MS_CONF = ConfEntry("lockAcquireTimeoutMs", "60000")
   private val RESET_STATS_ON_LOAD = ConfEntry("resetStatsOnLoad", "true")
-  // Config to specify the number of open files that can be used by the DB. Value of -1 means
-  // that files opened are always kept open.
-  private val MAX_OPEN_FILES_CONF = ConfEntry("maxOpenFiles", "-1")
   // Configuration to set the RocksDB format version. When upgrading the RocksDB version in Spark,
   // it may introduce a new table format version that can not be supported by an old RocksDB version
   // used by an old Spark version. Hence, we store the table format version in the checkpoint when
@@ -588,27 +533,12 @@ object RocksDBConf {
   // places should be updated together.
   private val FORMAT_VERSION = ConfEntry("formatVersion", "5")
 
-  // Flag to enable/disable tracking the total number of rows.
-  // When this is enabled, this class does additional lookup on write operations (put/delete) to
-  // track the changes of total number of rows, which would help observability on state store.
-  // The additional lookups bring non-trivial overhead on write-heavy workloads - if your query
-  // does lots of writes on state, it would be encouraged to turn off the config and turn on
-  // again when you really need the know the number for observability/debuggability.
-  private val TRACK_TOTAL_NUMBER_OF_ROWS = ConfEntry("trackTotalNumberOfRows", "true")
-
   def apply(storeConf: StateStoreConf): RocksDBConf = {
     val confs = CaseInsensitiveMap[String](storeConf.confs)
 
     def getBooleanConf(conf: ConfEntry): Boolean = {
       Try { confs.getOrElse(conf.fullName, conf.default).toBoolean } getOrElse {
         throw new IllegalArgumentException(s"Invalid value for '${conf.fullName}', must be boolean")
-      }
-    }
-
-    def getIntConf(conf: ConfEntry): Int = {
-      Try { confs.getOrElse(conf.fullName, conf.default).toInt } getOrElse {
-        throw new IllegalArgumentException(s"Invalid value for '${conf.fullName}', " +
-          "must be an integer")
       }
     }
 
@@ -633,9 +563,7 @@ object RocksDBConf {
       getPositiveLongConf(BLOCK_CACHE_SIZE_MB_CONF),
       getPositiveLongConf(LOCK_ACQUIRE_TIMEOUT_MS_CONF),
       getBooleanConf(RESET_STATS_ON_LOAD),
-      getPositiveIntConf(FORMAT_VERSION),
-      getBooleanConf(TRACK_TOTAL_NUMBER_OF_ROWS),
-      getIntConf(MAX_OPEN_FILES_CONF))
+      getPositiveIntConf(FORMAT_VERSION))
   }
 
   def apply(): RocksDBConf = apply(new StateStoreConf())
@@ -645,8 +573,7 @@ object RocksDBConf {
 case class RocksDBMetrics(
     numCommittedKeys: Long,
     numUncommittedKeys: Long,
-    totalMemUsageBytes: Long,
-    writeBatchMemUsageBytes: Long,
+    memUsageBytes: Long,
     totalSSTFilesBytes: Long,
     nativeOpsHistograms: Map[String, RocksDBNativeHistogram],
     lastCommitLatencyMs: Map[String, Long],

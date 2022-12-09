@@ -20,7 +20,6 @@ package org.apache.spark.sql.hive.execution
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.hive.test.TestHive.{read, sparkContext, sql}
 import org.apache.spark.sql.hive.test.TestHive.implicits._
-import org.apache.spark.tags.SlowHiveTest
 
 case class Nested(a: Int, B: Int)
 case class Data(a: Int, B: Int, n: Nested, nestedArray: Seq[Nested])
@@ -29,7 +28,6 @@ case class Data(a: Int, B: Int, n: Nested, nestedArray: Seq[Nested])
  * A set of test cases expressed in Hive QL that are not covered by the tests
  * included in the hive distribution.
  */
-@SlowHiveTest
 class HiveResolutionSuite extends HiveComparisonTest {
 
   test("SPARK-3698: case insensitive test for nested data") {

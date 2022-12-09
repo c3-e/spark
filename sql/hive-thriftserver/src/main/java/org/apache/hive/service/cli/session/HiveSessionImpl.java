@@ -52,7 +52,9 @@ import org.apache.hive.service.cli.GetInfoType;
 import org.apache.hive.service.cli.GetInfoValue;
 import org.apache.hive.service.cli.HiveSQLException;
 import org.apache.hive.service.cli.OperationHandle;
+import org.apache.hive.service.cli.RowSet;
 import org.apache.hive.service.cli.SessionHandle;
+import org.apache.hive.service.cli.TableSchema;
 import org.apache.hive.service.cli.operation.ExecuteStatementOperation;
 import org.apache.hive.service.cli.operation.GetCatalogsOperation;
 import org.apache.hive.service.cli.operation.GetColumnsOperation;
@@ -66,8 +68,6 @@ import org.apache.hive.service.cli.operation.MetadataOperation;
 import org.apache.hive.service.cli.operation.Operation;
 import org.apache.hive.service.cli.operation.OperationManager;
 import org.apache.hive.service.rpc.thrift.TProtocolVersion;
-import org.apache.hive.service.rpc.thrift.TRowSet;
-import org.apache.hive.service.rpc.thrift.TTableSchema;
 import org.apache.hive.service.server.ThreadWithGarbageCleanup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -789,7 +789,7 @@ public class HiveSessionImpl implements HiveSession {
   }
 
   @Override
-  public TTableSchema getResultSetMetadata(OperationHandle opHandle) throws HiveSQLException {
+  public TableSchema getResultSetMetadata(OperationHandle opHandle) throws HiveSQLException {
     acquire(true);
     try {
       return sessionManager.getOperationManager().getOperationResultSetSchema(opHandle);
@@ -799,7 +799,7 @@ public class HiveSessionImpl implements HiveSession {
   }
 
   @Override
-  public TRowSet fetchResults(OperationHandle opHandle, FetchOrientation orientation,
+  public RowSet fetchResults(OperationHandle opHandle, FetchOrientation orientation,
       long maxRows, FetchType fetchType) throws HiveSQLException {
     acquire(true);
     try {

@@ -20,9 +20,7 @@ package org.apache.spark.sql.execution.command
 import java.net.URI
 
 import org.apache.spark.sql._
-import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.catalog._
-import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder}
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.util.CharVarcharUtils
 import org.apache.spark.sql.errors.QueryCompilationErrors
@@ -143,21 +141,7 @@ case class CreateDataSourceTableAsSelectCommand(
     mode: SaveMode,
     query: LogicalPlan,
     outputColumnNames: Seq[String])
-  extends V1WriteCommand {
-
-  override lazy val partitionColumns: Seq[Attribute] = {
-    val unresolvedPartitionColumns = table.partitionColumnNames.map(UnresolvedAttribute.quoted)
-    DataSource.resolvePartitionColumns(
-      unresolvedPartitionColumns,
-      outputColumns,
-      query,
-      SparkSession.active.sessionState.conf.resolver)
-  }
-
-  override def requiredOrdering: Seq[SortOrder] = {
-    val options = table.storage.properties
-    V1WritesUtils.getSortOrder(outputColumns, partitionColumns, table.bucketSpec, options)
-  }
+  extends DataWritingCommand {
 
   override def run(sparkSession: SparkSession, child: SparkPlan): Seq[Row] = {
     assert(table.tableType != CatalogTableType.VIEW)
@@ -173,7 +157,8 @@ case class CreateDataSourceTableAsSelectCommand(
         s"Expect the table $tableName has been dropped when the save mode is Overwrite")
 
       if (mode == SaveMode.ErrorIfExists) {
-        throw QueryCompilationErrors.tableAlreadyExistsError(tableName)
+        throw QueryCompilationErrors.tableAlreadyExistsError(
+          tableName, " You need to drop it first.")
       }
       if (mode == SaveMode.Ignore) {
         // Since the table already exists and the save mode is Ignore, we will just return.
@@ -195,7 +180,7 @@ case class CreateDataSourceTableAsSelectCommand(
       }
       val result = saveDataIntoTable(
         sparkSession, table, tableLocation, child, SaveMode.Overwrite, tableExists = false)
-      val tableSchema = CharVarcharUtils.getRawSchema(result.schema, sessionState.conf)
+      val tableSchema = CharVarcharUtils.getRawSchema(result.schema)
       val newTable = table.copy(
         storage = table.storage.copy(locationUri = tableLocation),
         // We will use the schema of resolved.relation as the schema of the table (instead of

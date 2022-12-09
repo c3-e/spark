@@ -21,7 +21,6 @@ import org.scalatest.BeforeAndAfterEach
 
 import org.apache.spark.sql.{AnalysisException, DataFrame, QueryTest, Row}
 import org.apache.spark.sql.catalyst.FunctionIdentifier
-import org.apache.spark.sql.connector.catalog.CatalogManager.SESSION_CATALOG_NAME
 import org.apache.spark.sql.hive.test.TestHiveSingleton
 import org.apache.spark.sql.test.SQLTestUtils
 
@@ -95,7 +94,7 @@ class UDFSuite
       sql(s"CREATE FUNCTION $functionName AS '$functionClass'")
       checkAnswer(
         sql("SHOW functions like '.*upper'"),
-        Row(s"$SESSION_CATALOG_NAME.default.$functionNameLower")
+        Row(s"default.$functionNameLower")
       )
       checkAnswer(
         sql(s"SELECT $functionName(value) from $testTableName"),
@@ -104,7 +103,7 @@ class UDFSuite
       assert(
         sql("SHOW functions").collect()
           .map(_.getString(0))
-          .contains(s"$SESSION_CATALOG_NAME.default.$functionNameLower"))
+          .contains(s"default.$functionNameLower"))
     }
   }
 
@@ -150,7 +149,7 @@ class UDFSuite
 
         checkAnswer(
           sql(s"SHOW FUNCTIONS like $dbName.$functionNameUpper"),
-          Row(s"$SESSION_CATALOG_NAME.$dbName.$functionNameLower")
+          Row(s"$dbName.$functionNameLower")
         )
 
         sql(s"USE $dbName")
@@ -185,7 +184,7 @@ class UDFSuite
         assert(
           sql("SHOW functions").collect()
             .map(_.getString(0))
-            .contains(s"$SESSION_CATALOG_NAME.$dbName.$functionNameLower"))
+            .contains(s"$dbName.$functionNameLower"))
         checkAnswer(
           sql(s"SELECT $functionNameLower(value) from $testTableName"),
           expectedDF

@@ -85,19 +85,13 @@ private[sql] class JacksonGenerator(
   private val lineSeparator: String = options.lineSeparatorInWrite
 
   private val timestampFormatter = TimestampFormatter(
-    options.timestampFormatInWrite,
+    options.timestampFormat,
     options.zoneId,
     options.locale,
     legacyFormat = FAST_DATE_FORMAT,
     isParsing = false)
-  private val timestampNTZFormatter = TimestampFormatter(
-    options.timestampNTZFormatInWrite,
-    options.zoneId,
-    legacyFormat = FAST_DATE_FORMAT,
-    isParsing = false,
-    forTimestampNTZ = true)
   private val dateFormatter = DateFormatter(
-    options.dateFormatInWrite,
+    options.dateFormat,
     options.locale,
     legacyFormat = FAST_DATE_FORMAT,
     isParsing = false)
@@ -143,12 +137,6 @@ private[sql] class JacksonGenerator(
       (row: SpecializedGetters, ordinal: Int) =>
         val timestampString = timestampFormatter.format(row.getLong(ordinal))
         gen.writeString(timestampString)
-
-    case TimestampNTZType =>
-      (row: SpecializedGetters, ordinal: Int) =>
-      val timestampString =
-        timestampNTZFormatter.format(DateTimeUtils.microsToLocalDateTime(row.getLong(ordinal)))
-      gen.writeString(timestampString)
 
     case DateType =>
       (row: SpecializedGetters, ordinal: Int) =>
@@ -227,8 +215,7 @@ private[sql] class JacksonGenerator(
       if (!row.isNullAt(i)) {
         gen.writeFieldName(field.name)
         fieldWriters(i).apply(row, i)
-      } else if (!options.ignoreNullFields ||
-        (options.writeNullIfWithDefaultValue && field.getExistenceDefaultValue().isDefined)) {
+      } else if (!options.ignoreNullFields) {
         gen.writeFieldName(field.name)
         gen.writeNull()
       }

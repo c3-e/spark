@@ -107,13 +107,11 @@ trait ThreadAudit extends Logging {
     val shortSuiteName = this.getClass.getName.replaceAll("org.apache.spark", "o.a.s")
 
     if (threadNamesSnapshot.nonEmpty) {
-      val remainingThreads = runningThreads()
-        .filterNot { t => threadNamesSnapshot.contains(t.getName) }
-        .filterNot { t => threadExcludeList.exists(t.getName.matches(_)) }
-      if (remainingThreads.nonEmpty) {
+      val remainingThreadNames = runningThreadNames().diff(threadNamesSnapshot)
+        .filterNot { s => threadExcludeList.exists(s.matches(_)) }
+      if (remainingThreadNames.nonEmpty) {
         logWarning(s"\n\n===== POSSIBLE THREAD LEAK IN SUITE $shortSuiteName, " +
-          s"threads: ${remainingThreads.map{ t => s"${t.getName} (daemon=${t.isDaemon})" }
-          .mkString(", ")} =====\n")
+          s"thread names: ${remainingThreadNames.mkString(", ")} =====\n")
       }
     } else {
       logWarning("\n\n===== THREAD AUDIT POST ACTION CALLED " +
@@ -122,10 +120,6 @@ trait ThreadAudit extends Logging {
   }
 
   private def runningThreadNames(): Set[String] = {
-    runningThreads.map(_.getName).toSet
-  }
-
-  private def runningThreads(): Set[Thread] = {
-    Thread.getAllStackTraces.keySet().asScala.toSet
+    Thread.getAllStackTraces.keySet().asScala.map(_.getName).toSet
   }
 }

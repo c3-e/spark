@@ -30,11 +30,11 @@ import org.apache.spark.sql.catalyst.plans.logical._
  */
 class ResolveSubquerySuite extends AnalysisTest {
 
-  val a = $"a".int
-  val b = $"b".int
-  val c = $"c".int
-  val x = $"x".struct(a)
-  val y = $"y".struct(a)
+  val a = 'a.int
+  val b = 'b.int
+  val c = 'c.int
+  val x = 'x.struct(a)
+  val y = 'y.struct(a)
   val t0 = OneRowRelation()
   val t1 = LocalRelation(a, b)
   val t2 = LocalRelation(b, c)
@@ -68,7 +68,7 @@ class ResolveSubquerySuite extends AnalysisTest {
   }
 
   test("deduplicate lateral subquery") {
-    val plan = lateralJoin(t1, t0.select($"a"))
+    val plan = lateralJoin(t1, t0.select('a))
     // The subquery's output OuterReference(a#0) conflicts with the left child output
     // attribute a#0. So an alias should be added to deduplicate the subquery's outputs.
     val expected = LateralJoin(
@@ -80,14 +80,12 @@ class ResolveSubquerySuite extends AnalysisTest {
   }
 
   test("lateral join with ambiguous join conditions") {
-    val plan = lateralJoin(t1, t0.select($"b"), condition = Some($"b" ===  1))
-    assertAnalysisErrorClass(plan,
-      "AMBIGUOUS_REFERENCE", Map("name" -> "`b`", "referenceNames" -> "[`b`, `b`]")
-    )
+    val plan = lateralJoin(t1, t0.select('b), condition = Some('b ===  1))
+    assertAnalysisError(plan, "Reference 'b' is ambiguous, could be: b, b." :: Nil)
   }
 
   test("prefer resolving lateral subquery attributes from the inner query") {
-    val plan = lateralJoin(t1, t2.select($"a", $"b", $"c"))
+    val plan = lateralJoin(t1, t2.select('a, 'b, 'c))
     val expected = LateralJoin(
       t1,
       LateralSubquery(Project(Seq(OuterReference(a).as(a.name), b, c), t2), Seq(a)),
@@ -117,7 +115,7 @@ class ResolveSubquerySuite extends AnalysisTest {
   test("resolve nested lateral subqueries") {
     // SELECT * FROM t1, LATERAL (SELECT * FROM (SELECT a, b, c FROM t2), LATERAL (SELECT b, c))
     checkAnalysis(
-      lateralJoin(t1, lateralJoin(t2.select($"a", $"b", $"c"), t0.select($"b", $"c"))),
+      lateralJoin(t1, lateralJoin(t2.select('a, 'b, 'c), t0.select('b, 'c))),
       LateralJoin(
         t1,
         LateralSubquery(
@@ -133,37 +131,31 @@ class ResolveSubquerySuite extends AnalysisTest {
 
     // SELECT * FROM t1, LATERAL (SELECT * FROM t2, LATERAL (SELECT a, b, c))
     // TODO: support accessing columns from outer outer query.
-    assertAnalysisErrorClass(
-      lateralJoin(t1, lateralJoin(t2, t0.select($"a", $"b", $"c"))),
-      "UNRESOLVED_COLUMN.WITHOUT_SUGGESTION",
-      Map("objectName" -> "`a`")
-    )
+    assertAnalysisError(
+      lateralJoin(t1, lateralJoin(t2, t0.select('a, 'b, 'c))),
+      Seq("cannot resolve 'a' given input columns: []"))
   }
 
   test("lateral subquery with unresolvable attributes") {
     // SELECT * FROM t1, LATERAL (SELECT a, c)
-    assertAnalysisErrorClass(
-      lateralJoin(t1, t0.select($"a", $"c")),
-      "UNRESOLVED_COLUMN.WITHOUT_SUGGESTION",
-      Map("objectName" -> "`c`")
+    assertAnalysisError(
+      lateralJoin(t1, t0.select('a, 'c)),
+      Seq("cannot resolve 'c' given input columns: []")
     )
     // SELECT * FROM t1, LATERAL (SELECT a, b, c, d FROM t2)
-    assertAnalysisErrorClass(
-      lateralJoin(t1, t2.select($"a", $"b", $"c", $"d")),
-      "UNRESOLVED_COLUMN.WITH_SUGGESTION",
-      Map("objectName" -> "`d`", "proposal" -> "`b`, `c`")
+    assertAnalysisError(
+      lateralJoin(t1, t2.select('a, 'b, 'c, 'd)),
+      Seq("cannot resolve 'd' given input columns: [b, c]")
     )
     // SELECT * FROM t1, LATERAL (SELECT * FROM t2, LATERAL (SELECT t1.a))
-    assertAnalysisErrorClass(
+    assertAnalysisError(
       lateralJoin(t1, lateralJoin(t2, t0.select($"t1.a"))),
-      "UNRESOLVED_COLUMN.WITHOUT_SUGGESTION",
-      Map("objectName" -> "`t1`.`a`")
+      Seq("cannot resolve 't1.a' given input columns: []")
     )
     // SELECT * FROM t1, LATERAL (SELECT * FROM t2, LATERAL (SELECT a, b))
-    assertAnalysisErrorClass(
-      lateralJoin(t1, lateralJoin(t2, t0.select($"a", $"b"))),
-      "UNRESOLVED_COLUMN.WITHOUT_SUGGESTION",
-      Map("objectName" -> "`a`")
+    assertAnalysisError(
+      lateralJoin(t1, lateralJoin(t2, t0.select('a, 'b))),
+      Seq("cannot resolve 'a' given input columns: []")
     )
   }
 
@@ -175,15 +167,15 @@ class ResolveSubquerySuite extends AnalysisTest {
       LateralJoin(t4, LateralSubquery(Project(Seq(xa, ya), t0), Seq(x, y)), Inner, None)
     )
     // Analyzer will try to resolve struct first before subquery alias.
-    assertAnalysisErrorClass(
+    assertAnalysisError(
       lateralJoin(t1.as("x"), t4.select($"x.a", $"x.b")),
-      "FIELD_NOT_FOUND",
-      Map("fieldName" -> "`b`", "fields" -> "`a`"))
+      Seq("No such struct field b in a")
+    )
   }
 
   test("lateral join with unsupported expressions") {
-    val plan = lateralJoin(t1, t0.select(($"a" + $"b").as("c")),
-      condition = Some(sum($"a") === sum($"c")))
+    val plan = lateralJoin(t1, t0.select(('a + 'b).as("c")),
+      condition = Some(sum('a) === sum('c)))
     assertAnalysisError(plan, Seq("Invalid expressions: [sum(a), sum(c)]"))
   }
 
@@ -252,13 +244,13 @@ class ResolveSubquerySuite extends AnalysisTest {
   test("SPARK-36028: resolve scalar subqueries with outer references in Project") {
     // SELECT (SELECT a) FROM t1
     checkAnalysis(
-      Project(ScalarSubquery(t0.select($"a")).as("sub") :: Nil, t1),
+      Project(ScalarSubquery(t0.select('a)).as("sub") :: Nil, t1),
       Project(ScalarSubquery(Project(OuterReference(a) :: Nil, t0), Seq(a)).as("sub") :: Nil, t1)
     )
     // SELECT (SELECT a + b + c AS r FROM t2) FROM t1
     checkAnalysis(
       Project(ScalarSubquery(
-        t2.select(($"a" + $"b" + $"c").as("r"))).as("sub") :: Nil, t1),
+        t2.select(('a + 'b + 'c).as("r"))).as("sub") :: Nil, t1),
       Project(ScalarSubquery(
         Project((OuterReference(a) + b + c).as("r") :: Nil, t2), Seq(a)).as("sub") :: Nil, t1)
     )

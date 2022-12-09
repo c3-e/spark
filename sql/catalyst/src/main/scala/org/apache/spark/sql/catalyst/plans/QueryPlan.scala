@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.rules.RuleId
 import org.apache.spark.sql.catalyst.rules.UnknownRuleId
 import org.apache.spark.sql.catalyst.trees.{AlwaysProcess, CurrentOrigin, TreeNode, TreeNodeTag}
-import org.apache.spark.sql.catalyst.trees.TreePattern.{OUTER_REFERENCE, PLAN_EXPRESSION}
+import org.apache.spark.sql.catalyst.trees.TreePattern.OUTER_REFERENCE
 import org.apache.spark.sql.catalyst.trees.TreePatternBits
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructType}
@@ -83,13 +83,6 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]]
   lazy val references: AttributeSet = {
     AttributeSet.fromAttributeSets(expressions.map(_.references)) -- producedAttributes
   }
-
-  /**
-   * Returns true when the all the expressions in the current node as well as all of its children
-   * are deterministic
-   */
-  lazy val deterministic: Boolean = expressions.forall(_.deterministic) &&
-    children.forall(_.deterministic)
 
   /**
    * Attributes that are referenced by expressions but not provided by this node's children.
@@ -301,7 +294,7 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]]
             .exists(_._2.map(_._2.exprId).distinct.length > 1),
             "Found duplicate rewrite attributes")
 
-          val attributeRewrites = AttributeMap(attrMappingForCurrentPlan)
+          val attributeRewrites = AttributeMap(attrMappingForCurrentPlan.toSeq)
           // Using attrMapping from the children plans to rewrite their parent node.
           // Note that we shouldn't rewrite a node using attrMapping from its sibling nodes.
           newPlan = newPlan.rewriteAttrs(attributeRewrites)
@@ -433,8 +426,8 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]]
   /**
    * All the top-level subqueries of the current plan node. Nested subqueries are not included.
    */
-  @transient lazy val subqueries: Seq[PlanType] = {
-    expressions.filter(_.containsPattern(PLAN_EXPRESSION)).flatMap(_.collect {
+  def subqueries: Seq[PlanType] = {
+    expressions.flatMap(_.collect {
       case e: PlanExpression[_] => e.plan.asInstanceOf[PlanType]
     })
   }

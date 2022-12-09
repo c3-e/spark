@@ -18,9 +18,10 @@
 package org.apache.spark.ml.evaluation
 
 import org.apache.spark.annotation.Since
+import org.apache.spark.ml.functions.checkNonNegativeWeight
 import org.apache.spark.ml.param.{BooleanParam, Param, ParamMap, ParamValidators}
 import org.apache.spark.ml.param.shared.{HasLabelCol, HasPredictionCol, HasWeightCol}
-import org.apache.spark.ml.util._
+import org.apache.spark.ml.util.{DefaultParamsReadable, DefaultParamsWritable, Identifiable, SchemaUtils}
 import org.apache.spark.mllib.evaluation.RegressionMetrics
 import org.apache.spark.sql.{Dataset, Row}
 import org.apache.spark.sql.functions._
@@ -119,13 +120,12 @@ final class RegressionEvaluator @Since("1.4.0") (@Since("1.4.0") override val ui
     SchemaUtils.checkNumericType(schema, $(labelCol))
 
     val predictionAndLabelsWithWeights = dataset
-      .select(
-        col($(predictionCol)).cast(DoubleType),
-        col($(labelCol)).cast(DoubleType),
-        DatasetUtils.checkNonNegativeWeights(get(weightCol))
-      ).rdd.map { case Row(prediction: Double, label: Double, weight: Double) =>
-        (prediction, label, weight)
-      }
+      .select(col($(predictionCol)).cast(DoubleType), col($(labelCol)).cast(DoubleType),
+        if (!isDefined(weightCol) || $(weightCol).isEmpty) lit(1.0)
+        else checkNonNegativeWeight(col($(weightCol)).cast(DoubleType)))
+      .rdd
+      .map { case Row(prediction: Double, label: Double, weight: Double) =>
+        (prediction, label, weight) }
     new RegressionMetrics(predictionAndLabelsWithWeights, $(throughOrigin))
   }
 

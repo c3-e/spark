@@ -20,8 +20,7 @@ package org.apache.spark.sql.catalyst.analysis
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
-import org.apache.spark.sql.catalyst.util.{quoteIdentifier, quoteNameParts }
-import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.IdentifierHelper
+import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
 import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.types.StructType
 
@@ -30,112 +29,52 @@ import org.apache.spark.sql.types.StructType
  * as an [[org.apache.spark.sql.AnalysisException]] with the correct position information.
  */
 class DatabaseAlreadyExistsException(db: String)
-  extends NamespaceAlreadyExistsException(Array(db))
+  extends NamespaceAlreadyExistsException(s"Database '$db' already exists")
 
-
-class NamespaceAlreadyExistsException(errorClass: String, messageParameters: Map[String, String])
-  extends AnalysisException(errorClass, messageParameters) {
+class NamespaceAlreadyExistsException(message: String) extends AnalysisException(message) {
   def this(namespace: Array[String]) = {
-    this(errorClass = "SCHEMA_ALREADY_EXISTS",
-      Map("schemaName" -> quoteNameParts(namespace)))
+    this(s"Namespace '${namespace.quoted}' already exists")
   }
 }
 
-
-class TableAlreadyExistsException(errorClass: String, messageParameters: Map[String, String],
-  cause: Option[Throwable] = None)
-  extends AnalysisException(errorClass, messageParameters, cause = cause) {
+class TableAlreadyExistsException(message: String, cause: Option[Throwable] = None)
+  extends AnalysisException(message, cause = cause) {
   def this(db: String, table: String) = {
-    this(errorClass = "TABLE_OR_VIEW_ALREADY_EXISTS",
-      messageParameters = Map("relationName" ->
-        (quoteIdentifier(db) + "." + quoteIdentifier(table))))
+    this(s"Table or view '$table' already exists in database '$db'")
   }
 
-  def this(table: String) = {
-    this(errorClass = "TABLE_OR_VIEW_ALREADY_EXISTS",
-      messageParameters = Map("relationName" ->
-        quoteNameParts(UnresolvedAttribute.parseAttributeName(table))))
-  }
-
-  def this(table: Seq[String]) = {
-    this(errorClass = "TABLE_OR_VIEW_ALREADY_EXISTS",
-      messageParameters = Map("relationName" -> quoteNameParts(table)))
+  def this(tableIdent: Identifier) = {
+    this(s"Table ${tableIdent.quoted} already exists")
   }
 }
 
-class TempTableAlreadyExistsException(errorClass: String, messageParameters: Map[String, String],
-                                      cause: Option[Throwable] = None)
-  extends AnalysisException(errorClass, messageParameters, cause = cause) {
-  def this(table: String) = {
-    this(errorClass = "TEMP_TABLE_OR_VIEW_ALREADY_EXISTS",
-      messageParameters = Map("relationName"
-        -> quoteNameParts(UnresolvedAttribute.parseAttributeName(table))))
-  }
-}
+class TempTableAlreadyExistsException(table: String)
+  extends TableAlreadyExistsException(s"Temporary view '$table' already exists")
 
-class ViewAlreadyExistsException(errorClass: String, messageParameters: Map[String, String])
-  extends AnalysisException(errorClass, messageParameters) {
-
-  def this(ident: Identifier) =
-    this(errorClass = "VIEW_ALREADY_EXISTS",
-      messageParameters = Map("relationName" -> ident.quoted))
-}
-
-class PartitionAlreadyExistsException(errorClass: String, messageParameters: Map[String, String])
-  extends AnalysisException(errorClass, messageParameters) {
+class PartitionAlreadyExistsException(message: String) extends AnalysisException(message) {
   def this(db: String, table: String, spec: TablePartitionSpec) = {
-    this(errorClass = "PARTITIONS_ALREADY_EXIST",
-      Map("partitionList" -> ("PARTITION (" +
-        spec.map( kv => quoteIdentifier(kv._1) + s" = ${kv._2}").mkString(", ") + ")"),
-        "tableName" -> (quoteIdentifier(db) + "." + quoteIdentifier(table))))
+    this(s"Partition already exists in table '$table' database '$db':\n" + spec.mkString("\n"))
   }
 
   def this(tableName: String, partitionIdent: InternalRow, partitionSchema: StructType) = {
-    this(errorClass = "PARTITIONS_ALREADY_EXIST",
-      Map("partitionList" ->
-        ("PARTITION (" + partitionIdent.toSeq(partitionSchema).zip(partitionSchema.map(_.name))
-        .map( kv => quoteIdentifier(s"${kv._2}") + s" = ${kv._1}").mkString(", ") + ")"),
-        "tableName" -> quoteNameParts(UnresolvedAttribute.parseAttributeName(tableName))))
+    this(s"Partition already exists in table $tableName:" +
+      partitionIdent.toSeq(partitionSchema).zip(partitionSchema.map(_.name))
+        .map( kv => s"${kv._1} -> ${kv._2}").mkString(","))
   }
 }
 
-class PartitionsAlreadyExistException(errorClass: String, messageParameters: Map[String, String])
-  extends AnalysisException(errorClass, messageParameters) {
+class PartitionsAlreadyExistException(message: String) extends AnalysisException(message) {
   def this(db: String, table: String, specs: Seq[TablePartitionSpec]) = {
-    this(errorClass = "PARTITIONS_ALREADY_EXIST",
-      Map("partitionList" ->
-        ("PARTITION ("
-        + specs.map(spec => spec.map(kv => quoteIdentifier(kv._1) + s" = ${kv._2}").mkString(", "))
-        .mkString("), PARTITION (") + ")"),
-        "tableName" -> (quoteIdentifier(db) + "." + quoteIdentifier(table))))
+    this(s"The following partitions already exists in table '$table' database '$db':\n"
+      + specs.mkString("\n===\n"))
   }
-
-  def this(db: String, table: String, spec: TablePartitionSpec) =
-    this(db, table, Seq(spec))
 
   def this(tableName: String, partitionIdents: Seq[InternalRow], partitionSchema: StructType) = {
-    this(errorClass = "PARTITIONS_ALREADY_EXIST",
-      Map("partitionList" ->
-        ("PARTITION (" +
-          partitionIdents.map(_.toSeq(partitionSchema).zip(partitionSchema.map(_.name))
-            .map( kv => quoteIdentifier(s"${kv._2}") + s" = ${kv._1}")
-            .mkString(", ")).mkString("), PARTITION (") + ")"),
-        "tableName" -> quoteNameParts(UnresolvedAttribute.parseAttributeName(tableName))))
-  }
-
-  def this(tableName: String, partitionIdent: InternalRow, partitionSchema: StructType) =
-    this(tableName, Seq(partitionIdent), partitionSchema)
-}
-
-class FunctionAlreadyExistsException(errorClass: String, messageParameters: Map[String, String])
-  extends AnalysisException(errorClass, messageParameters) {
-
-  def this(function: Seq[String]) = {
-    this (errorClass = "ROUTINE_ALREADY_EXISTS",
-      Map("routineName" -> quoteNameParts(function)))
+    this(s"The following partitions already exists in table $tableName:" +
+      partitionIdents.map(_.toSeq(partitionSchema).zip(partitionSchema.map(_.name))
+        .map( kv => s"${kv._1} -> ${kv._2}").mkString(",")).mkString("\n===\n"))
   }
 }
 
-class IndexAlreadyExistsException(message: String, cause: Option[Throwable] = None)
-  extends AnalysisException(errorClass = "INDEX_ALREADY_EXISTS",
-    Map("message" -> message), cause)
+class FunctionAlreadyExistsException(db: String, func: String)
+  extends AnalysisException(s"Function '$func' already exists in database '$db'")

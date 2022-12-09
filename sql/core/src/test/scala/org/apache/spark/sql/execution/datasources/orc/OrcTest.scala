@@ -47,7 +47,7 @@ import org.apache.spark.sql.internal.SQLConf.ORC_IMPLEMENTATION
  *       -> HiveOrcPartitionDiscoverySuite
  *   -> OrcFilterSuite
  */
-trait OrcTest extends QueryTest with FileBasedDataSourceTest with BeforeAndAfterAll {
+abstract class OrcTest extends QueryTest with FileBasedDataSourceTest with BeforeAndAfterAll {
 
   val orcImp: String = "native"
 
@@ -56,8 +56,6 @@ trait OrcTest extends QueryTest with FileBasedDataSourceTest with BeforeAndAfter
   override protected val dataSourceName: String = "orc"
   override protected val vectorizedReaderEnabledKey: String =
     SQLConf.ORC_VECTORIZED_READER_ENABLED.key
-  override protected val vectorizedReaderNestedEnabledKey: String =
-    SQLConf.ORC_VECTORIZED_READER_NESTED_COLUMN_ENABLED.key
 
   protected override def beforeAll(): Unit = {
     super.beforeAll()
@@ -120,15 +118,15 @@ trait OrcTest extends QueryTest with FileBasedDataSourceTest with BeforeAndAfter
       .where(Column(predicate))
 
     query.queryExecution.optimizedPlan match {
-      case PhysicalOperation(_, filters, DataSourceV2ScanRelation(_, o: OrcScan, _, _, _)) =>
+      case PhysicalOperation(_, filters,
+          DataSourceV2ScanRelation(_, o: OrcScan, _)) =>
         assert(filters.nonEmpty, "No filter is analyzed from the given query")
         if (noneSupported) {
           assert(o.pushedFilters.isEmpty, "Unsupported filters should not show in pushed filters")
         } else {
           assert(o.pushedFilters.nonEmpty, "No filter is pushed down")
           val maybeFilter = OrcFilters.createFilter(query.schema, o.pushedFilters)
-          assert(maybeFilter.isEmpty, s"Couldn't generate filter predicate for " +
-            s"${o.pushedFilters.mkString("pushedFilters(", ", ", ")")}")
+          assert(maybeFilter.isEmpty, s"Couldn't generate filter predicate for ${o.pushedFilters}")
         }
 
       case _ =>
@@ -143,13 +141,6 @@ trait OrcTest extends QueryTest with FileBasedDataSourceTest with BeforeAndAfter
     file.deleteOnExit();
     FileUtils.copyURLToFile(url, file)
     spark.read.orc(file.getAbsolutePath)
-  }
-
-  def withAllNativeOrcReaders(code: => Unit): Unit = {
-    // test the row-based reader
-    withSQLConf(SQLConf.ORC_VECTORIZED_READER_ENABLED.key -> "false")(code)
-    // test the vectorized reader
-    withSQLConf(SQLConf.ORC_VECTORIZED_READER_ENABLED.key -> "true")(code)
   }
 
   /**

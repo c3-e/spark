@@ -46,7 +46,6 @@
       "taskId" : 0,
       "index" : 0,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:12.816GMT",
       "duration" : 2064,
       "executorId" : "1",
@@ -100,7 +99,6 @@
       "taskId" : 5,
       "index" : 5,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:14.320GMT",
       "duration" : 73,
       "executorId" : "5",
@@ -155,7 +153,6 @@
       "taskId" : 10,
       "index" : 1,
       "attempt" : 1,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:15.069GMT",
       "duration" : 132,
       "executorId" : "2",
@@ -209,7 +206,6 @@
       "taskId" : 1,
       "index" : 1,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:12.832GMT",
       "duration" : 1506,
       "executorId" : "5",
@@ -264,7 +260,6 @@
       "taskId" : 6,
       "index" : 6,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:14.323GMT",
       "duration" : 67,
       "executorId" : "4",
@@ -319,7 +314,6 @@
       "taskId" : 9,
       "index" : 4,
       "attempt" : 1,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:14.973GMT",
       "duration" : 96,
       "executorId" : "2",
@@ -373,7 +367,6 @@
       "taskId" : 13,
       "index" : 9,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:15.200GMT",
       "duration" : 76,
       "executorId" : "2",
@@ -427,7 +420,6 @@
       "taskId" : 2,
       "index" : 2,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:12.832GMT",
       "duration" : 1774,
       "executorId" : "3",
@@ -481,7 +473,6 @@
       "taskId" : 12,
       "index" : 8,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:15.165GMT",
       "duration" : 60,
       "executorId" : "1",
@@ -535,7 +526,6 @@
       "taskId" : 7,
       "index" : 5,
       "attempt" : 1,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:14.859GMT",
       "duration" : 115,
       "executorId" : "2",
@@ -589,7 +579,6 @@
       "taskId" : 3,
       "index" : 3,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:12.833GMT",
       "duration" : 2027,
       "executorId" : "2",
@@ -643,7 +632,6 @@
       "taskId" : 11,
       "index" : 7,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:15.072GMT",
       "duration" : 93,
       "executorId" : "1",
@@ -697,7 +685,6 @@
       "taskId" : 8,
       "index" : 6,
       "attempt" : 1,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:14.879GMT",
       "duration" : 194,
       "executorId" : "1",
@@ -751,7 +738,6 @@
       "taskId" : 4,
       "index" : 4,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2018-01-18T18:33:12.833GMT",
       "duration" : 1522,
       "executorId" : "4",
@@ -840,8 +826,7 @@
         "MinorGCCount" : 0,
         "MinorGCTime" : 0,
         "MajorGCCount" : 0,
-        "MajorGCTime" : 0,
-        "TotalGCTime" : 0
+        "MajorGCTime" : 0
       },
       "isExcludedForStage" : true
     },
@@ -881,8 +866,7 @@
         "MinorGCCount" : 0,
         "MinorGCTime" : 0,
         "MajorGCCount" : 0,
-        "MajorGCTime" : 0,
-        "TotalGCTime" : 0
+        "MajorGCTime" : 0
       },
       "isExcludedForStage" : true
     },
@@ -922,8 +906,7 @@
         "MinorGCCount" : 0,
         "MinorGCTime" : 0,
         "MajorGCCount" : 0,
-        "MajorGCTime" : 0,
-        "TotalGCTime" : 0
+        "MajorGCTime" : 0
       },
       "isExcludedForStage" : false
     },
@@ -963,8 +946,7 @@
         "MinorGCCount" : 0,
         "MinorGCTime" : 0,
         "MajorGCCount" : 0,
-        "MajorGCTime" : 0,
-        "TotalGCTime" : 0
+        "MajorGCTime" : 0
       },
       "isExcludedForStage" : false
     },
@@ -1004,8 +986,7 @@
         "MinorGCCount" : 0,
         "MinorGCTime" : 0,
         "MajorGCCount" : 0,
-        "MajorGCTime" : 0,
-        "TotalGCTime" : 0
+        "MajorGCTime" : 0
       },
       "isExcludedForStage" : true
     }
@@ -1032,7 +1013,6 @@
     "MinorGCCount" : 0,
     "MinorGCTime" : 0,
     "MajorGCCount" : 0,
-    "MajorGCTime" : 0,
-    "TotalGCTime" : 0
+    "MajorGCTime" : 0
   }
 }

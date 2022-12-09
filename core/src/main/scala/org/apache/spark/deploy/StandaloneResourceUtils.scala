@@ -99,7 +99,7 @@ private[spark] object StandaloneResourceUtils extends Logging {
       ResourceAllocation(new ResourceID(componentName, rName), rInfo.addresses)
     }.toSeq
     try {
-      writeResourceAllocationJson(allocations, tmpFile)
+      writeResourceAllocationJson(componentName, allocations, tmpFile)
     } catch {
       case NonFatal(e) =>
         val errMsg = s"Exception threw while preparing resource file for $compShortName"
@@ -112,6 +112,7 @@ private[spark] object StandaloneResourceUtils extends Logging {
   }
 
   private def writeResourceAllocationJson[T](
+      componentName: String,
       allocations: Seq[T],
       jsonFile: File): Unit = {
     implicit val formats = DefaultFormats

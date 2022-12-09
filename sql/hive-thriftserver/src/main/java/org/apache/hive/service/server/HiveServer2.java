@@ -40,7 +40,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.spark.util.ShutdownHookManager;
-import org.apache.spark.util.SparkExitCode;
 
 /**
  * HiveServer2.
@@ -260,7 +259,7 @@ public class HiveServer2 extends CompositeService {
     @Override
     public void execute() {
       new HelpFormatter().printHelp(serverName, options);
-      System.exit(SparkExitCode.EXIT_SUCCESS());
+      System.exit(0);
     }
   }
 

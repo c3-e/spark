@@ -40,9 +40,7 @@ import org.apache.spark.deploy.{Command, ExecutorState, ExternalShuffleService}
 import org.apache.spark.deploy.DeployMessages.{DriverStateChanged, ExecutorStateChanged, WorkDirCleanup}
 import org.apache.spark.deploy.master.DriverState
 import org.apache.spark.internal.config
-import org.apache.spark.internal.config.SHUFFLE_SERVICE_DB_BACKEND
 import org.apache.spark.internal.config.Worker._
-import org.apache.spark.network.shuffledb.DBBackend
 import org.apache.spark.resource.{ResourceAllocation, ResourceInformation}
 import org.apache.spark.resource.ResourceUtils._
 import org.apache.spark.resource.TestResourceIDs.{WORKER_FPGA_ID, WORKER_GPU_ID}
@@ -72,9 +70,8 @@ class WorkerSuite extends SparkFunSuite with Matchers with BeforeAndAfter {
     val securityMgr = new SecurityManager(conf)
     val rpcEnv = RpcEnv.create("test", "localhost", 12345, conf, securityMgr)
     val resourcesFile = conf.get(SPARK_WORKER_RESOURCE_FILE)
-    val workDir = Utils.createTempDir(namePrefix = this.getClass.getSimpleName).toString
     val localWorker = new Worker(rpcEnv, 50000, 20, 1234 * 5,
-      Array.fill(1)(RpcAddress("1.2.3.4", 1234)), "Worker", workDir,
+      Array.fill(1)(RpcAddress("1.2.3.4", 1234)), "Worker", "/tmp",
       conf, securityMgr, resourcesFile, shuffleServiceSupplier)
     if (local) {
       localWorker
@@ -341,14 +338,8 @@ class WorkerSuite extends SparkFunSuite with Matchers with BeforeAndAfter {
   }
 
   test("WorkDirCleanup cleans app dirs and shuffle metadata when " +
-    "spark.shuffle.service.db.enabled=true, spark.shuffle.service.db.backend=RocksDB") {
-    testWorkDirCleanupAndRemoveMetadataWithConfig(true, DBBackend.ROCKSDB)
-  }
-
-  test("WorkDirCleanup cleans app dirs and shuffle metadata when " +
-    "spark.shuffle.service.db.enabled=true, spark.shuffle.service.db.backend=LevelDB") {
-    assume(!Utils.isMacOnAppleSilicon)
-    testWorkDirCleanupAndRemoveMetadataWithConfig(true, DBBackend.LEVELDB)
+    "spark.shuffle.service.db.enabled=true") {
+    testWorkDirCleanupAndRemoveMetadataWithConfig(true)
   }
 
   test("WorkDirCleanup cleans only app dirs when" +
@@ -356,13 +347,8 @@ class WorkerSuite extends SparkFunSuite with Matchers with BeforeAndAfter {
     testWorkDirCleanupAndRemoveMetadataWithConfig(false)
   }
 
-  private def testWorkDirCleanupAndRemoveMetadataWithConfig(
-      dbCleanupEnabled: Boolean, shuffleDBBackend: DBBackend = null): Unit = {
+  private def testWorkDirCleanupAndRemoveMetadataWithConfig(dbCleanupEnabled: Boolean): Unit = {
     val conf = new SparkConf().set("spark.shuffle.service.db.enabled", dbCleanupEnabled.toString)
-    if (dbCleanupEnabled) {
-      assert(shuffleDBBackend != null)
-      conf.set(SHUFFLE_SERVICE_DB_BACKEND.key, shuffleDBBackend.name())
-    }
     conf.set("spark.worker.cleanup.appDataTtl", "60")
     conf.set("spark.shuffle.service.enabled", "true")
 

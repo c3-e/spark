@@ -21,6 +21,7 @@ import java.text.SimpleDateFormat
 import java.util
 import java.util.Locale
 
+import scala.collection.JavaConverters._
 import scala.util.{Failure, Success, Try}
 
 import org.apache.spark.internal.Logging
@@ -82,7 +83,7 @@ class TextSocketTable(host: String, port: Int, numPartitions: Int, includeTimest
   }
 
   override def capabilities(): util.Set[TableCapability] = {
-    util.EnumSet.of(TableCapability.MICRO_BATCH_READ, TableCapability.CONTINUOUS_READ)
+    Set(TableCapability.MICRO_BATCH_READ, TableCapability.CONTINUOUS_READ).asJava
   }
 
   override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = () => new Scan {
@@ -99,8 +100,8 @@ class TextSocketTable(host: String, port: Int, numPartitions: Int, includeTimest
 }
 
 object TextSocketReader {
-  val SCHEMA_REGULAR = StructType(Array(StructField("value", StringType)))
-  val SCHEMA_TIMESTAMP = StructType(Array(StructField("value", StringType),
-    StructField("timestamp", TimestampType)))
+  val SCHEMA_REGULAR = StructType(StructField("value", StringType) :: Nil)
+  val SCHEMA_TIMESTAMP = StructType(StructField("value", StringType) ::
+    StructField("timestamp", TimestampType) :: Nil)
   val DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
 }

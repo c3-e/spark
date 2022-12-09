@@ -238,8 +238,7 @@ class SourceProgress protected[sql](
 @Evolving
 class SinkProgress protected[sql](
     val description: String,
-    val numOutputRows: Long,
-    val metrics: ju.Map[String, String] = Map[String, String]().asJava) extends Serializable {
+    val numOutputRows: Long) extends Serializable {
 
   /** SinkProgress without custom metrics. */
   protected[sql] def this(description: String) = {
@@ -256,17 +255,15 @@ class SinkProgress protected[sql](
 
   private[sql] def jsonValue: JValue = {
     ("description" -> JString(description)) ~
-      ("numOutputRows" -> JInt(numOutputRows)) ~
-      ("metrics" -> safeMapToJValue[String](metrics, s => JString(s)))
+      ("numOutputRows" -> JInt(numOutputRows))
   }
 }
 
 private[sql] object SinkProgress {
   val DEFAULT_NUM_OUTPUT_ROWS: Long = -1L
 
-  def apply(description: String, numOutputRows: Option[Long],
-            metrics: ju.Map[String, String] = Map[String, String]().asJava): SinkProgress =
-    new SinkProgress(description, numOutputRows.getOrElse(DEFAULT_NUM_OUTPUT_ROWS), metrics)
+  def apply(description: String, numOutputRows: Option[Long]): SinkProgress =
+    new SinkProgress(description, numOutputRows.getOrElse(DEFAULT_NUM_OUTPUT_ROWS))
 }
 
 private object SafeJsonSerializer {

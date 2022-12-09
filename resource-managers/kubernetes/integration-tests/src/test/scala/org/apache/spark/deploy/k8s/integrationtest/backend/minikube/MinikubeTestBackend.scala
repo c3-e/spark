@@ -34,9 +34,6 @@ private[spark] object MinikubeTestBackend extends IntegrationTestBackend {
   }
 
   override def cleanUp(): Unit = {
-    if (defaultClient != null) {
-      defaultClient.close()
-    }
     super.cleanUp()
   }
 

@@ -19,10 +19,11 @@ import pandas as pd
 
 import pyspark.pandas as ps
 from pyspark.ml.linalg import SparseVector
-from pyspark.pandas.tests.data_type_ops.testing_utils import OpsTestBase
+from pyspark.pandas.tests.data_type_ops.testing_utils import TestCasesUtils
+from pyspark.testing.pandasutils import PandasOnSparkTestCase
 
 
-class UDTOpsTest(OpsTestBase):
+class UDTOpsTest(PandasOnSparkTestCase, TestCasesUtils):
     @property
     def pser(self):
         sparse_values = {0: 0.1, 1: 1.1}
@@ -89,10 +90,10 @@ class UDTOpsTest(OpsTestBase):
 
     def test_pow(self):
         self.assertRaises(TypeError, lambda: self.psser ** "x")
-        self.assertRaises(TypeError, lambda: self.psser**1)
+        self.assertRaises(TypeError, lambda: self.psser ** 1)
 
         for psser in self.pssers:
-            self.assertRaises(TypeError, lambda: self.psser**psser)
+            self.assertRaises(TypeError, lambda: self.psser ** psser)
 
     def test_radd(self):
         self.assertRaises(TypeError, lambda: "x" + self.psser)
@@ -119,14 +120,14 @@ class UDTOpsTest(OpsTestBase):
 
     def test_rpow(self):
         self.assertRaises(TypeError, lambda: "x" ** self.psser)
-        self.assertRaises(TypeError, lambda: 1**self.psser)
+        self.assertRaises(TypeError, lambda: 1 ** self.psser)
 
     def test_from_to_pandas(self):
         sparse_values = {0: 0.1, 1: 1.1}
         sparse_vector = SparseVector(len(sparse_values), sparse_values)
         pser = pd.Series([sparse_vector])
         psser = ps.Series([sparse_vector])
-        self.assert_eq(pser, psser._to_pandas())
+        self.assert_eq(pser, psser.to_pandas())
         self.assert_eq(ps.from_pandas(pser), psser)
 
     def test_isnull(self):

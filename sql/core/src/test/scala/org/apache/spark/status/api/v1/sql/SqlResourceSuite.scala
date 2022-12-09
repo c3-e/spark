@@ -85,7 +85,6 @@ object SqlResourceSuite {
       description = DESCRIPTION,
       details = "",
       physicalPlanDescription = PLAN_DESCRIPTION,
-      Map.empty,
       metrics = metrics,
       submissionTime = 1586768888233L,
       completionTime = Some(new Date(1586768888999L)),
@@ -93,8 +92,7 @@ object SqlResourceSuite {
         0 -> JobExecutionStatus.SUCCEEDED,
         1 -> JobExecutionStatus.SUCCEEDED),
       stages = Set[Int](),
-      metricValues = getMetricValues(),
-      errorMessage = None
+      metricValues = getMetricValues()
     )
   }
 
@@ -153,7 +151,7 @@ class SqlResourceSuite extends SparkFunSuite with PrivateMethodTester {
   import SqlResourceSuite._
 
   val sqlResource = new SqlResource()
-  val prepareExecutionData = PrivateMethod[ExecutionData](Symbol("prepareExecutionData"))
+  val prepareExecutionData = PrivateMethod[ExecutionData]('prepareExecutionData)
 
   test("Prepare ExecutionData when details = false and planDescription = false") {
     val executionData =
@@ -197,7 +195,7 @@ class SqlResourceSuite extends SparkFunSuite with PrivateMethodTester {
   }
 
   test("Parse wholeStageCodegenId from nodeName") {
-    val getWholeStageCodegenId = PrivateMethod[Option[Long]](Symbol("getWholeStageCodegenId"))
+    val getWholeStageCodegenId = PrivateMethod[Option[Long]]('getWholeStageCodegenId)
     val wholeStageCodegenId =
       sqlResource invokePrivate getWholeStageCodegenId(WHOLE_STAGE_CODEGEN_1)
     assert(wholeStageCodegenId == Some(1))

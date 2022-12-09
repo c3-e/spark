@@ -41,7 +41,7 @@ case class Min(child: Expression) extends DeclarativeAggregate with UnaryLike[Ex
   override def dataType: DataType = child.dataType
 
   override def checkInputDataTypes(): TypeCheckResult =
-    TypeUtils.checkForOrderingExpr(child.dataType, prettyName)
+    TypeUtils.checkForOrderingExpr(child.dataType, "function min")
 
   private lazy val min = AttributeReference("min", child.dataType)()
 

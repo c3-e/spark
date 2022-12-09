@@ -22,13 +22,15 @@ import java.io.File
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
 
+import org.scalatest.BeforeAndAfterAll
+
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.streaming.{State, Time}
 import org.apache.spark.streaming.util.OpenHashMapBasedStateMap
 import org.apache.spark.util.Utils
 
-class MapWithStateRDDSuite extends SparkFunSuite with RDDCheckpointTester {
+class MapWithStateRDDSuite extends SparkFunSuite with RDDCheckpointTester with BeforeAndAfterAll {
 
   private var sc: SparkContext = null
   private var checkpointDir: File = _

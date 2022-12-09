@@ -35,7 +35,7 @@ class BinaryClassificationPMMLModelExportSuite extends SparkFunSuite {
 
     // assert that the PMML format is as expected
     assert(logisticModelExport.isInstanceOf[PMMLModelExport])
-    val pmml = logisticModelExport.getPmml
+    val pmml = logisticModelExport.asInstanceOf[PMMLModelExport].getPmml
     assert(pmml.getHeader.getDescription === "logistic regression")
     // check that the number of fields match the weights size
     assert(pmml.getDataDictionary.getNumberOfFields === logisticRegressionModel.weights.size + 1)

@@ -419,7 +419,8 @@ private[spark] class MesosFineGrainedSchedulerBackend(
     }
   }
 
-  private def recordAgentLost(agentId: AgentID, reason: ExecutorLossReason): Unit = {
+  private def recordAgentLost(
+      d: org.apache.mesos.SchedulerDriver, agentId: AgentID, reason: ExecutorLossReason): Unit = {
     inClassLoader() {
       logInfo("Mesos agent lost: " + agentId.getValue)
       removeExecutor(agentId.getValue, reason.toString)
@@ -428,7 +429,7 @@ private[spark] class MesosFineGrainedSchedulerBackend(
   }
 
   override def agentLost(d: org.apache.mesos.SchedulerDriver, agentId: AgentID): Unit = {
-    recordAgentLost(agentId, ExecutorProcessLost())
+    recordAgentLost(d, agentId, ExecutorProcessLost())
   }
 
   override def executorLost(
@@ -438,7 +439,7 @@ private[spark] class MesosFineGrainedSchedulerBackend(
       status: Int): Unit = {
     logInfo("Executor lost: %s, marking agent %s as lost".format(executorId.getValue,
                                                                  agentId.getValue))
-    recordAgentLost(agentId, ExecutorExited(status, exitCausedByApp = true))
+    recordAgentLost(d, agentId, ExecutorExited(status, exitCausedByApp = true))
   }
 
   override def killTask(

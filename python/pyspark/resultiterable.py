@@ -15,31 +15,26 @@
 # limitations under the License.
 #
 
-from typing import TypeVar, TYPE_CHECKING, Iterator, Iterable
-
-if TYPE_CHECKING:
-    from pyspark._typing import SizedIterable
+from collections.abc import Iterable
 
 
 __all__ = ["ResultIterable"]
 
-T = TypeVar("T")
 
-
-class ResultIterable(Iterable[T]):
+class ResultIterable(Iterable):
 
     """
     A special result iterable. This is used because the standard
     iterator can not be pickled
     """
 
-    def __init__(self, data: "SizedIterable[T]"):
-        self.data: "SizedIterable[T]" = data
-        self.index: int = 0
-        self.maxindex: int = len(data)
+    def __init__(self, data):
+        self.data = data
+        self.index = 0
+        self.maxindex = len(data)
 
-    def __iter__(self) -> Iterator[T]:
+    def __iter__(self):
         return iter(self.data)
 
-    def __len__(self) -> int:
+    def __len__(self):
         return len(self.data)

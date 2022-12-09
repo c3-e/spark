@@ -31,10 +31,6 @@ object AttributeMap {
     new AttributeMap(kvs.map(kv => (kv._1.exprId, kv)).toMap)
   }
 
-  def apply[A](kvs: Iterable[(Attribute, A)]): AttributeMap[A] = {
-    new AttributeMap(kvs.map(kv => (kv._1.exprId, kv)).toMap)
-  }
-
   def empty[A]: AttributeMap[A] = new AttributeMap(Map.empty)
 }
 

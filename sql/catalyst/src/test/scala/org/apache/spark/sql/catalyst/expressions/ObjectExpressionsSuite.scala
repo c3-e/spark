@@ -25,7 +25,7 @@ import scala.reflect.ClassTag
 import scala.reflect.runtime.universe.TypeTag
 import scala.util.Random
 
-import org.apache.spark.{SparkConf, SparkFunSuite, SparkRuntimeException}
+import org.apache.spark.{SparkConf, SparkFunSuite}
 import org.apache.spark.serializer.{JavaSerializer, KryoSerializer}
 import org.apache.spark.sql.{RandomDataGenerator, Row}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
@@ -423,7 +423,7 @@ class ObjectExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper {
       inputTypes = Nil,
       propagateNull = false,
       dataType = ObjectType(classOf[ScroogeLikeExample]),
-      outerPointer = None)
+      outerPointer = Some(() => outerObj))
     checkObjectExprEvaluation(newInst3, ScroogeLikeExample(1))
   }
 
@@ -467,7 +467,7 @@ class ObjectExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper {
     // with dummy input, resolve the plan by the analyzer, and replace the dummy input
     // with a literal for tests.
     val unresolvedDeser = UnresolvedDeserializer(encoderFor[Map[Int, String]].deserializer)
-    val dummyInputPlan = LocalRelation(Symbol("value").map(MapType(IntegerType, StringType)))
+    val dummyInputPlan = LocalRelation('value.map(MapType(IntegerType, StringType)))
     val plan = Project(Alias(unresolvedDeser, "none")() :: Nil, dummyInputPlan)
 
     val analyzedPlan = SimpleAnalyzer.execute(plan)
@@ -498,17 +498,13 @@ class ObjectExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper {
       (Array(3, 2, 1), ArrayType(IntegerType))
     ).foreach { case (input, dt) =>
       val validateType = ValidateExternalType(
-        GetExternalRowField(inputObject, index = 0, fieldName = "c0"),
-        dt,
-        lenient = false)
+        GetExternalRowField(inputObject, index = 0, fieldName = "c0"), dt)
       checkObjectExprEvaluation(validateType, input, InternalRow.fromSeq(Seq(Row(input))))
     }
 
     checkExceptionInExpression[RuntimeException](
       ValidateExternalType(
-        GetExternalRowField(inputObject, index = 0, fieldName = "c0"),
-        DoubleType,
-        lenient = false),
+        GetExternalRowField(inputObject, index = 0, fieldName = "c0"), DoubleType),
       InternalRow.fromSeq(Seq(Row(1))),
       "java.lang.Integer is not a valid external type for schema of double")
   }
@@ -605,15 +601,15 @@ class ObjectExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper {
     val serializer3 =
       javaMapSerializerFor(classOf[java.lang.Integer], classOf[java.lang.String])(
         Literal.fromObject(javaMapHasNullKey))
-    checkErrorInExpression[SparkRuntimeException](
-      serializer3, EmptyRow, "NULL_MAP_KEY", Map[String, String]())
+    checkExceptionInExpression[RuntimeException](
+      serializer3, EmptyRow, "Cannot use null as map key!")
 
     // Scala Map
     val serializer4 = scalaMapSerializerFor[java.lang.Integer, String](
       Literal.fromObject(scalaMapHasNullKey))
 
-    checkErrorInExpression[SparkRuntimeException](
-      serializer4, EmptyRow, "NULL_MAP_KEY", Map[String, String]())
+    checkExceptionInExpression[RuntimeException](
+      serializer4, EmptyRow, "Cannot use null as map key!")
   }
 
   test("SPARK-35244: invoke should throw the original exception") {

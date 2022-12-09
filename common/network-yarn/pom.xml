@@ -22,14 +22,14 @@
   <parent>
     <groupId>org.apache.spark</groupId>
     <artifactId>spark-parent_2.12</artifactId>
-    <version>3.4.0-SNAPSHOT</version>
+    <version>3.2.2</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
   <artifactId>spark-network-yarn_2.12</artifactId>
   <packaging>jar</packaging>
   <name>Spark Project YARN Shuffle Service</name>
-  <url>https://spark.apache.org/</url>
+  <url>http://spark.apache.org/</url>
   <properties>
     <sbt.project.name>network-yarn</sbt.project.name>
     <!-- Make sure all Hadoop dependencies are provided to avoid repackaging. -->
@@ -174,10 +174,6 @@
                           tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_epoll_x86_64.so" />
                     <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_kqueue_x86_64.jnilib"
                           tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_kqueue_x86_64.jnilib" />
-                    <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_epoll_aarch_64.so"
-                          tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_epoll_aarch_64.so" />
-                    <move file="${project.build.directory}/exploded/META-INF/native/libnetty_transport_native_kqueue_aarch_64.jnilib"
-                          tofile="${project.build.directory}/exploded/META-INF/native/lib${spark.shade.native.packageName}_netty_transport_native_kqueue_aarch_64.jnilib" />
                     <jar destfile="${shuffle.jar}" basedir="${project.build.directory}/exploded" />
                 </target>
             </configuration>

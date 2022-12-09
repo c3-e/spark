@@ -23,7 +23,7 @@ import java.util.List;
 
 import org.junit.Before;
 import org.junit.Test;
-import static org.junit.Assert.assertThrows;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 public class SparkSubmitOptionParserSuite extends BaseSuite {
@@ -74,10 +74,9 @@ public class SparkSubmitOptionParserSuite extends BaseSuite {
     verify(parser).handleExtraArgs(eq(Arrays.asList("bar")));
   }
 
-  @Test
+  @Test(expected=IllegalArgumentException.class)
   public void testMissingArg() {
-    assertThrows(IllegalArgumentException.class,
-      () -> parser.parse(Arrays.asList(parser.MASTER)));
+    parser.parse(Arrays.asList(parser.MASTER));
   }
 
   @Test

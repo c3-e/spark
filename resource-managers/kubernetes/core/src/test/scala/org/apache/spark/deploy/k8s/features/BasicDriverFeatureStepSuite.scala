@@ -21,7 +21,7 @@ import scala.collection.JavaConverters._
 import io.fabric8.kubernetes.api.model.{ContainerPort, ContainerPortBuilder, LocalObjectReferenceBuilder, Quantity}
 
 import org.apache.spark.{SparkConf, SparkFunSuite}
-import org.apache.spark.deploy.k8s.{KubernetesDriverConf, KubernetesTestConf, SparkPod}
+import org.apache.spark.deploy.k8s.{KubernetesTestConf, SparkPod}
 import org.apache.spark.deploy.k8s.Config._
 import org.apache.spark.deploy.k8s.Constants._
 import org.apache.spark.deploy.k8s.features.KubernetesFeaturesTestUtils.TestResourceInformation
@@ -34,11 +34,9 @@ import org.apache.spark.util.Utils
 
 class BasicDriverFeatureStepSuite extends SparkFunSuite {
 
-  private val CUSTOM_DRIVER_LABELS = Map("labelkey" -> "labelvalue")
+  private val DRIVER_LABELS = Map("labelkey" -> "labelvalue")
   private val CONTAINER_IMAGE_PULL_POLICY = "IfNotPresent"
-  private val DRIVER_ANNOTATIONS = Map(
-    "customAnnotation" -> "customAnnotationValue",
-    "yunikorn.apache.org/app-id" -> "{{APPID}}")
+  private val DRIVER_ANNOTATIONS = Map("customAnnotation" -> "customAnnotationValue")
   private val DRIVER_ENVS = Map(
     "customDriverEnv1" -> "customDriverEnv1Value",
     "customDriverEnv2" -> "customDriverEnv2Value")
@@ -64,9 +62,9 @@ class BasicDriverFeatureStepSuite extends SparkFunSuite {
       sparkConf.set(testRInfo.rId.amountConf, testRInfo.count)
       sparkConf.set(testRInfo.rId.vendorConf, testRInfo.vendor)
     }
-    val kubernetesConf: KubernetesDriverConf = KubernetesTestConf.createDriverConf(
+    val kubernetesConf = KubernetesTestConf.createDriverConf(
       sparkConf = sparkConf,
-      labels = CUSTOM_DRIVER_LABELS,
+      labels = DRIVER_LABELS,
       environment = DRIVER_ENVS,
       annotations = DRIVER_ANNOTATIONS)
 
@@ -118,17 +116,10 @@ class BasicDriverFeatureStepSuite extends SparkFunSuite {
 
     val driverPodMetadata = configuredPod.pod.getMetadata
     assert(driverPodMetadata.getName === "spark-driver-pod")
-
-    // Check custom and preset labels are as expected
-    CUSTOM_DRIVER_LABELS.foreach { case (k, v) =>
+    DRIVER_LABELS.foreach { case (k, v) =>
       assert(driverPodMetadata.getLabels.get(k) === v)
     }
-    assert(driverPodMetadata.getLabels === kubernetesConf.labels.asJava)
-
-    val annotations = driverPodMetadata.getAnnotations.asScala
-    DRIVER_ANNOTATIONS.foreach { case (k, v) =>
-      assert(annotations(k) === Utils.substituteAppNExecIds(v, KubernetesTestConf.APP_ID, ""))
-    }
+    assert(driverPodMetadata.getAnnotations.asScala === DRIVER_ANNOTATIONS)
     assert(configuredPod.pod.getSpec.getRestartPolicy === "Never")
     val expectedSparkConf = Map(
       KUBERNETES_DRIVER_POD_NAME.key -> "spark-driver-pod",
@@ -192,46 +183,13 @@ class BasicDriverFeatureStepSuite extends SparkFunSuite {
 
   // Memory overhead tests. Tuples are:
   //   test name, main resource, overhead factor, expected factor
-  val driverDefault = DRIVER_MEMORY_OVERHEAD_FACTOR.defaultValue.get
-  val oldConfigDefault = MEMORY_OVERHEAD_FACTOR.defaultValue.get
-  val nonJvm = NON_JVM_MEMORY_OVERHEAD_FACTOR
   Seq(
-    ("java", JavaMainAppResource(None), None, driverDefault, oldConfigDefault),
-    ("python default", PythonMainAppResource(null), None, nonJvm, nonJvm),
-    ("python w/ override", PythonMainAppResource(null), Some(0.9d), 0.9d, nonJvm),
-    ("r default", RMainAppResource(null), None, nonJvm, nonJvm)
-  ).foreach { case (name, resource, factor, expectedFactor, expectedPropFactor) =>
-    test(s"memory overhead factor new config: $name") {
-      // Choose a driver memory where the default memory overhead is > MEMORY_OVERHEAD_MIN_MIB
-      val driverMem =
-        ResourceProfile.MEMORY_OVERHEAD_MIN_MIB / DRIVER_MEMORY_OVERHEAD_FACTOR.defaultValue.get * 2
-
-      // main app resource, overhead factor
-      val sparkConf = new SparkConf(false)
-        .set(CONTAINER_IMAGE, "spark-driver:latest")
-        .set(DRIVER_MEMORY.key, s"${driverMem.toInt}m")
-      factor.foreach { value => sparkConf.set(DRIVER_MEMORY_OVERHEAD_FACTOR, value) }
-      val conf = KubernetesTestConf.createDriverConf(
-        sparkConf = sparkConf,
-        mainAppResource = resource)
-      val step = new BasicDriverFeatureStep(conf)
-      val pod = step.configurePod(SparkPod.initialPod())
-      val mem = amountAndFormat(pod.container.getResources.getRequests.get("memory"))
-      val expected = (driverMem + driverMem * expectedFactor).toInt
-      assert(mem === s"${expected}Mi")
-
-      val systemProperties = step.getAdditionalPodSystemProperties()
-      assert(systemProperties(MEMORY_OVERHEAD_FACTOR.key) === expectedPropFactor.toString)
-    }
-  }
-
-  Seq(
-    ("java", JavaMainAppResource(None), None, driverDefault),
-    ("python default", PythonMainAppResource(null), None, nonJvm),
+    ("java", JavaMainAppResource(None), None, MEMORY_OVERHEAD_FACTOR.defaultValue.get),
+    ("python default", PythonMainAppResource(null), None, NON_JVM_MEMORY_OVERHEAD_FACTOR),
     ("python w/ override", PythonMainAppResource(null), Some(0.9d), 0.9d),
-    ("r default", RMainAppResource(null), None, nonJvm)
+    ("r default", RMainAppResource(null), None, NON_JVM_MEMORY_OVERHEAD_FACTOR)
   ).foreach { case (name, resource, factor, expectedFactor) =>
-    test(s"memory overhead factor old config: $name") {
+    test(s"memory overhead factor: $name") {
       // Choose a driver memory where the default memory overhead is > MEMORY_OVERHEAD_MIN_MIB
       val driverMem =
         ResourceProfile.MEMORY_OVERHEAD_MIN_MIB / MEMORY_OVERHEAD_FACTOR.defaultValue.get * 2
@@ -255,61 +213,6 @@ class BasicDriverFeatureStepSuite extends SparkFunSuite {
     }
   }
 
-  test(s"SPARK-38194: memory overhead factor precendence") {
-    // Choose a driver memory where the default memory overhead is > MEMORY_OVERHEAD_MIN_MIB
-    val driverMem =
-      ResourceProfile.MEMORY_OVERHEAD_MIN_MIB / DRIVER_MEMORY_OVERHEAD_FACTOR.defaultValue.get * 2
-
-    // main app resource, overhead factor
-    val sparkConf = new SparkConf(false)
-      .set(CONTAINER_IMAGE, "spark-driver:latest")
-      .set(DRIVER_MEMORY.key, s"${driverMem.toInt}m")
-
-    // New config should take precedence
-    val expectedFactor = 0.2
-    val oldFactor = 0.3
-    sparkConf.set(DRIVER_MEMORY_OVERHEAD_FACTOR, expectedFactor)
-    sparkConf.set(MEMORY_OVERHEAD_FACTOR, oldFactor)
-
-    val conf = KubernetesTestConf.createDriverConf(
-      sparkConf = sparkConf)
-    val step = new BasicDriverFeatureStep(conf)
-    val pod = step.configurePod(SparkPod.initialPod())
-    val mem = amountAndFormat(pod.container.getResources.getRequests.get("memory"))
-    val expected = (driverMem + driverMem * expectedFactor).toInt
-    assert(mem === s"${expected}Mi")
-
-    // The old config should be passed as a system property for use by the executor
-    val systemProperties = step.getAdditionalPodSystemProperties()
-    assert(systemProperties(MEMORY_OVERHEAD_FACTOR.key) === oldFactor.toString)
-  }
-
-  test(s"SPARK-38194: old memory factor settings is applied if new one isn't given") {
-    // Choose a driver memory where the default memory overhead is > MEMORY_OVERHEAD_MIN_MIB
-    val driverMem =
-      ResourceProfile.MEMORY_OVERHEAD_MIN_MIB / DRIVER_MEMORY_OVERHEAD_FACTOR.defaultValue.get * 2
-
-    // main app resource, overhead factor
-    val sparkConf = new SparkConf(false)
-      .set(CONTAINER_IMAGE, "spark-driver:latest")
-      .set(DRIVER_MEMORY.key, s"${driverMem.toInt}m")
-
-    // Old config still works if new config isn't given
-    val expectedFactor = 0.3
-    sparkConf.set(MEMORY_OVERHEAD_FACTOR, expectedFactor)
-
-    val conf = KubernetesTestConf.createDriverConf(
-      sparkConf = sparkConf)
-    val step = new BasicDriverFeatureStep(conf)
-    val pod = step.configurePod(SparkPod.initialPod())
-    val mem = amountAndFormat(pod.container.getResources.getRequests.get("memory"))
-    val expected = (driverMem + driverMem * expectedFactor).toInt
-    assert(mem === s"${expected}Mi")
-
-    val systemProperties = step.getAdditionalPodSystemProperties()
-    assert(systemProperties(MEMORY_OVERHEAD_FACTOR.key) === expectedFactor.toString)
-  }
-
   test("SPARK-35493: make spark.blockManager.port be able to be fallen back to in driver pod") {
     val initPod = SparkPod.initialPod()
     val sparkConf = new SparkConf()
@@ -327,21 +230,6 @@ class BasicDriverFeatureStepSuite extends SparkFunSuite {
     val portMap2 =
       pod2.container.getPorts.asScala.map { cp => (cp.getName -> cp.getContainerPort) }.toMap
     assert(portMap2(BLOCK_MANAGER_PORT_NAME) === 1235)
-  }
-
-  test("SPARK-36075: Check driver pod respects nodeSelector/driverNodeSelector") {
-    val initPod = SparkPod.initialPod()
-    val sparkConf = new SparkConf()
-      .set(CONTAINER_IMAGE, "spark-driver:latest")
-      .set(s"${KUBERNETES_NODE_SELECTOR_PREFIX}nodeLabelKey", "nodeLabelValue")
-      .set(s"${KUBERNETES_DRIVER_NODE_SELECTOR_PREFIX}driverNodeLabelKey", "driverNodeLabelValue")
-      .set(s"${KUBERNETES_EXECUTOR_NODE_SELECTOR_PREFIX}execNodeLabelKey", "execNodeLabelValue")
-    val driverConf = KubernetesTestConf.createDriverConf(sparkConf)
-    val driver = new BasicDriverFeatureStep(driverConf).configurePod(initPod)
-    assert(driver.pod.getSpec.getNodeSelector.asScala === Map(
-      "nodeLabelKey" -> "nodeLabelValue",
-      "driverNodeLabelKey" -> "driverNodeLabelValue"
-    ))
   }
 
   def containerPort(name: String, portNumber: Int): ContainerPort =

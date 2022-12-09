@@ -91,34 +91,19 @@ class RowMatrix @Since("1.0.0") (
   private[mllib] def multiplyGramianMatrixBy(v: BDV[Double]): BDV[Double] = {
     val n = numCols().toInt
     val vbr = rows.context.broadcast(v)
-    rows.treeAggregate(null.asInstanceOf[BDV[Double]])(
+    rows.treeAggregate(BDV.zeros[Double](n))(
       seqOp = (U, r) => {
         val rBrz = r.asBreeze
         val a = rBrz.dot(vbr.value)
-        val theU =
-          if (U == null) {
-            BDV.zeros[Double](n)
-          } else {
-            U
-          }
         rBrz match {
           // use specialized axpy for better performance
-          case _: BDV[_] => brzAxpy(a, rBrz.asInstanceOf[BDV[Double]], theU)
-          case _: BSV[_] => brzAxpy(a, rBrz.asInstanceOf[BSV[Double]], theU)
+          case _: BDV[_] => brzAxpy(a, rBrz.asInstanceOf[BDV[Double]], U)
+          case _: BSV[_] => brzAxpy(a, rBrz.asInstanceOf[BSV[Double]], U)
           case _ => throw new UnsupportedOperationException(
             s"Do not support vector operation from type ${rBrz.getClass.getName}.")
         }
-        theU
-      }, combOp = (U1, U2) => {
-        if (U1 == null) {
-          U2
-        } else if (U2 == null) {
-          U1
-        } else {
-          U1 += U2
-          U1
-        }
-      })
+        U
+      }, combOp = (U1, U2) => U1 += U2)
   }
 
   /**

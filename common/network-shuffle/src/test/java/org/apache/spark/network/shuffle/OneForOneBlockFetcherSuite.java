@@ -189,10 +189,16 @@ public class OneForOneBlockFetcherSuite {
 
   @Test
   public void testEmptyBlockFetch() {
-    IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-      () -> fetchBlocks(Maps.newLinkedHashMap(), new String[] {},
-        new OpenBlocks("app-id", "exec-id", new String[] {}), conf));
-    assertEquals("Zero-sized blockIds array", e.getMessage());
+    try {
+      fetchBlocks(
+        Maps.newLinkedHashMap(),
+        new String[] {},
+        new OpenBlocks("app-id", "exec-id", new String[] {}),
+        conf);
+      fail();
+    } catch (IllegalArgumentException e) {
+      assertEquals("Zero-sized blockIds array", e.getMessage());
+    }
   }
 
   @Test
@@ -210,7 +216,8 @@ public class OneForOneBlockFetcherSuite {
               new long[]{0, 2, 10}, new int[][]{{0}, {1}, {2}}, false),
       conf);
 
-    for (String blockId : blockIds) {
+    for (int chunkIndex = 0; chunkIndex < blockIds.length; chunkIndex++) {
+      String blockId = blockIds[chunkIndex];
       verify(listener).onBlockFetchSuccess(blockId, blocks.get(blockId));
     }
   }
@@ -230,7 +237,8 @@ public class OneForOneBlockFetcherSuite {
               new long[]{0, 2, 10}, new int[][]{{1, 2}, {2, 3}, {3, 4}}, true),
       conf);
 
-    for (String blockId : blockIds) {
+    for (int chunkIndex = 0; chunkIndex < blockIds.length; chunkIndex++) {
+      String blockId = blockIds[chunkIndex];
       verify(listener).onBlockFetchSuccess(blockId, blocks.get(blockId));
     }
   }

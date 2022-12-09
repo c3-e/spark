@@ -22,7 +22,6 @@ import java.io.PrintStream
 import scala.util.Random
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.types._
 
 class MiscExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper {
@@ -41,17 +40,7 @@ class MiscExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper {
     )
 
     // Expects a string
-    assert(RaiseError(Literal(5)).checkInputDataTypes() ==
-      DataTypeMismatch(
-        errorSubClass = "UNEXPECTED_INPUT_TYPE",
-        messageParameters = Map(
-          "paramIndex" -> "1",
-          "requiredType" -> "\"STRING\"",
-          "inputSql" -> "\"5\"",
-          "inputType" -> "\"INT\""
-        )
-      )
-    )
+    assert(RaiseError(Literal(5)).checkInputDataTypes().isFailure)
   }
 
   test("uuid") {

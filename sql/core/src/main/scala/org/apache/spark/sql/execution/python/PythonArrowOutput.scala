@@ -27,22 +27,15 @@ import org.apache.arrow.vector.ipc.ArrowStreamReader
 
 import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.api.python.{BasePythonRunner, SpecialLengths}
-import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.ArrowUtils
 import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, ColumnVector}
 
 /**
  * A trait that can be mixed-in with [[BasePythonRunner]]. It implements the logic from
- * Python (Arrow) to JVM (output type being deserialized from ColumnarBatch).
+ * Python (Arrow) to JVM (ColumnarBatch).
  */
-private[python] trait PythonArrowOutput[OUT <: AnyRef] { self: BasePythonRunner[_, OUT] =>
-
-  protected def pythonMetrics: Map[String, SQLMetric]
-
-  protected def handleMetadataAfterExec(stream: DataInputStream): Unit = { }
-
-  protected def deserializeColumnarBatch(batch: ColumnarBatch, schema: StructType): OUT
+private[python] trait PythonArrowOutput { self: BasePythonRunner[_, ColumnarBatch] =>
 
   protected def newReaderIterator(
       stream: DataInputStream,
@@ -52,7 +45,7 @@ private[python] trait PythonArrowOutput[OUT <: AnyRef] { self: BasePythonRunner[
       worker: Socket,
       pid: Option[Int],
       releasedOrClosed: AtomicBoolean,
-      context: TaskContext): Iterator[OUT] = {
+      context: TaskContext): Iterator[ColumnarBatch] = {
 
     new ReaderIterator(
       stream, writerThread, startTime, env, worker, pid, releasedOrClosed, context) {
@@ -74,27 +67,17 @@ private[python] trait PythonArrowOutput[OUT <: AnyRef] { self: BasePythonRunner[
 
       private var batchLoaded = true
 
-      protected override def handleEndOfDataSection(): Unit = {
-        handleMetadataAfterExec(stream)
-        super.handleEndOfDataSection()
-      }
-
-      protected override def read(): OUT = {
+      protected override def read(): ColumnarBatch = {
         if (writerThread.exception.isDefined) {
           throw writerThread.exception.get
         }
         try {
           if (reader != null && batchLoaded) {
-            val bytesReadStart = reader.bytesRead()
             batchLoaded = reader.loadNextBatch()
             if (batchLoaded) {
               val batch = new ColumnarBatch(vectors)
-              val rowCount = root.getRowCount
               batch.setNumRows(root.getRowCount)
-              val bytesReadEnd = reader.bytesRead()
-              pythonMetrics("pythonNumRowsReceived") += rowCount
-              pythonMetrics("pythonDataReceived") += bytesReadEnd - bytesReadStart
-              deserializeColumnarBatch(batch, schema)
+              batch
             } else {
               reader.close(false)
               allocator.close()
@@ -118,19 +101,11 @@ private[python] trait PythonArrowOutput[OUT <: AnyRef] { self: BasePythonRunner[
                 throw handlePythonException()
               case SpecialLengths.END_OF_DATA_SECTION =>
                 handleEndOfDataSection()
-                null.asInstanceOf[OUT]
+                null
             }
           }
         } catch handleException
       }
     }
   }
-}
-
-private[python] trait BasicPythonArrowOutput extends PythonArrowOutput[ColumnarBatch] {
-  self: BasePythonRunner[_, ColumnarBatch] =>
-
-  protected def deserializeColumnarBatch(
-      batch: ColumnarBatch,
-      schema: StructType): ColumnarBatch = batch
 }

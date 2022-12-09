@@ -20,7 +20,8 @@ import random
 import math
 
 
-class RDDSamplerBase:
+class RDDSamplerBase(object):
+
     def __init__(self, withReplacement, seed=None):
         self._seed = seed if seed is not None else random.randint(0, sys.maxsize)
         self._withReplacement = withReplacement
@@ -41,10 +42,10 @@ class RDDSamplerBase:
         # http://en.wikipedia.org/wiki/Poisson_distribution
         if mean < 20.0:
             # one exp and k+1 random calls
-            lda = math.exp(-mean)
+            l = math.exp(-mean)
             p = self._random.random()
             k = 0
-            while p > lda:
+            while p > l:
                 k += 1
                 p *= self._random.random()
         else:
@@ -61,6 +62,7 @@ class RDDSamplerBase:
 
 
 class RDDSampler(RDDSamplerBase):
+
     def __init__(self, withReplacement, fraction, seed=None):
         RDDSamplerBase.__init__(self, withReplacement, seed)
         self._fraction = fraction
@@ -82,6 +84,7 @@ class RDDSampler(RDDSamplerBase):
 
 
 class RDDRangeSampler(RDDSamplerBase):
+
     def __init__(self, lowerBound, upperBound, seed=None):
         RDDSamplerBase.__init__(self, False, seed)
         self._lowerBound = lowerBound
@@ -95,6 +98,7 @@ class RDDRangeSampler(RDDSamplerBase):
 
 
 class RDDStratifiedSampler(RDDSamplerBase):
+
     def __init__(self, withReplacement, fractions, seed=None):
         RDDSamplerBase.__init__(self, withReplacement, seed)
         self._fractions = fractions

@@ -19,7 +19,7 @@ from functools import partial
 from typing import Any, Optional, Union, cast, no_type_check
 
 import pandas as pd
-from pandas.api.types import is_hashable  # type: ignore[attr-defined]
+from pandas.api.types import is_hashable
 from pandas.tseries.offsets import DateOffset
 from pyspark._globals import _NoValue
 
@@ -138,7 +138,7 @@ class DatetimeIndex(Index):
         if hasattr(MissingPandasLikeDatetimeIndex, item):
             property_or_func = getattr(MissingPandasLikeDatetimeIndex, item)
             if isinstance(property_or_func, property):
-                return property_or_func.fget(self)
+                return property_or_func.fget(self)  # type: ignore
             else:
                 return partial(property_or_func, self)
         raise AttributeError("'DatetimeIndex' object has no attribute '{}'".format(item))
@@ -284,8 +284,8 @@ class DatetimeIndex(Index):
         Examples
         --------
         >>> idx = ps.date_range("2018-02-27", periods=3)
-        >>> idx.is_month_start  # doctest: +SKIP
-        Index([False, False, True], dtype='bool')
+        >>> idx.is_month_start
+        Index([False, False, True], dtype='object')
         """
         return Index(self.to_series().dt.is_month_start)
 
@@ -307,8 +307,8 @@ class DatetimeIndex(Index):
         Examples
         --------
         >>> idx = ps.date_range("2018-02-27", periods=3)
-        >>> idx.is_month_end  # doctest: +SKIP
-        Index([False, True, False], dtype='bool')
+        >>> idx.is_month_end
+        Index([False, True, False], dtype='object')
         """
         return Index(self.to_series().dt.is_month_end)
 
@@ -330,8 +330,8 @@ class DatetimeIndex(Index):
         Examples
         --------
         >>> idx = ps.date_range('2017-03-30', periods=4)
-        >>> idx.is_quarter_start  # doctest: +SKIP
-        Index([False, False, True, False], dtype='bool')
+        >>> idx.is_quarter_start
+        Index([False, False, True, False], dtype='object')
         """
         return Index(self.to_series().dt.is_quarter_start)
 
@@ -353,8 +353,8 @@ class DatetimeIndex(Index):
         Examples
         --------
         >>> idx = ps.date_range('2017-03-30', periods=4)
-        >>> idx.is_quarter_end  # doctest: +SKIP
-        Index([False, True, False, False], dtype='bool')
+        >>> idx.is_quarter_end
+        Index([False, True, False, False], dtype='object')
         """
         return Index(self.to_series().dt.is_quarter_end)
 
@@ -375,8 +375,8 @@ class DatetimeIndex(Index):
         Examples
         --------
         >>> idx = ps.date_range("2017-12-30", periods=3)
-        >>> idx.is_year_start  # doctest: +SKIP
-        Index([False, False, True], dtype='bool')
+        >>> idx.is_year_start
+        Index([False, False, True], dtype='object')
         """
         return Index(self.to_series().dt.is_year_start)
 
@@ -397,8 +397,8 @@ class DatetimeIndex(Index):
         Examples
         --------
         >>> idx = ps.date_range("2017-12-30", periods=3)
-        >>> idx.is_year_end  # doctest: +SKIP
-        Index([False, True, False], dtype='bool')
+        >>> idx.is_year_end
+        Index([False, True, False], dtype='object')
         """
         return Index(self.to_series().dt.is_year_end)
 
@@ -420,8 +420,8 @@ class DatetimeIndex(Index):
         Examples
         --------
         >>> idx = ps.date_range("2012-01-01", "2015-01-01", freq="Y")
-        >>> idx.is_leap_year  # doctest: +SKIP
-        Index([True, False, False], dtype='bool')
+        >>> idx.is_leap_year
+        Index([True, False, False], dtype='object')
         """
         return Index(self.to_series().dt.is_leap_year)
 
@@ -682,7 +682,8 @@ class DatetimeIndex(Index):
         Int64Index([2], dtype='int64')
         """
 
-        def pandas_between_time(pdf) -> ps.DataFrame[int]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_between_time(pdf) -> ps.DataFrame[int]:
             return pdf.between_time(start_time, end_time, include_start, include_end)
 
         psdf = self.to_frame()[[]]
@@ -727,7 +728,8 @@ class DatetimeIndex(Index):
         if asof:
             raise NotImplementedError("'asof' argument is not supported")
 
-        def pandas_at_time(pdf) -> ps.DataFrame[int]:  # type: ignore[no-untyped-def]
+        @no_type_check
+        def pandas_at_time(pdf) -> ps.DataFrame[int]:
             return pdf.at_time(time, asof)
 
         psdf = self.to_frame()[[]]
@@ -738,10 +740,6 @@ class DatetimeIndex(Index):
             # so we enforce “distributed” default index type
             psdf = psdf.pandas_on_spark.apply_batch(pandas_at_time)
         return ps.Index(first_series(psdf).rename(self.name))
-
-    @no_type_check
-    def all(self, *args, **kwargs) -> None:
-        raise TypeError("Cannot perform 'all' with this index type: %s" % type(self).__name__)
 
 
 def disallow_nanoseconds(freq: Union[str, DateOffset]) -> None:

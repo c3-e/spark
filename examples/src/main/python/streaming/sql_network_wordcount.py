@@ -28,15 +28,13 @@ r"""
     `$ bin/spark-submit examples/src/main/python/streaming/sql_network_wordcount.py localhost 9999`
 """
 import sys
-import datetime
 
-from pyspark import SparkConf, SparkContext
-from pyspark.rdd import RDD
+from pyspark import SparkContext
 from pyspark.streaming import StreamingContext
 from pyspark.sql import Row, SparkSession
 
 
-def getSparkSessionInstance(sparkConf: SparkConf) -> SparkSession:
+def getSparkSessionInstance(sparkConf):
     if ('sparkSessionSingletonInstance' not in globals()):
         globals()['sparkSessionSingletonInstance'] = SparkSession\
             .builder\
@@ -59,7 +57,7 @@ if __name__ == "__main__":
     words = lines.flatMap(lambda line: line.split(" "))
 
     # Convert RDDs of the words DStream to DataFrame and run SQL query
-    def process(time: datetime.datetime, rdd: RDD[str]) -> None:
+    def process(time, rdd):
         print("========= %s =========" % str(time))
 
         try:
@@ -77,7 +75,7 @@ if __name__ == "__main__":
             wordCountsDataFrame = \
                 spark.sql("select word, count(*) as total from words group by word")
             wordCountsDataFrame.show()
-        except BaseException:
+        except:
             pass
 
     words.foreachRDD(process)

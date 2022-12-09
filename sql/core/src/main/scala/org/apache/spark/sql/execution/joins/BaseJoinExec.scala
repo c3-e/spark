@@ -44,13 +44,11 @@ trait BaseJoinExec extends BinaryExecNode {
          |$formattedNodeName
          |${ExplainUtils.generateFieldString("Left keys", leftKeys)}
          |${ExplainUtils.generateFieldString("Right keys", rightKeys)}
-         |${ExplainUtils.generateFieldString("Join type", joinType.toString)}
          |${ExplainUtils.generateFieldString("Join condition", joinCondStr)}
          |""".stripMargin
     } else {
       s"""
          |$formattedNodeName
-         |${ExplainUtils.generateFieldString("Join type", joinType.toString)}
          |${ExplainUtils.generateFieldString("Join condition", joinCondStr)}
          |""".stripMargin
     }

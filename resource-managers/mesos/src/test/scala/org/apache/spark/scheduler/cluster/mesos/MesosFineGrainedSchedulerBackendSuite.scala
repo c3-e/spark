@@ -266,7 +266,6 @@ class MesosFineGrainedSchedulerBackendSuite
       addedJars = mutable.Map.empty[String, Long],
       addedArchives = mutable.Map.empty[String, Long],
       properties = new Properties(),
-      cpus = 1,
       resources = immutable.Map.empty[String, ResourceInformation],
       ByteBuffer.wrap(new Array[Byte](0)))
     when(taskScheduler.resourceOffers(
@@ -381,7 +380,6 @@ class MesosFineGrainedSchedulerBackendSuite
       addedJars = mutable.Map.empty[String, Long],
       addedArchives = mutable.Map.empty[String, Long],
       properties = new Properties(),
-      cpus = 1,
       resources = immutable.Map.empty[String, ResourceInformation],
       ByteBuffer.wrap(new Array[Byte](0)))
     when(taskScheduler.resourceOffers(

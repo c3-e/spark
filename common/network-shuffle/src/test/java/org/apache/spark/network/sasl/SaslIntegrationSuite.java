@@ -108,10 +108,13 @@ public class SaslIntegrationSuite {
     clientFactory = context.createClientFactory(
         Arrays.asList(new SaslClientBootstrap(conf, "unknown-app", badKeyHolder)));
 
-    // Bootstrap should fail on startup.
-    Exception e = assertThrows(Exception.class,
-      () -> clientFactory.createClient(TestUtils.getLocalHost(), server.getPort()));
-    assertTrue(e.getMessage(), e.getMessage().contains("Mismatched response"));
+    try {
+      // Bootstrap should fail on startup.
+      clientFactory.createClient(TestUtils.getLocalHost(), server.getPort());
+      fail("Connection should have failed.");
+    } catch (Exception e) {
+      assertTrue(e.getMessage(), e.getMessage().contains("Mismatched response"));
+    }
   }
 
   @Test
@@ -119,14 +122,20 @@ public class SaslIntegrationSuite {
     clientFactory = context.createClientFactory(new ArrayList<>());
 
     TransportClient client = clientFactory.createClient(TestUtils.getLocalHost(), server.getPort());
-    Exception e1 = assertThrows(Exception.class,
-      () -> client.sendRpcSync(ByteBuffer.allocate(13), TIMEOUT_MS));
-    assertTrue(e1.getMessage(), e1.getMessage().contains("Expected SaslMessage"));
+    try {
+      client.sendRpcSync(ByteBuffer.allocate(13), TIMEOUT_MS);
+      fail("Should have failed");
+    } catch (Exception e) {
+      assertTrue(e.getMessage(), e.getMessage().contains("Expected SaslMessage"));
+    }
 
-    // Guessing the right tag byte doesn't magically get you in...
-    Exception e2 = assertThrows(Exception.class,
-      () -> client.sendRpcSync(ByteBuffer.wrap(new byte[] { (byte) 0xEA }), TIMEOUT_MS));
-    assertTrue(e2.getMessage(), e2.getMessage().contains("java.lang.IndexOutOfBoundsException"));
+    try {
+      // Guessing the right tag byte doesn't magically get you in...
+      client.sendRpcSync(ByteBuffer.wrap(new byte[] { (byte) 0xEA }), TIMEOUT_MS);
+      fail("Should have failed");
+    } catch (Exception e) {
+      assertTrue(e.getMessage(), e.getMessage().contains("java.lang.IndexOutOfBoundsException"));
+    }
   }
 
   @Test
@@ -136,8 +145,8 @@ public class SaslIntegrationSuite {
       clientFactory = context.createClientFactory(
           Arrays.asList(new SaslClientBootstrap(conf, "app-1", secretKeyHolder)));
       try (TransportServer server = context.createServer()) {
-        Exception e = assertThrows(Exception.class,
-          () -> clientFactory.createClient(TestUtils.getLocalHost(), server.getPort()));
+        clientFactory.createClient(TestUtils.getLocalHost(), server.getPort());
+      } catch (Exception e) {
         assertTrue(e.getMessage(), e.getMessage().contains("Digest-challenge format violation"));
       }
     }

@@ -107,6 +107,7 @@ public class JavaLogisticRegressionSuite extends SharedSparkSession {
     Assert.assertEquals("theProb", model2.getProbabilityCol());
   }
 
+  @SuppressWarnings("unchecked")
   @Test
   public void logisticRegressionPredictorClassifierMethods() {
     LogisticRegression lr = new LogisticRegression();

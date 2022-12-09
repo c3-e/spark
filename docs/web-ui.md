@@ -141,7 +141,7 @@ Summary metrics for all task are represented in a table and in a timeline.
 * **Scheduler delay** is the time the task waits to be scheduled for execution.
 * **Peak execution memory** is the maximum memory used by the internal data structures created during shuffles, aggregations and joins.
 * **Shuffle Read Size / Records**. Total shuffle bytes read, includes both data read locally and data read from remote executors.
-* **Shuffle Read Fetch Wait Time** is the time that tasks spent blocked waiting for shuffle data to be read from remote machines.
+* **Shuffle Read Blocked Time** is the time that tasks spent blocked waiting for shuffle data to be read from remote machines.
 * **Shuffle Remote Reads** is the total shuffle bytes read from remote executors.
 * **Shuffle Write Time** is the time that tasks spent writing shuffle data.
 * **Shuffle spill (memory)** is the size of the deserialized form of the shuffled data in memory.
@@ -406,8 +406,6 @@ Here is the list of SQL metrics:
 <tr><td> <code>time to build hash map</code> </td><td> the time spent on building hash map </td><td> ShuffledHashJoin </td></tr>
 <tr><td> <code>task commit time</code> </td><td> the time spent on committing the output of a task after the writes succeed </td><td> any write operation on a file-based table </td></tr>
 <tr><td> <code>job commit time</code> </td><td> the time spent on committing the output of a job after the writes succeed </td><td> any write operation on a file-based table </td></tr>
-<tr><td> <code>data sent to Python workers</code> </td><td> the number of bytes of serialized data sent to the Python workers </td><td> ArrowEvalPython, AggregateInPandas, BatchEvalPython, FlatMapGroupsInPandas, FlatMapsCoGroupsInPandas, FlatMapsCoGroupsInPandasWithState, MapInPandas, PythonMapInArrow, WindowsInPandas </td></tr>
-<tr><td> <code>data returned from Python workers</code> </td><td> the number of bytes of serialized data received back from the Python workers </td><td> ArrowEvalPython, AggregateInPandas, BatchEvalPython, FlatMapGroupsInPandas, FlatMapsCoGroupsInPandas, FlatMapsCoGroupsInPandasWithState, MapInPandas, PythonMapInArrow, WindowsInPandas </td></tr>
 </table>
 
 ## Structured Streaming Tab

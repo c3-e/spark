@@ -17,20 +17,17 @@
 
 import sys
 
-from typing import Any, Generic, List, NamedTuple, TypeVar
+from collections import namedtuple
 
-from pyspark import since, SparkContext
+from pyspark import since
 from pyspark.mllib.common import JavaModelWrapper, callMLlibFunc
 from pyspark.mllib.util import JavaSaveable, JavaLoader, inherit_doc
-from pyspark.rdd import RDD
 
-__all__ = ["FPGrowth", "FPGrowthModel", "PrefixSpan", "PrefixSpanModel"]
-
-T = TypeVar("T")
+__all__ = ['FPGrowth', 'FPGrowthModel', 'PrefixSpan', 'PrefixSpanModel']
 
 
 @inherit_doc
-class FPGrowthModel(JavaModelWrapper, JavaSaveable, JavaLoader["FPGrowthModel"]):
+class FPGrowthModel(JavaModelWrapper, JavaSaveable, JavaLoader):
     """
     A FP-Growth model for mining frequent itemsets
     using the Parallel FP-Growth algorithm.
@@ -52,7 +49,7 @@ class FPGrowthModel(JavaModelWrapper, JavaSaveable, JavaLoader["FPGrowthModel"])
     """
 
     @since("1.4.0")
-    def freqItemsets(self) -> RDD["FPGrowth.FreqItemset"]:
+    def freqItemsets(self):
         """
         Returns the frequent itemsets of this model.
         """
@@ -60,17 +57,16 @@ class FPGrowthModel(JavaModelWrapper, JavaSaveable, JavaLoader["FPGrowthModel"])
 
     @classmethod
     @since("2.0.0")
-    def load(cls, sc: SparkContext, path: str) -> "FPGrowthModel":
+    def load(cls, sc, path):
         """
         Load a model from the given path.
         """
         model = cls._load_java(sc, path)
-        assert sc._jvm is not None
         wrapper = sc._jvm.org.apache.spark.mllib.api.python.FPGrowthModelWrapper(model)
         return FPGrowthModel(wrapper)
 
 
-class FPGrowth:
+class FPGrowth(object):
     """
     A Parallel FP-growth algorithm to mine frequent itemsets.
 
@@ -78,9 +74,7 @@ class FPGrowth:
     """
 
     @classmethod
-    def train(
-        cls, data: RDD[List[T]], minSupport: float = 0.3, numPartitions: int = -1
-    ) -> "FPGrowthModel":
+    def train(cls, data, minSupport=0.3, numPartitions=-1):
         """
         Computes an FP-Growth model that contains frequent itemsets.
 
@@ -101,19 +95,16 @@ class FPGrowth:
         model = callMLlibFunc("trainFPGrowthModel", data, float(minSupport), int(numPartitions))
         return FPGrowthModel(model)
 
-    class FreqItemset(NamedTuple):
+    class FreqItemset(namedtuple("FreqItemset", ["items", "freq"])):
         """
         Represents an (items, freq) tuple.
 
         .. versionadded:: 1.4.0
         """
 
-        items: List[Any]
-        freq: int
-
 
 @inherit_doc
-class PrefixSpanModel(JavaModelWrapper, Generic[T]):
+class PrefixSpanModel(JavaModelWrapper):
     """
     Model fitted by PrefixSpan
 
@@ -133,12 +124,12 @@ class PrefixSpanModel(JavaModelWrapper, Generic[T]):
     """
 
     @since("1.6.0")
-    def freqSequences(self) -> RDD["PrefixSpan.FreqSequence"]:
+    def freqSequences(self):
         """Gets frequent sequences"""
         return self.call("getFreqSequences").map(lambda x: PrefixSpan.FreqSequence(x[0], x[1]))
 
 
-class PrefixSpan:
+class PrefixSpan(object):
     """
     A parallel PrefixSpan algorithm to mine frequent sequential patterns.
     The PrefixSpan algorithm is described in Jian Pei et al (2001) [1]_
@@ -153,13 +144,7 @@ class PrefixSpan:
     """
 
     @classmethod
-    def train(
-        cls,
-        data: RDD[List[List[T]]],
-        minSupport: float = 0.1,
-        maxPatternLength: int = 10,
-        maxLocalProjDBSize: int = 32000000,
-    ) -> PrefixSpanModel[T]:
+    def train(cls, data, minSupport=0.1, maxPatternLength=10, maxLocalProjDBSize=32000000):
         """
         Finds the complete set of frequent sequential patterns in the
         input sequences of itemsets.
@@ -187,40 +172,37 @@ class PrefixSpan:
             another iteration of distributed prefix growth is run.
             (default: 32000000)
         """
-        model = callMLlibFunc(
-            "trainPrefixSpanModel", data, minSupport, maxPatternLength, maxLocalProjDBSize
-        )
+        model = callMLlibFunc("trainPrefixSpanModel",
+                              data, minSupport, maxPatternLength, maxLocalProjDBSize)
         return PrefixSpanModel(model)
 
-    class FreqSequence(NamedTuple):
+    class FreqSequence(namedtuple("FreqSequence", ["sequence", "freq"])):
         """
         Represents a (sequence, freq) tuple.
 
         .. versionadded:: 1.6.0
         """
 
-        sequence: List[List[Any]]
-        freq: int
 
-
-def _test() -> None:
+def _test():
     import doctest
     from pyspark.sql import SparkSession
     import pyspark.mllib.fpm
-
     globs = pyspark.mllib.fpm.__dict__.copy()
-    spark = SparkSession.builder.master("local[4]").appName("mllib.fpm tests").getOrCreate()
-    globs["sc"] = spark.sparkContext
+    spark = SparkSession.builder\
+        .master("local[4]")\
+        .appName("mllib.fpm tests")\
+        .getOrCreate()
+    globs['sc'] = spark.sparkContext
     import tempfile
 
     temp_path = tempfile.mkdtemp()
-    globs["temp_path"] = temp_path
+    globs['temp_path'] = temp_path
     try:
         (failure_count, test_count) = doctest.testmod(globs=globs, optionflags=doctest.ELLIPSIS)
         spark.stop()
     finally:
         from shutil import rmtree
-
         try:
             rmtree(temp_path)
         except OSError:

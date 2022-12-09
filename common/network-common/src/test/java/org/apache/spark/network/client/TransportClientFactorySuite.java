@@ -218,12 +218,11 @@ public class TransportClientFactorySuite {
     }
   }
 
-  @Test
-  public void closeFactoryBeforeCreateClient() {
+  @Test(expected = IOException.class)
+  public void closeFactoryBeforeCreateClient() throws IOException, InterruptedException {
     TransportClientFactory factory = context.createClientFactory();
     factory.close();
-    Assert.assertThrows(IOException.class,
-      () -> factory.createClient(TestUtils.getLocalHost(), server1.getPort()));
+    factory.createClient(TestUtils.getLocalHost(), server1.getPort());
   }
 
   @Test
@@ -232,8 +231,11 @@ public class TransportClientFactorySuite {
     TransportServer server = context.createServer();
     int unreachablePort = server.getPort();
     server.close();
-    Assert.assertThrows(IOException.class,
-      () -> factory.createClient(TestUtils.getLocalHost(), unreachablePort, true));
+    try {
+      factory.createClient(TestUtils.getLocalHost(), unreachablePort, true);
+    } catch (Exception e) {
+      assert(e instanceof IOException);
+    }
     Assert.assertThrows("fail this connection directly", IOException.class,
       () -> factory.createClient(TestUtils.getLocalHost(), unreachablePort, true));
   }

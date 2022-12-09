@@ -26,9 +26,10 @@ import org.apache.spark.ml.param._
 import org.apache.spark.ml.regression.{FactorizationMachines, FactorizationMachinesParams}
 import org.apache.spark.ml.regression.FactorizationMachines._
 import org.apache.spark.ml.util._
-import org.apache.spark.ml.util.DatasetUtils._
 import org.apache.spark.ml.util.Instrumentation.instrumented
-import org.apache.spark.mllib.linalg.{Vectors => OldVectors}
+import org.apache.spark.mllib.linalg.{Vector => OldVector}
+import org.apache.spark.mllib.linalg.VectorImplicits._
+import org.apache.spark.rdd.RDD
 import org.apache.spark.sql._
 import org.apache.spark.storage.StorageLevel
 
@@ -190,16 +191,12 @@ class FMClassifier @Since("3.0.0") (
       miniBatchFraction, initStd, maxIter, stepSize, tol, solver, thresholds)
     instr.logNumClasses(numClasses)
 
-    val numFeatures = getNumFeatures(dataset, $(featuresCol))
+    val numFeatures = MetadataUtils.getNumFeatures(dataset, $(featuresCol))
     instr.logNumFeatures(numFeatures)
 
     val handlePersistence = dataset.storageLevel == StorageLevel.NONE
-
-    val data = dataset.select(
-      checkClassificationLabels($(labelCol), Some(2)),
-      checkNonNanVectors($(featuresCol))
-    ).rdd.map { case Row(l: Double, v: Vector) => (l, OldVectors.fromML(v))
-    }.setName("training instances")
+    val labeledPoint = extractLabeledPoints(dataset, numClasses)
+    val data: RDD[(Double, OldVector)] = labeledPoint.map(x => (x.label, x.features))
 
     if (handlePersistence) data.persist(StorageLevel.MEMORY_AND_DISK)
 

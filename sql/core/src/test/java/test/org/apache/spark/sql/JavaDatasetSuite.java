@@ -47,7 +47,8 @@ import org.apache.spark.sql.test.TestSparkSession;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.util.LongAccumulator;
 
-import static org.apache.spark.sql.functions.*;
+import static org.apache.spark.sql.functions.col;
+import static org.apache.spark.sql.functions.expr;
 import static org.apache.spark.sql.types.DataTypes.*;
 
 public class JavaDatasetSuite implements Serializable {
@@ -279,7 +280,7 @@ public class JavaDatasetSuite implements Serializable {
     Assert.assertTrue(prevState.isUpdated());
     Assert.assertFalse(prevState.isRemoved());
     Assert.assertTrue(prevState.exists());
-    Assert.assertEquals(Integer.valueOf(9), prevState.get());
+    Assert.assertEquals(new Integer(9), prevState.get());
     Assert.assertEquals(0L, prevState.getCurrentProcessingTimeMs());
     Assert.assertEquals(1000L, prevState.getCurrentWatermarkMs());
     Assert.assertEquals(Optional.of(1500L), prevState.getTimeoutTimestampMs());
@@ -289,7 +290,7 @@ public class JavaDatasetSuite implements Serializable {
     Assert.assertTrue(prevState.isUpdated());
     Assert.assertFalse(prevState.isRemoved());
     Assert.assertTrue(prevState.exists());
-    Assert.assertEquals(Integer.valueOf(18), prevState.get());
+    Assert.assertEquals(new Integer(18), prevState.get());
 
     prevState = TestGroupState.create(
       Optional.of(9), GroupStateTimeout.EventTimeTimeout(), 0L, Optional.of(1000L), true);
@@ -388,60 +389,6 @@ public class JavaDatasetSuite implements Serializable {
       Encoders.STRING());
 
     Assert.assertEquals(asSet("1a#2", "3foobar#6", "5#10"), toSet(cogrouped.collectAsList()));
-  }
-
-  @Test
-  public void testObservation() {
-    // SPARK-34806: tests the Observation Java API and Dataset.observe(Observation, Column, Column*)
-    Observation namedObservation = new Observation("named");
-    Observation unnamedObservation = new Observation();
-
-    Dataset<Long> df = spark
-      .range(100)
-      .observe(
-        namedObservation,
-        min(col("id")).as("min_val"),
-        max(col("id")).as("max_val"),
-        sum(col("id")).as("sum_val"),
-        count(when(pmod(col("id"), lit(2)).$eq$eq$eq(0), 1)).as("num_even")
-      )
-      .observe(
-        unnamedObservation,
-        avg(col("id")).cast("int").as("avg_val")
-      );
-
-    df.collect();
-    Map<String, Object> namedMetrics = null;
-    Map<String, Object> unnamedMetrics = null;
-
-    try {
-      namedMetrics = namedObservation.getAsJava();
-      unnamedMetrics = unnamedObservation.getAsJava();
-    } catch (InterruptedException e) {
-      Assert.fail();
-    }
-    Map<String, Object> expectedNamedMetrics = new HashMap<String, Object>() {{
-      put("min_val", 0L);
-      put("max_val", 99L);
-      put("sum_val", 4950L);
-      put("num_even", 50L);
-    }};
-    Assert.assertEquals(expectedNamedMetrics, namedMetrics);
-
-    Map<String, Object> expectedUnnamedMetrics = new HashMap<String, Object>() {{
-      put("avg_val", 49);
-    }};
-    Assert.assertEquals(expectedUnnamedMetrics, unnamedMetrics);
-
-    // we can get the result multiple times
-    try {
-      namedMetrics = namedObservation.getAsJava();
-      unnamedMetrics = unnamedObservation.getAsJava();
-    } catch (InterruptedException e) {
-      Assert.fail();
-    }
-    Assert.assertEquals(expectedNamedMetrics, namedMetrics);
-    Assert.assertEquals(expectedUnnamedMetrics, unnamedMetrics);
   }
 
   @Test
@@ -608,14 +555,6 @@ public class JavaDatasetSuite implements Serializable {
   }
 
   @Test
-  public void testLocalDateTimeEncoder() {
-    Encoder<LocalDateTime> encoder = Encoders.LOCALDATETIME();
-    List<LocalDateTime> data = Arrays.asList(LocalDateTime.of(1, 1, 1, 1, 1));
-    Dataset<LocalDateTime> ds = spark.createDataset(data, encoder);
-    Assert.assertEquals(data, ds.collectAsList());
-  }
-
-  @Test
   public void testDurationEncoder() {
     Encoder<Duration> encoder = Encoders.DURATION();
     List<Duration> data = Arrays.asList(Duration.ofDays(0));
@@ -707,16 +646,14 @@ public class JavaDatasetSuite implements Serializable {
    */
   private static class PrivateClassTest { }
 
-  @Test
+  @Test(expected = UnsupportedOperationException.class)
   public void testJavaEncoderErrorMessageForPrivateClass() {
-    Assert.assertThrows(UnsupportedOperationException.class,
-      () -> Encoders.javaSerialization(PrivateClassTest.class));
+    Encoders.javaSerialization(PrivateClassTest.class);
   }
 
-  @Test
+  @Test(expected = UnsupportedOperationException.class)
   public void testKryoEncoderErrorMessageForPrivateClass() {
-    Assert.assertThrows(UnsupportedOperationException.class,
-      () -> Encoders.kryo(PrivateClassTest.class));
+    Encoders.kryo(PrivateClassTest.class);
   }
 
   public static class SimpleJavaBean implements Serializable {
@@ -1603,7 +1540,7 @@ public class JavaDatasetSuite implements Serializable {
     A("www.elgoog.com"),
     B("www.google.com");
 
-    private final String url;
+    private String url;
 
     MyEnum(String url) {
       this.url = url;
@@ -1611,6 +1548,10 @@ public class JavaDatasetSuite implements Serializable {
 
     public String getUrl() {
       return url;
+    }
+
+    public void setUrl(String url) {
+      this.url = url;
     }
   }
 
@@ -1704,7 +1645,7 @@ public class JavaDatasetSuite implements Serializable {
     }
   }
 
-  public static class CircularReference3Bean implements Serializable {
+  public class CircularReference3Bean implements Serializable {
     private CircularReference3Bean[] child;
 
     public CircularReference3Bean[] getChild() {
@@ -1749,33 +1690,29 @@ public class JavaDatasetSuite implements Serializable {
     }
   }
 
-  @Test
+  @Test(expected = UnsupportedOperationException.class)
   public void testCircularReferenceBean1() {
     CircularReference1Bean bean = new CircularReference1Bean();
-    Assert.assertThrows(UnsupportedOperationException.class,
-      () -> spark.createDataset(Arrays.asList(bean), Encoders.bean(CircularReference1Bean.class)));
+    spark.createDataset(Arrays.asList(bean), Encoders.bean(CircularReference1Bean.class));
   }
 
-  @Test
+  @Test(expected = UnsupportedOperationException.class)
   public void testCircularReferenceBean2() {
     CircularReference3Bean bean = new CircularReference3Bean();
-    Assert.assertThrows(UnsupportedOperationException.class,
-      () -> spark.createDataset(Arrays.asList(bean), Encoders.bean(CircularReference3Bean.class)));
+    spark.createDataset(Arrays.asList(bean), Encoders.bean(CircularReference3Bean.class));
   }
 
-  @Test
+  @Test(expected = UnsupportedOperationException.class)
   public void testCircularReferenceBean3() {
     CircularReference4Bean bean = new CircularReference4Bean();
-    Assert.assertThrows(UnsupportedOperationException.class,
-      () -> spark.createDataset(Arrays.asList(bean), Encoders.bean(CircularReference4Bean.class)));
+    spark.createDataset(Arrays.asList(bean), Encoders.bean(CircularReference4Bean.class));
   }
 
-  @Test
+  @Test(expected = RuntimeException.class)
   public void testNullInTopLevelBean() {
     NestedSmallBean bean = new NestedSmallBean();
     // We cannot set null in top-level bean
-    Assert.assertThrows(RuntimeException.class,
-      () -> spark.createDataset(Arrays.asList(bean, null), Encoders.bean(NestedSmallBean.class)));
+    spark.createDataset(Arrays.asList(bean, null), Encoders.bean(NestedSmallBean.class));
   }
 
   @Test

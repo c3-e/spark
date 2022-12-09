@@ -40,7 +40,4 @@ public interface Literal<T> extends Expression {
    * Returns the SQL data type of the literal.
    */
   DataType dataType();
-
-  @Override
-  default Expression[] children() { return EMPTY_EXPRESSION; }
 }

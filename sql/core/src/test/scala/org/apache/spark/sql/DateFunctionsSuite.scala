@@ -23,7 +23,7 @@ import java.time.{Instant, LocalDateTime, ZoneId}
 import java.util.{Locale, TimeZone}
 import java.util.concurrent.TimeUnit
 
-import org.apache.spark.{SparkConf, SparkException, SparkUpgradeException}
+import org.apache.spark.{SparkException, SparkUpgradeException}
 import org.apache.spark.sql.catalyst.util.DateTimeTestUtils.{CEST, LA}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.functions._
@@ -35,33 +35,14 @@ import org.apache.spark.unsafe.types.CalendarInterval
 class DateFunctionsSuite extends QueryTest with SharedSparkSession {
   import testImplicits._
 
-  // The test cases which throw exceptions under ANSI mode are covered by date.sql and
-  // datetime-parsing-invalid.sql in org.apache.spark.sql.SQLQueryTestSuite.
-  override def sparkConf: SparkConf = super.sparkConf.set(SQLConf.ANSI_ENABLED.key, "false")
-
   test("function current_date") {
     val df1 = Seq((1, 2), (3, 1)).toDF("a", "b")
     val d0 = DateTimeUtils.currentDate(ZoneId.systemDefault())
     val d1 = DateTimeUtils.fromJavaDate(df1.select(current_date()).collect().head.getDate(0))
     val d2 = DateTimeUtils.fromJavaDate(
       sql("""SELECT CURRENT_DATE()""").collect().head.getDate(0))
-    val d3 = DateTimeUtils.fromJavaDate(
-      sql("""SELECT CURDATE()""").collect().head.getDate(0))
-    val d4 = DateTimeUtils.currentDate(ZoneId.systemDefault())
-    assert(d0 <= d1 && d1 <= d2 && d2 <= d3 && d3 <= d4 && d4 - d0 <= 1)
-
-    checkError(
-      exception = intercept[AnalysisException] {
-        sql("SELECT CURDATE(1)")
-      },
-      errorClass = "WRONG_NUM_ARGS",
-      parameters = Map(
-        "functionName" -> "`curdate`",
-        "expectedNum" -> "0",
-        "actualNum" -> "1"
-      ),
-      context = ExpectedContext("", "", 7, 16, "CURDATE(1)")
-    )
+    val d3 = DateTimeUtils.currentDate(ZoneId.systemDefault())
+    assert(d0 <= d1 && d1 <= d2 && d2 <= d3 && d3 - d0 <= 1)
   }
 
   test("function current_timestamp and now") {
@@ -272,9 +253,6 @@ class DateFunctionsSuite extends QueryTest with SharedSparkSession {
     checkAnswer(df.selectExpr("DATE_ADD(null, 1)"), Seq(Row(null), Row(null)))
     checkAnswer(
       df.selectExpr("""DATE_ADD(d, 1)"""),
-      Seq(Row(Date.valueOf("2015-06-02")), Row(Date.valueOf("2015-06-03"))))
-    checkAnswer(
-      df.selectExpr("""DATEADD(d, 1)"""),
       Seq(Row(Date.valueOf("2015-06-02")), Row(Date.valueOf("2015-06-03"))))
   }
 
@@ -534,7 +512,7 @@ class DateFunctionsSuite extends QueryTest with SharedSparkSession {
       Seq(Row(null), Row(null), Row(null)))
     val e = intercept[SparkUpgradeException](df.select(to_date(col("s"), "yyyy-dd-aa")).collect())
     assert(e.getCause.isInstanceOf[IllegalArgumentException])
-    assert(e.getMessage.contains("You may get a different result due to the upgrading to Spark"))
+    assert(e.getMessage.contains("You may get a different result due to the upgrading of Spark"))
 
     // February
     val x1 = "2016-02-29"
@@ -717,7 +695,7 @@ class DateFunctionsSuite extends QueryTest with SharedSparkSession {
           val e = intercept[SparkUpgradeException](invalid.collect())
           assert(e.getCause.isInstanceOf[IllegalArgumentException])
           assert(
-            e.getMessage.contains("You may get a different result due to the upgrading to Spark"))
+            e.getMessage.contains("You may get a different result due to the upgrading of Spark"))
         }
 
         // February
@@ -839,7 +817,6 @@ class DateFunctionsSuite extends QueryTest with SharedSparkSession {
     checkAnswer(df.select(datediff(col("a"), col("c"))), Seq(Row(1), Row(1)))
     checkAnswer(df.select(datediff(col("d"), col("b"))), Seq(Row(-1), Row(-1)))
     checkAnswer(df.selectExpr("datediff(a, d)"), Seq(Row(1), Row(1)))
-    checkAnswer(df.selectExpr("date_diff(a, d)"), Seq(Row(1), Row(1)))
   }
 
   test("to_timestamp with microseconds precision") {

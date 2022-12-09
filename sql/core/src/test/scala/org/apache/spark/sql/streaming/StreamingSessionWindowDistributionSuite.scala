@@ -27,15 +27,15 @@ import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
 import org.apache.spark.sql.execution.streaming.{MemoryStream, SessionWindowStateStoreRestoreExec, SessionWindowStateStoreSaveExec}
 import org.apache.spark.sql.functions.{count, session_window}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.streaming.util.StatefulOpClusteredDistributionTestHelper
+import org.apache.spark.sql.streaming.util.HashClusteredDistributionTestHelper
 import org.apache.spark.util.Utils
 
 class StreamingSessionWindowDistributionSuite extends StreamTest
-  with StatefulOpClusteredDistributionTestHelper with Logging {
+  with HashClusteredDistributionTestHelper with Logging {
 
   import testImplicits._
 
-  test("SPARK-38204: session window aggregation should require StatefulOpClusteredDistribution " +
+  test("SPARK-38204: session window aggregation should require HashClusteredDistribution " +
     "from children") {
 
     withSQLConf(
@@ -53,8 +53,7 @@ class StreamingSessionWindowDistributionSuite extends StreamTest
 
       val sessionUpdates = events
         .repartition($"userId")
-        .groupBy(session_window($"eventTime", "10 seconds") as Symbol("session"),
-          $"sessionId", $"userId")
+        .groupBy(session_window($"eventTime", "10 seconds") as 'session, 'sessionId, 'userId)
         .agg(count("*").as("numEvents"))
         .selectExpr("sessionId", "userId", "CAST(session.start AS LONG)",
           "CAST(session.end AS LONG)",
@@ -79,7 +78,7 @@ class StreamingSessionWindowDistributionSuite extends StreamTest
 
           assert(operators.nonEmpty)
           operators.foreach { stateOp =>
-            assert(requireStatefulOpClusteredDistribution(stateOp, Seq(Seq("sessionId", "userId")),
+            assert(requireHashClusteredDistribution(stateOp, Seq(Seq("sessionId", "userId")),
               numPartitions))
             assert(hasDesiredHashPartitioningInChildren(stateOp, Seq(Seq("sessionId", "userId")),
               numPartitions))
@@ -128,8 +127,7 @@ class StreamingSessionWindowDistributionSuite extends StreamTest
 
       val sessionUpdates = events
         .repartition($"userId")
-        .groupBy(session_window($"eventTime", "10 seconds") as Symbol("session"),
-          $"sessionId", $"userId")
+        .groupBy(session_window($"eventTime", "10 seconds") as 'session, 'sessionId, 'userId)
         .agg(count("*").as("numEvents"))
         .selectExpr("sessionId", "userId", "CAST(session.start AS LONG)",
           "CAST(session.end AS LONG)",

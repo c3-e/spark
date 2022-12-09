@@ -18,8 +18,8 @@
 package org.apache.spark.sql.catalyst.expressions.codegen
 
 import java.io.ByteArrayInputStream
+import java.util.{Map => JavaMap}
 
-import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -27,8 +27,8 @@ import scala.util.control.NonFatal
 
 import com.google.common.cache.{CacheBuilder, CacheLoader}
 import com.google.common.util.concurrent.{ExecutionError, UncheckedExecutionException}
-import org.codehaus.commons.compiler.{CompileException, InternalCompilerException}
-import org.codehaus.janino.ClassBodyEvaluator
+import org.codehaus.commons.compiler.CompileException
+import org.codehaus.janino.{ByteArrayClassLoader, ClassBodyEvaluator, InternalCompilerException, SimpleCompiler}
 import org.codehaus.janino.util.ClassFile
 
 import org.apache.spark.{TaskContext, TaskKilledException}
@@ -38,7 +38,6 @@ import org.apache.spark.metrics.source.CodegenMetrics
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
-import org.apache.spark.sql.catalyst.types._
 import org.apache.spark.sql.catalyst.util.{ArrayData, MapData, SQLOrderingUtil}
 import org.apache.spark.sql.catalyst.util.DateTimeConstants.NANOS_PER_MILLIS
 import org.apache.spark.sql.errors.QueryExecutionErrors
@@ -629,7 +628,7 @@ class CodegenContext extends Logging {
     case udt: UserDefinedType[_] => genEqual(udt.sqlType, c1, c2)
     case NullType => "false"
     case _ =>
-      throw QueryExecutionErrors.cannotGenerateCodeForIncomparableTypeError(
+      throw QueryExecutionErrors.cannotGenerateCodeForUncomparableTypeError(
         "equality", dataType)
   }
 
@@ -651,7 +650,7 @@ class CodegenContext extends Logging {
       s"$clsName.compareFloats($c1, $c2)"
     // use c1 - c2 may overflow
     case dt: DataType if isPrimitiveType(dt) => s"($c1 > $c2 ? 1 : $c1 < $c2 ? -1 : 0)"
-    case BinaryType => s"org.apache.spark.unsafe.types.ByteArray.compareBinary($c1, $c2)"
+    case BinaryType => s"org.apache.spark.sql.catalyst.util.TypeUtils.compareBinary($c1, $c2)"
     case NullType => "0"
     case array: ArrayType =>
       val elementType = array.elementType
@@ -720,7 +719,7 @@ class CodegenContext extends Logging {
     case other if other.isInstanceOf[AtomicType] => s"$c1.compare($c2)"
     case udt: UserDefinedType[_] => genComp(udt.sqlType, c1, c2)
     case _ =>
-      throw QueryExecutionErrors.cannotGenerateCodeForIncomparableTypeError("compare", dataType)
+      throw QueryExecutionErrors.cannotGenerateCodeForUncomparableTypeError("compare", dataType)
   }
 
   /**
@@ -1195,13 +1194,10 @@ class CodegenContext extends Logging {
         }
         (localSubExprEliminationExprs, exprCodesNeedEvaluate)
       } else {
-        val errMsg = "Failed to split subexpression code into small functions because " +
-          "the parameter length of at least one split function went over the JVM limit: " +
-          MAX_JVM_METHOD_PARAMS_LENGTH
         if (Utils.isTesting) {
-          throw new IllegalStateException(errMsg)
+          throw QueryExecutionErrors.failedSplitSubExpressionError(MAX_JVM_METHOD_PARAMS_LENGTH)
         } else {
-          logInfo(errMsg)
+          logInfo(QueryExecutionErrors.failedSplitSubExpressionMsg(MAX_JVM_METHOD_PARAMS_LENGTH))
           (localSubExprEliminationExprsForNonSplit, Seq.empty)
         }
       }
@@ -1254,7 +1250,7 @@ class CodegenContext extends Logging {
       // at least two nodes) as the cost of doing it is expected to be low.
 
       val subExprCode = s"${addNewFunction(fnName, fn)}($INPUT_ROW);"
-      subexprFunctions += subExprCode
+      subexprFunctions += s"${addNewFunction(fnName, fn)}($INPUT_ROW);"
       val state = SubExprEliminationState(
         ExprCode(code"$subExprCode",
           JavaCode.isNullGlobal(isNull),
@@ -1524,7 +1520,14 @@ object CodeGenerator extends Logging {
    */
   private def updateAndGetCompilationStats(evaluator: ClassBodyEvaluator): ByteCodeStats = {
     // First retrieve the generated classes.
-    val classes = evaluator.getBytecodes.asScala
+    val classes = {
+      val resultField = classOf[SimpleCompiler].getDeclaredField("result")
+      resultField.setAccessible(true)
+      val loader = resultField.get(evaluator).asInstanceOf[ByteArrayClassLoader]
+      val classesField = loader.getClass.getDeclaredField("classes")
+      classesField.setAccessible(true)
+      classesField.get(loader).asInstanceOf[JavaMap[String, Array[Byte]]].asScala
+    }
 
     // Then walk the classes to get at the method bytecode.
     val codeAttr = Utils.classForName("org.codehaus.janino.util.ClassFile$CodeAttribute")
@@ -1619,23 +1622,20 @@ object CodeGenerator extends Logging {
   /**
    * Returns the specialized code to access a value from `inputRow` at `ordinal`.
    */
-  @tailrec
   def getValue(input: String, dataType: DataType, ordinal: String): String = {
     val jt = javaType(dataType)
     dataType match {
-      case udt: UserDefinedType[_] => getValue(input, udt.sqlType, ordinal)
       case _ if isPrimitiveType(jt) => s"$input.get${primitiveTypeName(jt)}($ordinal)"
-      case _ => dataType.physicalDataType match {
-        case _: PhysicalArrayType => s"$input.getArray($ordinal)"
-        case PhysicalBinaryType => s"$input.getBinary($ordinal)"
-        case PhysicalCalendarIntervalType => s"$input.getInterval($ordinal)"
-        case t: PhysicalDecimalType => s"$input.getDecimal($ordinal, ${t.precision}, ${t.scale})"
-        case _: PhysicalMapType => s"$input.getMap($ordinal)"
-        case PhysicalNullType => "null"
-        case PhysicalStringType => s"$input.getUTF8String($ordinal)"
-        case t: PhysicalStructType => s"$input.getStruct($ordinal, ${t.fields.size})"
-        case _ => s"($jt)$input.get($ordinal, null)"
-      }
+      case t: DecimalType => s"$input.getDecimal($ordinal, ${t.precision}, ${t.scale})"
+      case StringType => s"$input.getUTF8String($ordinal)"
+      case BinaryType => s"$input.getBinary($ordinal)"
+      case CalendarIntervalType => s"$input.getInterval($ordinal)"
+      case t: StructType => s"$input.getStruct($ordinal, ${t.size})"
+      case _: ArrayType => s"$input.getArray($ordinal)"
+      case _: MapType => s"$input.getMap($ordinal)"
+      case NullType => "null"
+      case udt: UserDefinedType[_] => getValue(input, udt.sqlType, ordinal)
+      case _ => s"($jt)$input.get($ordinal, null)"
     }
   }
 
@@ -1695,7 +1695,6 @@ object CodeGenerator extends Logging {
   /**
    * Returns the code to update a column in Row for a given DataType.
    */
-  @tailrec
   def setColumn(row: String, dataType: DataType, ordinal: Int, value: String): String = {
     val jt = javaType(dataType)
     dataType match {
@@ -1820,17 +1819,12 @@ object CodeGenerator extends Logging {
    * Returns the specialized code to access a value from a column vector for a given `DataType`.
    */
   def getValueFromVector(vector: String, dataType: DataType, rowId: String): String = {
-    val sqlDataType = dataType match {
-      case udt: UserDefinedType[_] => udt.sqlType
-      case _ => dataType
-    }
-
-    if (sqlDataType.isInstanceOf[StructType]) {
+    if (dataType.isInstanceOf[StructType]) {
       // `ColumnVector.getStruct` is different from `InternalRow.getStruct`, it only takes an
       // `ordinal` parameter.
       s"$vector.getStruct($rowId)"
     } else {
-      getValue(vector, sqlDataType, rowId)
+      getValue(vector, dataType, rowId)
     }
   }
 
@@ -1904,29 +1898,26 @@ object CodeGenerator extends Logging {
    * Returns the Java type for a DataType.
    */
   def javaType(dt: DataType): String = dt match {
+    case BooleanType => JAVA_BOOLEAN
+    case ByteType => JAVA_BYTE
+    case ShortType => JAVA_SHORT
+    case IntegerType | DateType | _: YearMonthIntervalType => JAVA_INT
+    case LongType | TimestampType | TimestampNTZType | _: DayTimeIntervalType => JAVA_LONG
+    case FloatType => JAVA_FLOAT
+    case DoubleType => JAVA_DOUBLE
+    case _: DecimalType => "Decimal"
+    case BinaryType => "byte[]"
+    case StringType => "UTF8String"
+    case CalendarIntervalType => "CalendarInterval"
+    case _: StructType => "InternalRow"
+    case _: ArrayType => "ArrayData"
+    case _: MapType => "MapData"
     case udt: UserDefinedType[_] => javaType(udt.sqlType)
     case ObjectType(cls) if cls.isArray => s"${javaType(ObjectType(cls.getComponentType))}[]"
     case ObjectType(cls) => cls.getName
-    case _ => dt.physicalDataType match {
-      case _: PhysicalArrayType => "ArrayData"
-      case PhysicalBinaryType => "byte[]"
-      case PhysicalBooleanType => JAVA_BOOLEAN
-      case PhysicalByteType => JAVA_BYTE
-      case PhysicalCalendarIntervalType => "CalendarInterval"
-      case PhysicalIntegerType => JAVA_INT
-      case _: PhysicalDecimalType => "Decimal"
-      case PhysicalDoubleType => JAVA_DOUBLE
-      case PhysicalFloatType => JAVA_FLOAT
-      case PhysicalLongType => JAVA_LONG
-      case _: PhysicalMapType => "MapData"
-      case PhysicalShortType => JAVA_SHORT
-      case PhysicalStringType => "UTF8String"
-      case _: PhysicalStructType => "InternalRow"
-      case _ => "Object"
-    }
+    case _ => "Object"
   }
 
-  @tailrec
   def javaClass(dt: DataType): Class[_] = dt match {
     case BooleanType => java.lang.Boolean.TYPE
     case ByteType => java.lang.Byte.TYPE

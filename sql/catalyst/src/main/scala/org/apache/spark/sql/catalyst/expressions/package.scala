@@ -21,9 +21,8 @@ import java.util.Locale
 
 import com.google.common.collect.Maps
 
+import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.analysis.{Resolver, UnresolvedAttribute}
-import org.apache.spark.sql.catalyst.util.MetadataColumnHelper
-import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.types.{StructField, StructType}
 
 /**
@@ -266,7 +265,7 @@ package object expressions  {
         case (Seq(), _) =>
           val name = nameParts.head
           val attributes = collectMatches(name, direct.get(name.toLowerCase(Locale.ROOT)))
-          (attributes.filterNot(_.qualifiedAccessOnly), nameParts.tail)
+          (attributes, nameParts.tail)
         case _ => matches
       }
     }
@@ -315,12 +314,10 @@ package object expressions  {
       var i = nameParts.length - 1
       while (i >= 0 && candidates.isEmpty) {
         val name = nameParts(i)
-        val attrsToLookup = if (i == 0) {
-          direct.get(name.toLowerCase(Locale.ROOT)).map(_.filterNot(_.qualifiedAccessOnly))
-        } else {
-          direct.get(name.toLowerCase(Locale.ROOT))
-        }
-        candidates = collectMatches(name, nameParts.take(i), attrsToLookup)
+        candidates = collectMatches(
+          name,
+          nameParts.take(i),
+          direct.get(name.toLowerCase(Locale.ROOT)))
         if (candidates.nonEmpty) {
           nestedFields = nameParts.takeRight(nameParts.length - i - 1)
         }
@@ -368,7 +365,8 @@ package object expressions  {
 
         case ambiguousReferences =>
           // More than one match.
-          throw QueryCompilationErrors.ambiguousReferenceError(name, ambiguousReferences)
+          val referenceNames = ambiguousReferences.map(_.qualifiedName).mkString(", ")
+          throw new AnalysisException(s"Reference '$name' is ambiguous, could be: $referenceNames.")
       }
     }
   }

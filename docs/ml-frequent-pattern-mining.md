@@ -46,8 +46,6 @@ PFP distributes the work of growing FP-trees based on the suffixes of transactio
 and hence is more scalable than a single-machine implementation.
 We refer users to the papers for more details.
 
-FP-growth operates on _itemsets_. An itemset is an unordered collection of unique items. Spark does not have a _set_ type, so itemsets are represented as arrays.
-
 `spark.ml`'s FP-growth implementation takes the following (hyper-)parameters:
 
 * `minSupport`: the minimum support for an itemset to be identified as frequent.
@@ -62,15 +60,9 @@ FP-growth operates on _itemsets_. An itemset is an unordered collection of uniqu
 
 The `FPGrowthModel` provides:
 
-* `freqItemsets`: frequent itemsets in the format of a DataFrame with the following columns:
-  - `items: array`: A given itemset.
-  - `freq: long`: A count of how many times this itemset was seen, given the configured model parameters.
-* `associationRules`: association rules generated with confidence above `minConfidence`, in the format of a DataFrame with the following columns:
-  - `antecedent: array`: The itemset that is the hypothesis of the association rule.
-  - `consequent: array`: An itemset that always contains a single element representing the conclusion of the association rule.
-  - `confidence: double`: Refer to `minConfidence` above for a definition of `confidence`.
-  - `lift: double`: A measure of how well the antecedent predicts the consequent, calculated as `support(antecedent U consequent) / (support(antecedent) x support(consequent))`
-  - `support: double`: Refer to `minSupport` above for a definition of `support`.
+* `freqItemsets`: frequent itemsets in the format of DataFrame("items"[Array], "freq"[Long])
+* `associationRules`: association rules generated with confidence above `minConfidence`, in the format of 
+  DataFrame("antecedent"[Array], "consequent"[Array], "confidence"[Double]).
 * `transform`: For each transaction in `itemsCol`, the `transform` method will compare its items against the antecedents
   of each association rule. If the record contains all the antecedents of a specific association rule, the rule
   will be considered as applicable and its consequents will be added to the prediction result. The transform
@@ -102,7 +94,7 @@ Refer to the [Python API docs](api/python/reference/api/pyspark.ml.fpm.FPGrowth.
 
 <div data-lang="r" markdown="1">
 
-Refer to the [R API docs](api/R/reference/spark.fpGrowth.html) for more details.
+Refer to the [R API docs](api/R/spark.fpGrowth.html) for more details.
 
 {% include_example r/ml/fpm.R %}
 </div>
@@ -155,7 +147,7 @@ Refer to the [Python API docs](api/python/reference/api/pyspark.ml.fpm.PrefixSpa
 
 <div data-lang="r" markdown="1">
 
-Refer to the [R API docs](api/R/reference/spark.prefixSpan.html) for more details.
+Refer to the [R API docs](api/R/spark.prefixSpan.html) for more details.
 
 {% include_example r/ml/prefixSpan.R %}
 </div>

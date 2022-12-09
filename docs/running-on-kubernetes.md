@@ -44,7 +44,7 @@ Cluster administrators should use [Pod Security Policies](https://kubernetes.io/
 
 # Prerequisites
 
-* A running Kubernetes cluster at version >= 1.22 with access configured to it using
+* A running Kubernetes cluster at version >= 1.20 with access configured to it using
 [kubectl](https://kubernetes.io/docs/user-guide/prereqs/).  If you do not already have a working Kubernetes cluster,
 you may set up a test cluster on your local machine using
 [minikube](https://kubernetes.io/docs/getting-started-guides/minikube/).
@@ -112,8 +112,6 @@ $ ./bin/docker-image-tool.sh -r <repo> -t my-tag -p ./kubernetes/dockerfiles/spa
 # To build additional SparkR docker image
 $ ./bin/docker-image-tool.sh -r <repo> -t my-tag -R ./kubernetes/dockerfiles/spark/bindings/R/Dockerfile build
 ```
-
-You can also use the [Apache Spark Docker images](https://hub.docker.com/r/apache/spark) (such as `apache/spark:<version>`) directly.
 
 ## Cluster Mode
 
@@ -361,7 +359,7 @@ If no volume is set as local storage, Spark uses temporary scratch space to spil
 
 `emptyDir` volumes use the nodes backing storage for ephemeral storage by default, this behaviour may not be appropriate for some compute environments.  For example if you have diskless nodes with remote storage mounted over a network, having lots of executors doing IO to this remote storage may actually degrade performance.
 
-In this case it may be desirable to set `spark.kubernetes.local.dirs.tmpfs=true` in your configuration which will cause the `emptyDir` volumes to be configured as `tmpfs` i.e. RAM backed volumes.  When configured like this Spark's local storage usage will count towards your pods memory usage therefore you may wish to increase your memory requests by increasing the value of `spark.{driver,executor}.memoryOverheadFactor` as appropriate.
+In this case it may be desirable to set `spark.kubernetes.local.dirs.tmpfs=true` in your configuration which will cause the `emptyDir` volumes to be configured as `tmpfs` i.e. RAM backed volumes.  When configured like this Spark's local storage usage will count towards your pods memory usage therefore you may wish to increase your memory requests by increasing the value of `spark.kubernetes.memoryOverheadFactor` as appropriate.
 
 
 ## Introspection and Debugging
@@ -857,17 +855,6 @@ See the [configuration page](configuration.html) for information on Spark config
   <td>2.3.0</td>
 </tr>
 <tr>
-  <td><code>spark.kubernetes.driver.service.label.[LabelName]</code></td>
-  <td>(none)</td>
-  <td>
-    Add the Kubernetes <a href="https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/">label</a> specified by <code>LabelName</code> to the driver service.
-    For example, <code>spark.kubernetes.driver.service.label.something=true</code>.
-    Note that Spark also adds its own labels to the driver service
-    for bookkeeping purposes.
-  </td>
-  <td>3.4.0</td>
-</tr>
-<tr>
   <td><code>spark.kubernetes.driver.service.annotation.[AnnotationName]</code></td>
   <td>(none)</td>
   <td>
@@ -912,10 +899,7 @@ See the [configuration page](configuration.html) for information on Spark config
   <td><code>spark.kubernetes.executor.podNamePrefix</code></td>
   <td>(none)</td>
   <td>
-    Prefix to use in front of the executor pod names. It must conform the rules defined by the Kubernetes
-    <a href="https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#dns-label-names">DNS Label Names</a>.
-    The prefix will be used to generate executor pod names in the form of <code>$podNamePrefix-exec-$id</code>, where the `id` is
-    a positive int value, so the length of the `podNamePrefix` needs to be less than or equal to 47(= 63 - 10 - 6).
+    Prefix to use in front of the executor pod names.
   </td>
   <td>2.3.0</td>
 </tr>
@@ -1001,28 +985,6 @@ See the [configuration page](configuration.html) for information on Spark config
      <code>myIdentifier</code>. Multiple node selector keys can be added by setting multiple configurations with this prefix.
   </td>
   <td>2.3.0</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.driver.node.selector.[labelKey]</code></td>
-  <td>(none)</td>
-  <td>
-    Adds to the driver node selector of the driver pod, with key <code>labelKey</code> and the value as the
-    configuration's value. For example, setting <code>spark.kubernetes.driver.node.selector.identifier</code> to <code>myIdentifier</code>
-    will result in the driver pod having a node selector with key <code>identifier</code> and value
-     <code>myIdentifier</code>. Multiple driver node selector keys can be added by setting multiple configurations with this prefix.
-  </td>
-  <td>3.3.0</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.executor.node.selector.[labelKey]</code></td>
-  <td>(none)</td>
-  <td>
-    Adds to the executor node selector of the executor pods, with key <code>labelKey</code> and the value as the
-    configuration's value. For example, setting <code>spark.kubernetes.executor.node.selector.identifier</code> to <code>myIdentifier</code>
-    will result in the executors having a node selector with key <code>identifier</code> and value
-     <code>myIdentifier</code>. Multiple executor node selector keys can be added by setting multiple configurations with this prefix.
-  </td>
-  <td>3.3.0</td>
 </tr>
 <tr>
   <td><code>spark.kubernetes.driverEnv.[EnvironmentVariableName]</code></td>
@@ -1154,9 +1116,8 @@ See the [configuration page](configuration.html) for information on Spark config
   <td><code>spark.kubernetes.memoryOverheadFactor</code></td>
   <td><code>0.1</code></td>
   <td>
-    This sets the Memory Overhead Factor that will allocate memory to non-JVM memory, which includes off-heap memory allocations, non-JVM tasks, various systems processes, and <code>tmpfs</code>-based local directories when <code>spark.kubernetes.local.dirs.tmpfs</code> is <code>true</code>. For JVM-based jobs this value will default to 0.10 and 0.40 for non-JVM jobs.
+    This sets the Memory Overhead Factor that will allocate memory to non-JVM memory, which includes off-heap memory allocations, non-JVM tasks, and various systems processes. For JVM-based jobs this value will default to 0.10 and 0.40 for non-JVM jobs.
     This is done as non-JVM tasks need more non-JVM heap space and such tasks commonly fail with "Memory Overhead Exceeded" errors. This preempts this error with a higher default.
-    This will be overridden by the value set by <code>spark.driver.memoryOverheadFactor</code> and <code>spark.executor.memoryOverheadFactor</code> explicitly.
   </td>
   <td>2.4.0</td>
 </tr>
@@ -1286,14 +1247,6 @@ See the [configuration page](configuration.html) for information on Spark config
   <td>3.0.0</td>
 </tr>
 <tr>
-  <td><code>spark.kubernetes.trust.certificates</code></td>
-  <td><code>false</code></td>
-  <td>
-    If set to true then client can submit to kubernetes cluster only with token.
-  </td>
-  <td>3.2.0</td>
-</tr>
-<tr>
   <td><code>spark.kubernetes.driver.connectionTimeout</code></td>
   <td><code>10000</code></td>
   <td>
@@ -1336,47 +1289,12 @@ See the [configuration page](configuration.html) for information on Spark config
   <td>3.0.0</td>
 </tr>
 <tr>
-  <td><code>spark.kubernetes.executor.decommissionLabel</code></td>
-  <td>(none)</td>
-  <td>
-    Label to be applied to pods which are exiting or being decommissioned. Intended for use
-    with pod disruption budgets, deletion costs, and similar.
-  </td>
-  <td>3.3.0</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.executor.decommissionLabelValue</code></td>
-  <td>(none)</td>
-  <td>
-    Value to be applied with the label when
-    <code>spark.kubernetes.executor.decommissionLabel</code> is enabled.
-  </td>
-  <td>3.3.0</td>
-</tr>
-<tr>
   <td><code>spark.kubernetes.executor.scheduler.name</code></td>
   <td>(none)</td>
   <td>
 	Specify the scheduler name for each executor pod.
   </td>
   <td>3.0.0</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.driver.scheduler.name</code></td>
-  <td>(none)</td>
-  <td>
-    Specify the scheduler name for driver pod.
-  </td>
-  <td>3.3.0</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.scheduler.name</code></td>
-  <td>(none)</td>
-  <td>
-    Specify the scheduler name for driver and executor pods. If `spark.kubernetes.driver.scheduler.name` or
-    `spark.kubernetes.executor.scheduler.name` is set, will override this.
-  </td>
-  <td>3.3.0</td>
 </tr>
 <tr>
   <td><code>spark.kubernetes.configMap.maxSize</code></td>
@@ -1415,24 +1333,8 @@ See the [configuration page](configuration.html) for information on Spark config
   <td>3.2.0</td>
 </tr>
 <tr>
-  <td><code>spark.kubernetes.driver.service.ipFamilyPolicy</code></td>
-  <td><code>SingleStack</code></td>
-  <td>
-    K8s IP Family Policy for Driver Service.
-  </td>
-  <td>3.4.0</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.driver.service.ipFamilies</code></td>
-  <td><code>IPv4</code></td>
-  <td>
-    A list of IP families for K8s Driver Service.
-  </td>
-  <td>3.4.0</td>
-</tr>
-<tr>
   <td><code>spark.kubernetes.driver.ownPersistentVolumeClaim</code></td>
-  <td><code>true</code></td>
+  <td><code>false</code></td>
   <td>
     If true, driver pod becomes the owner of on-demand persistent volume claims instead of the executor pods
   </td>
@@ -1440,7 +1342,7 @@ See the [configuration page](configuration.html) for information on Spark config
 </tr>
 <tr>
   <td><code>spark.kubernetes.driver.reusePersistentVolumeClaim</code></td>
-  <td><code>true</code></td>
+  <td><code>false</code></td>
   <td>
     If true, driver pod tries to reuse driver-owned on-demand persistent volume claims
     of the deleted executor pods if exists. This can be useful to reduce executor pod
@@ -1467,9 +1369,7 @@ See the [configuration page](configuration.html) for information on Spark config
   <td>
     Class names of an extra driver pod feature step implementing
     `KubernetesFeatureConfigStep`. This is a developer API. Comma separated.
-    Runs after all of Spark internal feature steps. Since 3.3.0, your driver feature step
-    can implement `KubernetesDriverCustomFeatureConfigStep` where the driver config
-    is also available.
+    Runs after all of Spark internal feature steps.
   </td>
   <td>3.2.0</td>
 </tr>
@@ -1479,9 +1379,7 @@ See the [configuration page](configuration.html) for information on Spark config
   <td>
     Class names of an extra executor pod feature step implementing
     `KubernetesFeatureConfigStep`. This is a developer API. Comma separated.
-    Runs after all of Spark internal feature steps. Since 3.3.0, your executor feature step
-    can implement `KubernetesExecutorCustomFeatureConfigStep` where the executor config
-    is also available.
+    Runs after all of Spark internal feature steps.
   </td>
   <td>3.2.0</td>
 </tr>
@@ -1496,17 +1394,6 @@ See the [configuration page](configuration.html) for information on Spark config
     allocation for all the used resource profiles.
   </td>
   <td>3.2.0</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.allocation.pods.allocator</code></td>
-  <td><code>direct</code></td>
-  <td>
-    Allocator to use for pods. Possible values are <code>direct</code> (the default)
-    and <code>statefulset</code>, or a full class name of a class implementing `AbstractPodsAllocator`.
-    Future version may add Job or replicaset. This is a developer API and may change
-    or be removed at anytime.
-  </td>
-  <td>3.3.0</td>
 </tr>
 <tr>
   <td><code>spark.kubernetes.allocation.executor.timeout</code></td>
@@ -1526,63 +1413,6 @@ See the [configuration page](configuration.html) for information on Spark config
     created.
   </td>
   <td>3.1.3</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.executor.enablePollingWithResourceVersion</code></td>
-  <td><code>false</code></td>
-  <td>
-    If true, `resourceVersion` is set with `0` during invoking pod listing APIs
-    in order to allow API Server-side caching. This should be used carefully.
-  </td>
-  <td>3.3.0</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.executor.eventProcessingInterval</code></td>
-  <td><code>1s</code></td>
-  <td>
-    Interval between successive inspection of executor events sent from the Kubernetes API.
-  </td>
-  <td>2.4.0</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.executor.rollInterval</code></td>
-  <td><code>0s</code></td>
-  <td>
-    Interval between executor roll operations. It's disabled by default with `0s`.
-  </td>
-  <td>3.3.0</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.executor.minTasksPerExecutorBeforeRolling</code></td>
-  <td><code>0</code></td>
-  <td>
-    The minimum number of tasks per executor before rolling.
-    Spark will not roll executors whose total number of tasks is smaller
-    than this configuration. The default value is zero.
-  </td>
-  <td>3.3.0</td>
-</tr>
-<tr>
-  <td><code>spark.kubernetes.executor.rollPolicy</code></td>
-  <td><code>OUTLIER</code></td>
-  <td>
-    Executor roll policy: Valid values are ID, ADD_TIME, TOTAL_GC_TIME, 
-    TOTAL_DURATION, FAILED_TASKS, and OUTLIER (default).
-    When executor roll happens, Spark uses this policy to choose
-    an executor and decommission it. The built-in policies are based on executor summary
-    and newly started executors are protected by spark.kubernetes.executor.minTasksPerExecutorBeforeRolling.
-    ID policy chooses an executor with the smallest executor ID.
-    ADD_TIME policy chooses an executor with the smallest add-time.
-    TOTAL_GC_TIME policy chooses an executor with the biggest total task GC time.
-    TOTAL_DURATION policy chooses an executor with the biggest total task time.
-    AVERAGE_DURATION policy chooses an executor with the biggest average task time.
-    FAILED_TASKS policy chooses an executor with the most number of failed tasks.
-    OUTLIER policy chooses an executor with outstanding statistics which is bigger than
-    at least two standard deviation from the mean in average task time,
-    total task time, total task GC time, and the number of failed tasks if exists.
-    If there is no outlier, it works like TOTAL_DURATION policy.
-  </td>
-  <td>3.3.0</td>
 </tr>
 </table>
 
@@ -1754,7 +1584,7 @@ Kubernetes supports [Pod priority](https://kubernetes.io/docs/concepts/schedulin
 
 Spark on Kubernetes allows defining the priority of jobs by [Pod template](#pod-template). The user can specify the <code>priorityClassName</code> in driver or executor Pod template <code>spec</code> section. Below is an example to show how to specify it:
 
-```yaml
+```
 apiVersion: v1
 Kind: Pod
 metadata:
@@ -1767,125 +1597,6 @@ spec:
   - name: test-driver-container
     image: will-be-overwritten
 ```
-
-#### Customized Kubernetes Schedulers for Spark on Kubernetes
-
-Spark allows users to specify a custom Kubernetes schedulers.
-
-1. Specify a scheduler name.
-
-   Users can specify a custom scheduler using <code>spark.kubernetes.scheduler.name</code> or
-   <code>spark.kubernetes.{driver/executor}.scheduler.name</code> configuration.
-
-2. Specify scheduler related configurations.
-
-   To configure the custom scheduler the user can use [Pod templates](#pod-template), add labels (<code>spark.kubernetes.{driver,executor}.label.*</code>), annotations (<code>spark.kubernetes.{driver/executor}.annotation.*</code>) or scheduler specific configurations (such as <code>spark.kubernetes.scheduler.volcano.podGroupTemplateFile</code>).
-
-3. Specify scheduler feature step.
-
-   Users may also consider to use <code>spark.kubernetes.{driver/executor}.pod.featureSteps</code> to support more complex requirements, including but not limited to:
-   - Create additional Kubernetes custom resources for driver/executor scheduling.
-   - Set scheduler hints according to configuration or existing Pod info dynamically.
-
-#### Using Volcano as Customized Scheduler for Spark on Kubernetes
-
-**This feature is currently experimental. In future versions, there may be behavioral changes around configuration, feature step improvement.**
-
-##### Prerequisites
-* Spark on Kubernetes with [Volcano](https://volcano.sh/en) as a custom scheduler is supported since Spark v3.3.0 and Volcano v1.5.1. Below is an example to install Volcano 1.5.1:
-
-  ```bash
-  # x86_64
-  kubectl apply -f https://raw.githubusercontent.com/volcano-sh/volcano/v1.5.1/installer/volcano-development.yaml
-
-  # arm64:
-  kubectl apply -f https://raw.githubusercontent.com/volcano-sh/volcano/v1.5.1/installer/volcano-development-arm64.yaml
-  ```
-
-##### Build
-To create a Spark distribution along with Volcano suppport like those distributed by the Spark [Downloads page](https://spark.apache.org/downloads.html), also see more in ["Building Spark"](https://spark.apache.org/docs/latest/building-spark.html):
-
-```bash
-./dev/make-distribution.sh --name custom-spark --pip --r --tgz -Psparkr -Phive -Phive-thriftserver -Pkubernetes -Pvolcano
-```
-
-##### Usage
-Spark on Kubernetes allows using Volcano as a custom scheduler. Users can use Volcano to
-support more advanced resource scheduling: queue scheduling, resource reservation, priority scheduling, and more.
-
-To use Volcano as a custom scheduler the user needs to specify the following configuration options:
-
-```bash
-# Specify volcano scheduler and PodGroup template
---conf spark.kubernetes.scheduler.name=volcano
---conf spark.kubernetes.scheduler.volcano.podGroupTemplateFile=/path/to/podgroup-template.yaml
-# Specify driver/executor VolcanoFeatureStep
---conf spark.kubernetes.driver.pod.featureSteps=org.apache.spark.deploy.k8s.features.VolcanoFeatureStep
---conf spark.kubernetes.executor.pod.featureSteps=org.apache.spark.deploy.k8s.features.VolcanoFeatureStep
-```
-
-##### Volcano Feature Step
-Volcano feature steps help users to create a Volcano PodGroup and set driver/executor pod annotation to link with this [PodGroup](https://volcano.sh/en/docs/podgroup/).
-
-Note that currently only driver/job level PodGroup is supported in Volcano Feature Step.
-
-##### Volcano PodGroup Template
-Volcano defines PodGroup spec using [CRD yaml](https://volcano.sh/en/docs/podgroup/#example).
-
-Similar to [Pod template](#pod-template), Spark users can use Volcano PodGroup Template to define the PodGroup spec configurations.
-To do so, specify the Spark property `spark.kubernetes.scheduler.volcano.podGroupTemplateFile` to point to files accessible to the `spark-submit` process.
-Below is an example of PodGroup template:
-
-```yaml
-apiVersion: scheduling.volcano.sh/v1beta1
-kind: PodGroup
-spec:
-  # Specify minMember to 1 to make a driver pod
-  minMember: 1
-  # Specify minResources to support resource reservation (the driver pod resource and executors pod resource should be considered)
-  # It is useful for ensource the available resources meet the minimum requirements of the Spark job and avoiding the
-  # situation where drivers are scheduled, and then they are unable to schedule sufficient executors to progress.
-  minResources:
-    cpu: "2"
-    memory: "3Gi"
-  # Specify the priority, help users to specify job priority in the queue during scheduling.
-  priorityClassName: system-node-critical
-  # Specify the queue, indicates the resource queue which the job should be submitted to
-  queue: default
-```
-
-#### Using Apache YuniKorn as Customized Scheduler for Spark on Kubernetes
-
-[Apache YuniKorn](https://yunikorn.apache.org/) is a resource scheduler for Kubernetes that provides advanced batch scheduling
-capabilities, such as job queuing, resource fairness, min/max queue capacity and flexible job ordering policies.
-For available Apache YuniKorn features, please refer to [core features](https://yunikorn.apache.org/docs/get_started/core_features).
-
-##### Prerequisites
-
-Install Apache YuniKorn:
-
-```bash
-helm repo add yunikorn https://apache.github.io/yunikorn-release
-helm repo update
-helm install yunikorn yunikorn/yunikorn --namespace yunikorn --version 1.1.0 --create-namespace --set embedAdmissionController=false
-```
-
-The above steps will install YuniKorn v1.1.0 on an existing Kubernetes cluster.
-
-##### Get started
-
-Submit Spark jobs with the following extra options:
-
-```bash
---conf spark.kubernetes.scheduler.name=yunikorn
---conf spark.kubernetes.driver.label.queue=root.default
---conf spark.kubernetes.executor.label.queue=root.default
---conf spark.kubernetes.driver.annotation.yunikorn.apache.org/app-id={{APP_ID}}
---conf spark.kubernetes.executor.annotation.yunikorn.apache.org/app-id={{APP_ID}}
-```
-
-Note that `{{APP_ID}}` is the built-in variable that will be substituted with Spark job ID automatically.
-With the above configuration, the job will be scheduled by YuniKorn scheduler instead of the default Kubernetes scheduler.
 
 ### Stage Level Scheduling Overview
 

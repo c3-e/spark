@@ -37,8 +37,8 @@ class InteractionSuite extends MLTest with DefaultReadWriteTest {
 
   test("feature encoder") {
     def encode(cardinalities: Array[Int], value: Any): Vector = {
-      val indices = ArrayBuilder.make[Int]
-      val values = ArrayBuilder.make[Double]
+      var indices = ArrayBuilder.make[Int]
+      var values = ArrayBuilder.make[Double]
       val encoder = new FeatureEncoder(cardinalities)
       encoder.foreachNonzeroOutput(value, (i, v) => {
         indices += i

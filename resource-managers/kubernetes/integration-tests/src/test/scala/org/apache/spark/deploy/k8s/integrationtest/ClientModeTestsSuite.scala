@@ -122,8 +122,7 @@ private[spark] trait ClientModeTestsSuite { k8sSuite: KubernetesSuite =>
         .kubernetesClient
         .services()
         .inNamespace(kubernetesTestComponents.namespace)
-        .resource(driverService)
-        .delete()
+        .delete(driverService)
       // Delete all executors, since the test explicitly asks them not to be deleted by the app.
       kubernetesTestComponents
         .kubernetesClient

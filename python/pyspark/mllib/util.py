@@ -16,30 +16,15 @@
 #
 
 import sys
-from functools import reduce
 import numpy as np
 
 from pyspark import SparkContext, since
 from pyspark.mllib.common import callMLlibFunc, inherit_doc
 from pyspark.mllib.linalg import Vectors, SparseVector, _convert_to_vector
 from pyspark.sql import DataFrame
-from typing import Generic, Iterable, List, Optional, Tuple, Type, TypeVar, cast, TYPE_CHECKING
-from pyspark.context import SparkContext
-from pyspark.mllib.linalg import Vector
-from pyspark.rdd import RDD
-from pyspark.sql.dataframe import DataFrame
-
-T = TypeVar("T")
-L = TypeVar("L", bound="Loader")
-JL = TypeVar("JL", bound="JavaLoader")
-
-if TYPE_CHECKING:
-    from pyspark.mllib._typing import VectorLike
-    from py4j.java_gateway import JavaObject
-    from pyspark.mllib.regression import LabeledPoint
 
 
-class MLUtils:
+class MLUtils(object):
 
     """
     Helper methods to load, save and pre-process data used in MLlib.
@@ -48,7 +33,7 @@ class MLUtils:
     """
 
     @staticmethod
-    def _parse_libsvm_line(line: str) -> Tuple[float, np.ndarray, np.ndarray]:
+    def _parse_libsvm_line(line):
         """
         Parses a line in LIBSVM format into (label, indices, values).
         """
@@ -64,10 +49,9 @@ class MLUtils:
         return label, indices, values
 
     @staticmethod
-    def _convert_labeled_point_to_libsvm(p: "LabeledPoint") -> str:
+    def _convert_labeled_point_to_libsvm(p):
         """Converts a LabeledPoint to a string in LIBSVM format."""
         from pyspark.mllib.regression import LabeledPoint
-
         assert isinstance(p, LabeledPoint)
         items = [str(p.label)]
         v = _convert_to_vector(p.features)
@@ -77,13 +61,11 @@ class MLUtils:
                 items.append(str(v.indices[i] + 1) + ":" + str(v.values[i]))
         else:
             for i in range(len(v)):
-                items.append(str(i + 1) + ":" + str(v[i]))  # type: ignore[index]
+                items.append(str(i + 1) + ":" + str(v[i]))
         return " ".join(items)
 
     @staticmethod
-    def loadLibSVMFile(
-        sc: SparkContext, path: str, numFeatures: int = -1, minPartitions: Optional[int] = None
-    ) -> RDD["LabeledPoint"]:
+    def loadLibSVMFile(sc, path, numFeatures=-1, minPartitions=None):
         """
         Loads labeled data in the LIBSVM format into an RDD of
         LabeledPoint. The LIBSVM format is a text-based format used by
@@ -145,14 +127,10 @@ class MLUtils:
         if numFeatures <= 0:
             parsed.cache()
             numFeatures = parsed.map(lambda x: -1 if x[1].size == 0 else x[1][-1]).reduce(max) + 1
-        return parsed.map(
-            lambda x: LabeledPoint(
-                x[0], Vectors.sparse(numFeatures, x[1], x[2])  # type: ignore[arg-type]
-            )
-        )
+        return parsed.map(lambda x: LabeledPoint(x[0], Vectors.sparse(numFeatures, x[1], x[2])))
 
     @staticmethod
-    def saveAsLibSVMFile(data: RDD["LabeledPoint"], dir: str) -> None:
+    def saveAsLibSVMFile(data, dir):
         """
         Save labeled data in LIBSVM format.
 
@@ -184,9 +162,7 @@ class MLUtils:
         lines.saveAsTextFile(dir)
 
     @staticmethod
-    def loadLabeledPoints(
-        sc: SparkContext, path: str, minPartitions: Optional[int] = None
-    ) -> RDD["LabeledPoint"]:
+    def loadLabeledPoints(sc, path, minPartitions=None):
         """
         Load labeled points saved using RDD.saveAsTextFile.
 
@@ -224,7 +200,7 @@ class MLUtils:
 
     @staticmethod
     @since("1.5.0")
-    def appendBias(data: Vector) -> Vector:
+    def appendBias(data):
         """
         Returns a new vector with `1.0` (bias) appended to
         the end of the input vector.
@@ -239,7 +215,7 @@ class MLUtils:
 
     @staticmethod
     @since("1.5.0")
-    def loadVectors(sc: SparkContext, path: str) -> RDD[Vector]:
+    def loadVectors(sc, path):
         """
         Loads vectors saved using `RDD[Vector].saveAsTextFile`
         with the default number of partitions.
@@ -247,7 +223,7 @@ class MLUtils:
         return callMLlibFunc("loadVectors", sc, path)
 
     @staticmethod
-    def convertVectorColumnsToML(dataset: DataFrame, *cols: str) -> DataFrame:
+    def convertVectorColumnsToML(dataset, *cols):
         """
         Converts vector columns in an input DataFrame from the
         :py:class:`pyspark.mllib.linalg.Vector` type to the new
@@ -296,7 +272,7 @@ class MLUtils:
         return callMLlibFunc("convertVectorColumnsToML", dataset, list(cols))
 
     @staticmethod
-    def convertVectorColumnsFromML(dataset: DataFrame, *cols: str) -> DataFrame:
+    def convertVectorColumnsFromML(dataset, *cols):
         """
         Converts vector columns in an input DataFrame to the
         :py:class:`pyspark.mllib.linalg.Vector` type from the new
@@ -345,7 +321,7 @@ class MLUtils:
         return callMLlibFunc("convertVectorColumnsFromML", dataset, list(cols))
 
     @staticmethod
-    def convertMatrixColumnsToML(dataset: DataFrame, *cols: str) -> DataFrame:
+    def convertMatrixColumnsToML(dataset, *cols):
         """
         Converts matrix columns in an input DataFrame from the
         :py:class:`pyspark.mllib.linalg.Matrix` type to the new
@@ -394,7 +370,7 @@ class MLUtils:
         return callMLlibFunc("convertMatrixColumnsToML", dataset, list(cols))
 
     @staticmethod
-    def convertMatrixColumnsFromML(dataset: DataFrame, *cols: str) -> DataFrame:
+    def convertMatrixColumnsFromML(dataset, *cols):
         """
         Converts matrix columns in an input DataFrame to the
         :py:class:`pyspark.mllib.linalg.Matrix` type from the new
@@ -443,14 +419,14 @@ class MLUtils:
         return callMLlibFunc("convertMatrixColumnsFromML", dataset, list(cols))
 
 
-class Saveable:
+class Saveable(object):
     """
     Mixin for models and transformers which may be saved as files.
 
     .. versionadded:: 1.3.0
     """
 
-    def save(self, sc: SparkContext, path: str) -> None:
+    def save(self, sc, path):
         """
         Save this model to the given path.
 
@@ -481,10 +457,8 @@ class JavaSaveable(Saveable):
     .. versionadded:: 1.3.0
     """
 
-    _java_model: "JavaObject"
-
     @since("1.3.0")
-    def save(self, sc: SparkContext, path: str) -> None:
+    def save(self, sc, path):
         """Save this model to the given path."""
         if not isinstance(sc, SparkContext):
             raise TypeError("sc should be a SparkContext, got type %s" % type(sc))
@@ -493,7 +467,7 @@ class JavaSaveable(Saveable):
         self._java_model.save(sc._jsc.sc(), path)
 
 
-class Loader(Generic[T]):
+class Loader(object):
     """
     Mixin for classes which can load saved models from files.
 
@@ -501,7 +475,7 @@ class Loader(Generic[T]):
     """
 
     @classmethod
-    def load(cls: Type[L], sc: SparkContext, path: str) -> L:
+    def load(cls, sc, path):
         """
         Load a model from the given path. The model should have been
         saved using :py:meth:`Saveable.save`.
@@ -522,7 +496,7 @@ class Loader(Generic[T]):
 
 
 @inherit_doc
-class JavaLoader(Loader[T]):
+class JavaLoader(Loader):
     """
     Mixin for classes which can load saved models using its Scala
     implementation.
@@ -531,7 +505,7 @@ class JavaLoader(Loader[T]):
     """
 
     @classmethod
-    def _java_loader_class(cls) -> str:
+    def _java_loader_class(cls):
         """
         Returns the full class name of the Java loader. The default
         implementation replaces "pyspark" by "org.apache.spark" in
@@ -541,38 +515,33 @@ class JavaLoader(Loader[T]):
         return ".".join([java_package, cls.__name__])
 
     @classmethod
-    def _load_java(cls, sc: SparkContext, path: str) -> "JavaObject":
+    def _load_java(cls, sc, path):
         """
         Load a Java model from the given path.
         """
         java_class = cls._java_loader_class()
-        java_obj: "JavaObject" = reduce(getattr, java_class.split("."), sc._jvm)
+        java_obj = sc._jvm
+        for name in java_class.split("."):
+            java_obj = getattr(java_obj, name)
         return java_obj.load(sc._jsc.sc(), path)
 
     @classmethod
     @since("1.3.0")
-    def load(cls: Type[JL], sc: SparkContext, path: str) -> JL:
+    def load(cls, sc, path):
         """Load a model from the given path."""
         java_model = cls._load_java(sc, path)
-        return cls(java_model)  # type: ignore[call-arg]
+        return cls(java_model)
 
 
-class LinearDataGenerator:
+class LinearDataGenerator(object):
     """Utils for generating linear data.
 
     .. versionadded:: 1.5.0
     """
 
     @staticmethod
-    def generateLinearInput(
-        intercept: float,
-        weights: "VectorLike",
-        xMean: "VectorLike",
-        xVariance: "VectorLike",
-        nPoints: int,
-        seed: int,
-        eps: float,
-    ) -> List["LabeledPoint"]:
+    def generateLinearInput(intercept, weights, xMean, xVariance,
+                            nPoints, seed, eps):
         """
         .. versionadded:: 1.5.0
 
@@ -599,56 +568,37 @@ class LinearDataGenerator:
         list
             of :py:class:`pyspark.mllib.regression.LabeledPoints` of length nPoints
         """
-        weights = [float(weight) for weight in cast(Iterable[float], weights)]
-        xMean = [float(mean) for mean in cast(Iterable[float], xMean)]
-        xVariance = [float(var) for var in cast(Iterable[float], xVariance)]
-        return list(
-            callMLlibFunc(
-                "generateLinearInputWrapper",
-                float(intercept),
-                weights,
-                xMean,
-                xVariance,
-                int(nPoints),
-                int(seed),
-                float(eps),
-            )
-        )
+        weights = [float(weight) for weight in weights]
+        xMean = [float(mean) for mean in xMean]
+        xVariance = [float(var) for var in xVariance]
+        return list(callMLlibFunc(
+            "generateLinearInputWrapper", float(intercept), weights, xMean,
+            xVariance, int(nPoints), int(seed), float(eps)))
 
     @staticmethod
     @since("1.5.0")
-    def generateLinearRDD(
-        sc: SparkContext,
-        nexamples: int,
-        nfeatures: int,
-        eps: float,
-        nParts: int = 2,
-        intercept: float = 0.0,
-    ) -> RDD["LabeledPoint"]:
+    def generateLinearRDD(sc, nexamples, nfeatures, eps,
+                          nParts=2, intercept=0.0):
         """
         Generate an RDD of LabeledPoints.
         """
         return callMLlibFunc(
-            "generateLinearRDDWrapper",
-            sc,
-            int(nexamples),
-            int(nfeatures),
-            float(eps),
-            int(nParts),
-            float(intercept),
-        )
+            "generateLinearRDDWrapper", sc, int(nexamples), int(nfeatures),
+            float(eps), int(nParts), float(intercept))
 
 
-def _test() -> None:
+def _test():
     import doctest
     from pyspark.sql import SparkSession
-
     globs = globals().copy()
     # The small batch size here ensures that we see multiple batches,
     # even in these small test examples:
-    spark = SparkSession.builder.master("local[2]").appName("mllib.util tests").getOrCreate()
-    globs["spark"] = spark
-    globs["sc"] = spark.sparkContext
+    spark = SparkSession.builder\
+        .master("local[2]")\
+        .appName("mllib.util tests")\
+        .getOrCreate()
+    globs['spark'] = spark
+    globs['sc'] = spark.sparkContext
     (failure_count, test_count) = doctest.testmod(globs=globs, optionflags=doctest.ELLIPSIS)
     spark.stop()
     if failure_count:

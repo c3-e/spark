@@ -52,8 +52,9 @@ class RateStreamMicroBatchStream(
   private val maxSeconds = Long.MaxValue / rowsPerSecond
 
   if (rampUpTimeSeconds > maxSeconds) {
-    throw QueryExecutionErrors.incorrectRampUpRate(
-      rowsPerSecond, maxSeconds, rampUpTimeSeconds)
+    throw QueryExecutionErrors.integerOverflowError(
+      s"Max offset with $rowsPerSecond rowsPerSecond" +
+        s" is $maxSeconds, but 'rampUpTimeSeconds' is $rampUpTimeSeconds.")
   }
 
   private[sources] val creationTimeMs = {
@@ -119,7 +120,8 @@ class RateStreamMicroBatchStream(
     val endSeconds = end.asInstanceOf[LongOffset].offset
     assert(startSeconds <= endSeconds, s"startSeconds($startSeconds) > endSeconds($endSeconds)")
     if (endSeconds > maxSeconds) {
-      throw QueryExecutionErrors.incorrectEndOffset(rowsPerSecond, maxSeconds, endSeconds)
+      throw QueryExecutionErrors.integerOverflowError("Max offset with " +
+        s"$rowsPerSecond rowsPerSecond is $maxSeconds, but it's $endSeconds now.")
     }
     // Fix "lastTimeMs" for recovery
     if (lastTimeMs < TimeUnit.SECONDS.toMillis(endSeconds) + creationTimeMs) {

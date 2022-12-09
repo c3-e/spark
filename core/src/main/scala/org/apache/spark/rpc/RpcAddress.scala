@@ -23,9 +23,7 @@ import org.apache.spark.util.Utils
 /**
  * Address for an RPC environment, with hostname and port.
  */
-private[spark] case class RpcAddress(_host: String, port: Int) {
-
-  lazy val host: String = Utils.addBracketsIfNeeded(_host)
+private[spark] case class RpcAddress(host: String, port: Int) {
 
   def hostPort: String = host + ":" + port
 

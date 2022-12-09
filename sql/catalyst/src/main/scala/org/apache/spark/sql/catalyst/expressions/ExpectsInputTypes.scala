@@ -18,8 +18,6 @@
 package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
-import org.apache.spark.sql.errors.QueryErrorsBase
 import org.apache.spark.sql.types.AbstractDataType
 
 /**
@@ -47,23 +45,22 @@ trait ExpectsInputTypes extends Expression {
   }
 }
 
-object ExpectsInputTypes extends QueryErrorsBase {
+object ExpectsInputTypes {
 
   def checkInputDataTypes(
       inputs: Seq[Expression],
       inputTypes: Seq[AbstractDataType]): TypeCheckResult = {
-    val mismatch = inputs.zip(inputTypes).zipWithIndex.collectFirst {
+    val mismatches = inputs.zip(inputTypes).zipWithIndex.collect {
       case ((input, expected), idx) if !expected.acceptsType(input.dataType) =>
-        DataTypeMismatch(
-          errorSubClass = "UNEXPECTED_INPUT_TYPE",
-          messageParameters = Map(
-            "paramIndex" -> (idx + 1).toString,
-            "requiredType" -> toSQLType(expected),
-            "inputSql" -> toSQLExpr(input),
-            "inputType" -> toSQLType(input.dataType)))
+        s"argument ${idx + 1} requires ${expected.simpleString} type, " +
+          s"however, '${input.sql}' is of ${input.dataType.catalogString} type."
     }
 
-    mismatch.getOrElse(TypeCheckResult.TypeCheckSuccess)
+    if (mismatches.isEmpty) {
+      TypeCheckResult.TypeCheckSuccess
+    } else {
+      TypeCheckResult.TypeCheckFailure(mismatches.mkString(" "))
+    }
   }
 }
 

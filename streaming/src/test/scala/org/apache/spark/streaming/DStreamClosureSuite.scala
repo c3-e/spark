@@ -19,6 +19,8 @@ package org.apache.spark.streaming
 
 import java.io.NotSerializableException
 
+import org.scalatest.BeforeAndAfterAll
+
 import org.apache.spark.{HashPartitioner, SparkContext, SparkException, SparkFunSuite}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.streaming.dstream.DStream
@@ -27,7 +29,7 @@ import org.apache.spark.util.ReturnStatementInClosureException
 /**
  * Test that closures passed to DStream operations are actually cleaned.
  */
-class DStreamClosureSuite extends SparkFunSuite with LocalStreamingContext {
+class DStreamClosureSuite extends SparkFunSuite with LocalStreamingContext with BeforeAndAfterAll {
   override protected def beforeEach(): Unit = {
     super.beforeEach()
 
@@ -88,7 +90,7 @@ class DStreamClosureSuite extends SparkFunSuite with LocalStreamingContext {
     ds.filter { _ => return; true }
   }
   private def testMapPartitions(ds: DStream[Int]): Unit = expectCorrectException {
-    ds.mapPartitions { _ => return; Seq.empty.iterator }
+    ds.mapPartitions { _ => return; Seq.empty.toIterator }
   }
   private def testReduce(ds: DStream[Int]): Unit = expectCorrectException {
     ds.reduce { case (_, _) => return; 1 }
@@ -151,7 +153,7 @@ class DStreamClosureSuite extends SparkFunSuite with LocalStreamingContext {
   }
   private def testUpdateStateByKey(ds: DStream[(Int, Int)]): Unit = {
     val updateF1 = (_: Seq[Int], _: Option[Int]) => { return; Some(1) }
-    val updateF2 = (_: Iterator[(Int, Seq[Int], Option[Int])]) => { return; Seq((1, 1)).iterator }
+    val updateF2 = (_: Iterator[(Int, Seq[Int], Option[Int])]) => { return; Seq((1, 1)).toIterator }
     val updateF3 = (_: Time, _: Int, _: Seq[Int], _: Option[Int]) => {
       return
       Option(1)

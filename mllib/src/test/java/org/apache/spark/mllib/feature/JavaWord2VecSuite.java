@@ -33,6 +33,7 @@ import org.apache.spark.api.java.JavaRDD;
 public class JavaWord2VecSuite extends SharedSparkSession {
 
   @Test
+  @SuppressWarnings("unchecked")
   public void word2Vec() {
     // The tests are to check Java compatibility.
     String sentence = Strings.repeat("a b ", 100) + Strings.repeat("a c ", 10);

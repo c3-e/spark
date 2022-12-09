@@ -19,10 +19,8 @@ package org.apache.spark.storage
 
 import java.io.{BufferedOutputStream, File, FileOutputStream, IOException, OutputStream}
 import java.nio.channels.{ClosedByInterruptException, FileChannel}
-import java.nio.file.Files
 import java.util.zip.Checksum
 
-import org.apache.spark.errors.SparkCoreErrors
 import org.apache.spark.internal.Logging
 import org.apache.spark.io.MutableCheckedOutputStream
 import org.apache.spark.serializer.{SerializationStream, SerializerInstance, SerializerManager}
@@ -118,11 +116,6 @@ private[spark] class DiskBlockObjectWriter(
    * And we reset it after every commitAndGet called.
    */
   private var numRecordsWritten = 0
-
-  /**
-   * Keep track the number of written records committed.
-   */
-  private var numRecordsCommitted = 0L
 
   /**
    * Set the checksum that the checksumOutputStream should use
@@ -229,7 +222,6 @@ private[spark] class DiskBlockObjectWriter(
       // In certain compression codecs, more bytes are written after streams are closed
       writeMetrics.incBytesWritten(committedPosition - reportedPosition)
       reportedPosition = committedPosition
-      numRecordsCommitted += numRecordsWritten
       numRecordsWritten = 0
       fileSegment
     } else {
@@ -280,25 +272,6 @@ private[spark] class DiskBlockObjectWriter(
   }
 
   /**
-   * Reverts write metrics and delete the file held by current `DiskBlockObjectWriter`.
-   * Callers should invoke this function when there are runtime exceptions in file
-   * writing process and the file is no longer needed.
-   */
-  def closeAndDelete(): Unit = {
-    Utils.tryWithSafeFinally {
-      if (initialized) {
-        writeMetrics.decBytesWritten(reportedPosition)
-        writeMetrics.decRecordsWritten(numRecordsCommitted + numRecordsWritten)
-        closeResources()
-      }
-    } {
-      if (!Files.deleteIfExists(file.toPath)) {
-        logWarning(s"Error deleting $file")
-      }
-    }
-  }
-
-  /**
    * Writes a key-value pair.
    */
   override def write(key: Any, value: Any): Unit = {
@@ -311,7 +284,7 @@ private[spark] class DiskBlockObjectWriter(
     recordWritten()
   }
 
-  override def write(b: Int): Unit = throw SparkCoreErrors.unsupportedOperationError()
+  override def write(b: Int): Unit = throw new UnsupportedOperationException()
 
   override def write(kvBytes: Array[Byte], offs: Int, len: Int): Unit = {
     if (!streamOpen) {
@@ -344,7 +317,7 @@ private[spark] class DiskBlockObjectWriter(
   }
 
   // For testing
-  override def flush(): Unit = {
+  private[spark] override def flush(): Unit = {
     objOut.flush()
     bs.flush()
   }

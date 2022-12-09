@@ -401,7 +401,7 @@ case class Cost(card: BigInt, size: BigInt) {
  *
  * Filters (2) and (3) are not implemented.
  */
-object JoinReorderDPFilters {
+object JoinReorderDPFilters extends PredicateHelper {
   /**
    * Builds join graph information to be used by the filtering strategies.
    * Currently, it builds the sets of star/non-star joins.

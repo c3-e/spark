@@ -93,11 +93,7 @@ class ResourceProfileBuilder() {
   }
 
   def build(): ResourceProfile = {
-    if (_executorResources.isEmpty) {
-      new TaskResourceProfile(taskResources)
-    } else {
-      new ResourceProfile(executorResources, taskResources)
-    }
+    new ResourceProfile(executorResources, taskResources)
   }
 }
 

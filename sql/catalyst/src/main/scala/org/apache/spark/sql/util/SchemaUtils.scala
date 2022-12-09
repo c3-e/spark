@@ -39,22 +39,24 @@ private[spark] object SchemaUtils {
    * duplication exists.
    *
    * @param schema schema to check
+   * @param colType column type name, used in an exception message
    * @param caseSensitiveAnalysis whether duplication checks should be case sensitive or not
    */
   def checkSchemaColumnNameDuplication(
       schema: DataType,
+      colType: String,
       caseSensitiveAnalysis: Boolean = false): Unit = {
     schema match {
       case ArrayType(elementType, _) =>
-        checkSchemaColumnNameDuplication(elementType, caseSensitiveAnalysis)
+        checkSchemaColumnNameDuplication(elementType, colType, caseSensitiveAnalysis)
       case MapType(keyType, valueType, _) =>
-        checkSchemaColumnNameDuplication(keyType, caseSensitiveAnalysis)
-        checkSchemaColumnNameDuplication(valueType, caseSensitiveAnalysis)
+        checkSchemaColumnNameDuplication(keyType, colType, caseSensitiveAnalysis)
+        checkSchemaColumnNameDuplication(valueType, colType, caseSensitiveAnalysis)
       case structType: StructType =>
         val fields = structType.fields
-        checkColumnNameDuplication(fields.map(_.name), caseSensitiveAnalysis)
+        checkColumnNameDuplication(fields.map(_.name), colType, caseSensitiveAnalysis)
         fields.foreach { field =>
-          checkSchemaColumnNameDuplication(field.dataType, caseSensitiveAnalysis)
+          checkSchemaColumnNameDuplication(field.dataType, colType, caseSensitiveAnalysis)
         }
       case _ =>
     }
@@ -65,10 +67,14 @@ private[spark] object SchemaUtils {
    * duplication exists.
    *
    * @param schema schema to check
+   * @param colType column type name, used in an exception message
    * @param resolver resolver used to determine if two identifiers are equal
    */
-  def checkSchemaColumnNameDuplication(schema: StructType, resolver: Resolver): Unit = {
-    checkSchemaColumnNameDuplication(schema, isCaseSensitiveAnalysis(resolver))
+  def checkSchemaColumnNameDuplication(
+      schema: StructType,
+      colType: String,
+      resolver: Resolver): Unit = {
+    checkSchemaColumnNameDuplication(schema, colType, isCaseSensitiveAnalysis(resolver))
   }
 
   // Returns true if a given resolver is case-sensitive
@@ -89,10 +95,12 @@ private[spark] object SchemaUtils {
    * the duplication exists.
    *
    * @param columnNames column names to check
+   * @param colType column type name, used in an exception message
    * @param resolver resolver used to determine if two identifiers are equal
    */
-  def checkColumnNameDuplication(columnNames: Seq[String], resolver: Resolver): Unit = {
-    checkColumnNameDuplication(columnNames, isCaseSensitiveAnalysis(resolver))
+  def checkColumnNameDuplication(
+      columnNames: Seq[String], colType: String, resolver: Resolver): Unit = {
+    checkColumnNameDuplication(columnNames, colType, isCaseSensitiveAnalysis(resolver))
   }
 
   /**
@@ -100,17 +108,19 @@ private[spark] object SchemaUtils {
    * the duplication exists.
    *
    * @param columnNames column names to check
+   * @param colType column type name, used in an exception message
    * @param caseSensitiveAnalysis whether duplication checks should be case sensitive or not
    */
-  def checkColumnNameDuplication(columnNames: Seq[String], caseSensitiveAnalysis: Boolean): Unit = {
+  def checkColumnNameDuplication(
+      columnNames: Seq[String], colType: String, caseSensitiveAnalysis: Boolean): Unit = {
     // scalastyle:off caselocale
     val names = if (caseSensitiveAnalysis) columnNames else columnNames.map(_.toLowerCase)
     // scalastyle:on caselocale
     if (names.distinct.length != names.length) {
-      val columnName = names.groupBy(identity).toSeq.sortBy(_._1).collectFirst {
-        case (x, ys) if ys.length > 1 => x
-      }.get
-      throw QueryCompilationErrors.columnAlreadyExistsError(columnName)
+      val duplicateColumns = names.groupBy(identity).collect {
+        case (x, ys) if ys.length > 1 => s"`$x`"
+      }
+      throw QueryCompilationErrors.foundDuplicateColumnError(colType, duplicateColumns.toSeq)
     }
   }
 
@@ -168,7 +178,7 @@ private[spark] object SchemaUtils {
       case b: BucketTransform =>
         val colNames = b.columns.map(c => UnresolvedAttribute(c.fieldNames()).name)
         // We need to check that we're not duplicating columns within our bucketing transform
-        checkColumnNameDuplication(colNames, isCaseSensitive)
+        checkColumnNameDuplication(colNames, "in the bucket definition", isCaseSensitive)
         b.name -> colNames
       case NamedTransform(transformName, refs) =>
         val fieldNameParts =

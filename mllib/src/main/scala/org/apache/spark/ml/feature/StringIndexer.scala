@@ -200,7 +200,7 @@ class StringIndexer @Since("1.4.0") (
     val selectedCols = getSelectedCols(dataset, inputCols)
     dataset.select(selectedCols: _*)
       .toDF
-      .agg(aggregator.toColumn)
+      .groupBy().agg(aggregator.toColumn)
       .as[Array[OpenHashMap[String, Long]]]
       .collect()(0)
   }
@@ -367,7 +367,7 @@ class StringIndexerModel (
   // This filters out any null values and also the input labels which are not in
   // the dataset used for fitting.
   private def filterInvalidData(dataset: Dataset[_], inputColNames: Seq[String]): Dataset[_] = {
-    val conditions: Seq[Column] = inputColNames.indices.map { i =>
+    val conditions: Seq[Column] = (0 until inputColNames.length).map { i =>
       val inputColName = inputColNames(i)
       val labelToIndex = labelsToIndexArray(i)
       // We have this additional lookup at `labelToIndex` when `handleInvalid` is set to
@@ -423,7 +423,7 @@ class StringIndexerModel (
       dataset
     }
 
-    for (i <- outputColNames.indices) {
+    for (i <- 0 until outputColNames.length) {
       val inputColName = inputColNames(i)
       val outputColName = outputColNames(i)
       val labelToIndex = labelsToIndexArray(i)

@@ -18,8 +18,10 @@
 package org.apache.spark.sql
 
 import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.test.SharedSparkSession
 
-trait TPCDSBase extends TPCBase with TPCDSSchema {
+trait TPCDSBase extends SharedSparkSession with TPCDSSchema {
 
   // The TPCDS queries below are based on v1.4
   private val tpcdsAllQueries: Seq[String] = Seq(
@@ -34,15 +36,11 @@ trait TPCDSBase extends TPCBase with TPCDSSchema {
     "q81", "q82", "q83", "q84", "q85", "q86", "q87", "q88", "q89", "q90",
     "q91", "q92", "q93", "q94", "q95", "q96", "q97", "q98", "q99")
 
-  private val excludedTpcdsQueries: Set[String] = if (regenerateGoldenFiles) {
-    Set()
-  } else {
-    // Since `tpcdsQueriesV2_7_0` has almost the same queries with these ones below,
-    // we skip them in the TPCDS-related tests.
-    // NOTE: q6" and "q75" can cause flaky test results, so we must exclude them.
-    // For more details, see SPARK-35327.
-    Set("q6", "q34", "q64", "q74", "q75", "q78")
-  }
+  // Since `tpcdsQueriesV2_7_0` has almost the same queries with these ones below,
+  // we skip them in the TPCDS-related tests.
+  // NOTE: q6" and "q75" can cause flaky test results, so we must exclude them.
+  // For more details, see SPARK-35327.
+  private val excludedTpcdsQueries: Set[String] = Set("q6", "q34", "q64", "q74", "q75", "q78")
 
   val tpcdsQueries: Seq[String] = tpcdsAllQueries.filterNot(excludedTpcdsQueries.contains)
 
@@ -81,7 +79,19 @@ trait TPCDSBase extends TPCBase with TPCDSSchema {
        """.stripMargin)
   }
 
-  override def createTables(): Unit = {
+  private val originalCBCEnabled = conf.cboEnabled
+  private val originalPlanStatsEnabled = conf.planStatsEnabled
+  private val originalJoinReorderEnabled = conf.joinReorderEnabled
+
+  override def beforeAll(): Unit = {
+    super.beforeAll()
+    if (injectStats) {
+      // Sets configurations for enabling the optimization rules that
+      // exploit data statistics.
+      conf.setConf(SQLConf.CBO_ENABLED, true)
+      conf.setConf(SQLConf.PLAN_STATS_ENABLED, true)
+      conf.setConf(SQLConf.JOIN_REORDER_ENABLED, true)
+    }
     tableNames.foreach { tableName =>
       createTable(spark, tableName)
       if (injectStats) {
@@ -92,9 +102,15 @@ trait TPCDSBase extends TPCBase with TPCDSSchema {
     }
   }
 
-  override def dropTables(): Unit = {
+  override def afterAll(): Unit = {
+    conf.setConf(SQLConf.CBO_ENABLED, originalCBCEnabled)
+    conf.setConf(SQLConf.PLAN_STATS_ENABLED, originalPlanStatsEnabled)
+    conf.setConf(SQLConf.JOIN_REORDER_ENABLED, originalJoinReorderEnabled)
     tableNames.foreach { tableName =>
       spark.sessionState.catalog.dropTable(TableIdentifier(tableName), true, true)
     }
+    super.afterAll()
   }
+
+  protected def injectStats: Boolean = false
 }

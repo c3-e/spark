@@ -186,7 +186,7 @@ object ObjectSerializerPruning extends Rule[LogicalPlan] {
       serializer: NamedExpression,
       prunedDataType: DataType): NamedExpression = {
     val prunedStructTypes = collectStructType(prunedDataType, ArrayBuffer.empty[StructType])
-      .iterator
+      .toIterator
 
     def transformer: PartialFunction[Expression, Expression] = {
       case m: ExternalMapToCatalyst =>
@@ -222,7 +222,7 @@ object ObjectSerializerPruning extends Rule[LogicalPlan] {
 
       if (conf.serializerNestedSchemaPruningEnabled && rootFields.nonEmpty) {
         // Prunes nested fields in serializers.
-        val prunedSchema = SchemaPruning.pruneSchema(
+        val prunedSchema = SchemaPruning.pruneDataSchema(
           StructType.fromAttributes(prunedSerializer.map(_.toAttribute)), rootFields)
         val nestedPrunedSerializer = prunedSerializer.zipWithIndex.map { case (serializer, idx) =>
           pruneSerializer(serializer, prunedSchema(idx).dataType)

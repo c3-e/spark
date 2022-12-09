@@ -19,23 +19,10 @@ from distutils.version import LooseVersion
 
 import matplotlib as mat
 import numpy as np
+import pandas as pd
 from matplotlib.axes._base import _process_plot_format
 from pandas.core.dtypes.inference import is_list_like
 from pandas.io.formats.printing import pprint_thing
-
-from pandas.plotting._matplotlib import (  # type: ignore[attr-defined]
-    BarPlot as PandasBarPlot,
-    BoxPlot as PandasBoxPlot,
-    HistPlot as PandasHistPlot,
-    PiePlot as PandasPiePlot,
-    AreaPlot as PandasAreaPlot,
-    LinePlot as PandasLinePlot,
-    BarhPlot as PandasBarhPlot,
-    ScatterPlot as PandasScatterPlot,
-    KdePlot as PandasKdePlot,
-)
-from pandas.plotting._core import PlotAccessor
-from pandas.plotting._matplotlib.core import MPLPlot as PandasMPLPlot
 
 from pyspark.pandas.plot import (
     TopNPlotBase,
@@ -46,12 +33,40 @@ from pyspark.pandas.plot import (
     KdePlotBase,
 )
 
-_all_kinds = PlotAccessor._all_kinds  # type: ignore[attr-defined]
+
+if LooseVersion(pd.__version__) < LooseVersion("0.25"):
+    from pandas.plotting._core import (
+        _all_kinds,
+        BarPlot as PandasBarPlot,
+        BoxPlot as PandasBoxPlot,
+        HistPlot as PandasHistPlot,
+        MPLPlot as PandasMPLPlot,
+        PiePlot as PandasPiePlot,
+        AreaPlot as PandasAreaPlot,
+        LinePlot as PandasLinePlot,
+        BarhPlot as PandasBarhPlot,
+        ScatterPlot as PandasScatterPlot,
+        KdePlot as PandasKdePlot,
+    )
+else:
+    from pandas.plotting._matplotlib import (
+        BarPlot as PandasBarPlot,
+        BoxPlot as PandasBoxPlot,
+        HistPlot as PandasHistPlot,
+        PiePlot as PandasPiePlot,
+        AreaPlot as PandasAreaPlot,
+        LinePlot as PandasLinePlot,
+        BarhPlot as PandasBarhPlot,
+        ScatterPlot as PandasScatterPlot,
+        KdePlot as PandasKdePlot,
+    )
+    from pandas.plotting._core import PlotAccessor
+    from pandas.plotting._matplotlib.core import MPLPlot as PandasMPLPlot
+
+    _all_kinds = PlotAccessor._all_kinds
 
 
 class PandasOnSparkBarPlot(PandasBarPlot, TopNPlotBase):
-    _kind = "bar"
-
     def __init__(self, data, **kwargs):
         super().__init__(self.get_top_n(data), **kwargs)
 
@@ -61,8 +76,6 @@ class PandasOnSparkBarPlot(PandasBarPlot, TopNPlotBase):
 
 
 class PandasOnSparkBoxPlot(PandasBoxPlot, BoxPlotBase):
-    _kind = "box"
-
     def boxplot(
         self,
         ax,
@@ -300,8 +313,8 @@ class PandasOnSparkBoxPlot(PandasBoxPlot, BoxPlotBase):
         self.maybe_color_bp(bp)
         self._return_obj = ret
 
-        labels = [lbl for lbl, _ in self.data.items()]
-        labels = [pprint_thing(lbl) for lbl in labels]
+        labels = [l for l, _ in self.data.items()]
+        labels = [pprint_thing(l) for l in labels]
         if not self.use_index:
             labels = [pprint_thing(key) for key in range(len(labels))]
         self._set_ticklabels(ax, labels)
@@ -318,7 +331,7 @@ class PandasOnSparkBoxPlot(PandasBoxPlot, BoxPlotBase):
         showcaps=None,
         showbox=None,
         showfliers=None,
-        **kwargs,
+        **kwargs
     ):
         # Missing arguments default to rcParams.
         if whis is None:
@@ -358,8 +371,6 @@ class PandasOnSparkBoxPlot(PandasBoxPlot, BoxPlotBase):
 
 
 class PandasOnSparkHistPlot(PandasHistPlot, HistogramPlotBase):
-    _kind = "hist"
-
     def _args_adjust(self):
         if is_list_like(self.bottom):
             self.bottom = np.array(self.bottom)
@@ -419,8 +430,6 @@ class PandasOnSparkHistPlot(PandasHistPlot, HistogramPlotBase):
 
 
 class PandasOnSparkPiePlot(PandasPiePlot, TopNPlotBase):
-    _kind = "pie"
-
     def __init__(self, data, **kwargs):
         super().__init__(self.get_top_n(data), **kwargs)
 
@@ -430,8 +439,6 @@ class PandasOnSparkPiePlot(PandasPiePlot, TopNPlotBase):
 
 
 class PandasOnSparkAreaPlot(PandasAreaPlot, SampledPlotBase):
-    _kind = "area"
-
     def __init__(self, data, **kwargs):
         super().__init__(self.get_sampled(data), **kwargs)
 
@@ -441,8 +448,6 @@ class PandasOnSparkAreaPlot(PandasAreaPlot, SampledPlotBase):
 
 
 class PandasOnSparkLinePlot(PandasLinePlot, SampledPlotBase):
-    _kind = "line"
-
     def __init__(self, data, **kwargs):
         super().__init__(self.get_sampled(data), **kwargs)
 
@@ -452,8 +457,6 @@ class PandasOnSparkLinePlot(PandasLinePlot, SampledPlotBase):
 
 
 class PandasOnSparkBarhPlot(PandasBarhPlot, TopNPlotBase):
-    _kind = "barh"
-
     def __init__(self, data, **kwargs):
         super().__init__(self.get_top_n(data), **kwargs)
 
@@ -463,8 +466,6 @@ class PandasOnSparkBarhPlot(PandasBarhPlot, TopNPlotBase):
 
 
 class PandasOnSparkScatterPlot(PandasScatterPlot, TopNPlotBase):
-    _kind = "scatter"
-
     def __init__(self, data, x, y, **kwargs):
         super().__init__(self.get_top_n(data), x, y, **kwargs)
 
@@ -474,8 +475,6 @@ class PandasOnSparkScatterPlot(PandasScatterPlot, TopNPlotBase):
 
 
 class PandasOnSparkKdePlot(PandasKdePlot, KdePlotBase):
-    _kind = "kde"
-
     def _compute_plot_data(self):
         self.data = KdePlotBase.prepare_kde_data(self.data)
 
@@ -587,7 +586,7 @@ def plot_series(
     xerr=None,
     label=None,
     secondary_y=False,  # Series unique
-    **kwds,
+    **kwds
 ):
     """
     Make plots of Series using matplotlib / pylab.
@@ -725,7 +724,7 @@ def plot_frame(
     y=None,
     kind="line",
     ax=None,
-    subplots=False,
+    subplots=None,
     sharex=None,
     sharey=False,
     layout=None,
@@ -750,7 +749,7 @@ def plot_frame(
     xerr=None,
     secondary_y=False,
     sort_columns=False,
-    **kwds,
+    **kwds
 ):
     """
     Make plots of DataFrames using matplotlib / pylab.

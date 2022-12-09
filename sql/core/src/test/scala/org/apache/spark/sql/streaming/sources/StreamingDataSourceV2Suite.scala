@@ -18,6 +18,9 @@
 package org.apache.spark.sql.streaming.sources
 
 import java.util
+import java.util.Collections
+
+import scala.collection.JavaConverters._
 
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.apache.spark.sql.connector.catalog.{SessionConfigSupport, SupportsRead, SupportsWrite, Table, TableCapability, TableProvider}
@@ -90,7 +93,7 @@ trait FakeStreamingWriteTable extends Table with SupportsWrite {
   override def name(): String = "fake"
   override def schema(): StructType = StructType(Seq())
   override def capabilities(): util.Set[TableCapability] = {
-    util.EnumSet.of(STREAMING_WRITE)
+    Set(STREAMING_WRITE).asJava
   }
   override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {
     new FakeWriteBuilder
@@ -111,7 +114,7 @@ class FakeReadMicroBatchOnly
       override def name(): String = "fake"
       override def schema(): StructType = StructType(Seq())
       override def capabilities(): util.Set[TableCapability] = {
-        util.EnumSet.of(MICRO_BATCH_READ)
+        Set(MICRO_BATCH_READ).asJava
       }
       override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = {
         new FakeScanBuilder
@@ -134,7 +137,7 @@ class FakeReadContinuousOnly
       override def name(): String = "fake"
       override def schema(): StructType = StructType(Seq())
       override def capabilities(): util.Set[TableCapability] = {
-        util.EnumSet.of(CONTINUOUS_READ)
+        Set(CONTINUOUS_READ).asJava
       }
       override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = {
         new FakeScanBuilder
@@ -151,7 +154,7 @@ class FakeReadBothModes extends DataSourceRegister with SimpleTableProvider {
       override def name(): String = "fake"
       override def schema(): StructType = StructType(Seq())
       override def capabilities(): util.Set[TableCapability] = {
-        util.EnumSet.of(MICRO_BATCH_READ, CONTINUOUS_READ)
+        Set(MICRO_BATCH_READ, CONTINUOUS_READ).asJava
       }
       override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = {
         new FakeScanBuilder
@@ -167,8 +170,7 @@ class FakeReadNeitherMode extends DataSourceRegister with SimpleTableProvider {
     new Table {
       override def name(): String = "fake"
       override def schema(): StructType = StructType(Nil)
-      override def capabilities(): util.Set[TableCapability] =
-        util.EnumSet.noneOf(classOf[TableCapability])
+      override def capabilities(): util.Set[TableCapability] = Collections.emptySet()
     }
   }
 }
@@ -196,8 +198,7 @@ class FakeNoWrite extends DataSourceRegister with SimpleTableProvider {
     new Table {
       override def name(): String = "fake"
       override def schema(): StructType = StructType(Nil)
-      override def capabilities(): util.Set[TableCapability] =
-        util.EnumSet.noneOf(classOf[TableCapability])
+      override def capabilities(): util.Set[TableCapability] = Collections.emptySet()
     }
   }
 }
@@ -291,9 +292,7 @@ class StreamingDataSourceV2Suite extends StreamTest {
     "fake-write-microbatch-continuous",
     "fake-write-neither-mode")
   val triggers = Seq(
-    // NOTE: the test uses the deprecated Trigger.Once() by intention, do not change.
     Trigger.Once(),
-    Trigger.AvailableNow(),
     Trigger.ProcessingTime(1000),
     Trigger.Continuous(1000))
 
@@ -351,18 +350,17 @@ class StreamingDataSourceV2Suite extends StreamTest {
     "supports external metadata") {
     testPositiveCaseWithQuery(
       "fake-read-microbatch-continuous", "fake-write-supporting-external-metadata",
-      Trigger.AvailableNow()) { v2Query =>
+      Trigger.Once()) { v2Query =>
       val sink = v2Query.asInstanceOf[StreamingQueryWrapper].streamingQuery.sink
       assert(sink.isInstanceOf[Table])
-      assert(sink.schema() == StructType(Nil))
+      assert(sink.asInstanceOf[Table].schema() == StructType(Nil))
     }
   }
 
   test("disabled v2 write") {
     // Ensure the V2 path works normally and generates a V2 sink..
     testPositiveCaseWithQuery(
-      "fake-read-microbatch-continuous", "fake-write-v1-fallback",
-      Trigger.AvailableNow()) { v2Query =>
+      "fake-read-microbatch-continuous", "fake-write-v1-fallback", Trigger.Once()) { v2Query =>
       assert(v2Query.asInstanceOf[StreamingQueryWrapper].streamingQuery.sink
         .isInstanceOf[Table])
     }
@@ -372,8 +370,7 @@ class StreamingDataSourceV2Suite extends StreamTest {
     val fullSinkName = classOf[FakeWriteSupportProviderV1Fallback].getName
     withSQLConf(SQLConf.DISABLED_V2_STREAMING_WRITERS.key -> s"a,b,c,test,$fullSinkName,d,e") {
       testPositiveCaseWithQuery(
-        "fake-read-microbatch-continuous", "fake-write-v1-fallback",
-        Trigger.AvailableNow()) { v1Query =>
+        "fake-read-microbatch-continuous", "fake-write-v1-fallback", Trigger.Once()) { v1Query =>
         assert(v1Query.asInstanceOf[StreamingQueryWrapper].streamingQuery.sink
           .isInstanceOf[FakeSink])
       }
@@ -381,7 +378,7 @@ class StreamingDataSourceV2Suite extends StreamTest {
   }
 
   Seq(
-    Tuple2(classOf[FakeReadMicroBatchOnly], Trigger.AvailableNow()),
+    Tuple2(classOf[FakeReadMicroBatchOnly], Trigger.Once()),
     Tuple2(classOf[FakeReadContinuousOnly], Trigger.Continuous(1000))
   ).foreach { case (source, trigger) =>
     test(s"SPARK-25460: session options are respected in structured streaming sources - $source") {

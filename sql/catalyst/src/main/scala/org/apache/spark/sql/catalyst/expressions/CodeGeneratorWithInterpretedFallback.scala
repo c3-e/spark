@@ -21,6 +21,7 @@ import scala.util.control.NonFatal
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.util.Utils
 
 /**
  * Defines values for `SQLConf` config of fallback mode. Use for test only.
@@ -42,9 +43,9 @@ abstract class CodeGeneratorWithInterpretedFallback[IN, OUT] extends Logging {
     val fallbackMode = CodegenObjectFactoryMode.withName(config)
 
     fallbackMode match {
-      case CodegenObjectFactoryMode.CODEGEN_ONLY =>
+      case CodegenObjectFactoryMode.CODEGEN_ONLY if Utils.isTesting =>
         createCodeGeneratedObject(in)
-      case CodegenObjectFactoryMode.NO_CODEGEN =>
+      case CodegenObjectFactoryMode.NO_CODEGEN if Utils.isTesting =>
         createInterpretedObject(in)
       case _ =>
         try {

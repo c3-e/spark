@@ -20,17 +20,14 @@ package org.apache.spark.sql.hive.execution
 import java.io.{File, IOException}
 
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.connector.catalog.CatalogManager.SESSION_CATALOG_NAME
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.hive.test.{TestHive, TestHiveSingleton}
 import org.apache.spark.sql.hive.test.TestHive._
 import org.apache.spark.sql.hive.test.TestHive.implicits._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SQLTestUtils
-import org.apache.spark.tags.SlowHiveTest
 import org.apache.spark.util.Utils
 
-@SlowHiveTest
 class HiveTableScanSuite extends HiveComparisonTest with SQLTestUtils with TestHiveSingleton {
 
   createQueryTest("partition_based_table_scan_with_different_serde",
@@ -209,9 +206,9 @@ class HiveTableScanSuite extends HiveComparisonTest with SQLTestUtils with TestH
 
         val scan1 = getHiveTableScanExec("SELECT * FROM df WHERE df.k < 3")
         assert(scan1.simpleString(100).replaceAll("#\\d+L", "") ==
-          s"Scan hive $SESSION_CATALOG_NAME.default.df [id, k]," +
+          "Scan hive default.df [id, k]," +
             " HiveTableRelation [" +
-            s"`$SESSION_CATALOG_NAME`.`default`.`df`," +
+            "`default`.`df`," +
             " org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe," +
             " Data Cols: [id]," +
             " Partition Cols: [k]," +
@@ -221,9 +218,9 @@ class HiveTableScanSuite extends HiveComparisonTest with SQLTestUtils with TestH
 
         val scan2 = getHiveTableScanExec("SELECT * FROM df WHERE df.k < 30")
         assert(scan2.simpleString(100).replaceAll("#\\d+L", "") ==
-          s"Scan hive $SESSION_CATALOG_NAME.default.df [id, k]," +
+          "Scan hive default.df [id, k]," +
             " HiveTableRelation [" +
-            s"`$SESSION_CATALOG_NAME`.`default`.`df`," +
+            "`default`.`df`," +
             " org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe," +
             " Data Cols: [id]," +
             " Partition Cols: [k]," +
@@ -240,9 +237,9 @@ class HiveTableScanSuite extends HiveComparisonTest with SQLTestUtils with TestH
 
         val scan3 = getHiveTableScanExec("SELECT * FROM df WHERE df.k < 30")
         assert(scan3.simpleString(100).replaceAll("#\\d+L", "") ==
-          s"Scan hive $SESSION_CATALOG_NAME.default.df [id, k]," +
+          "Scan hive default.df [id, k]," +
             " HiveTableRelation [" +
-            s"`$SESSION_CATALOG_NAME`.`default`.`df`," +
+            "`default`.`df`," +
             " org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe," +
             " Data Cols: [id]," +
             " Partition Cols: [k]," +

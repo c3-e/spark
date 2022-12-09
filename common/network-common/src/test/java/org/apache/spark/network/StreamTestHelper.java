@@ -23,6 +23,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Random;
 
+import com.google.common.io.Files;
+
 import org.apache.spark.network.buffer.FileSegmentManagedBuffer;
 import org.apache.spark.network.buffer.ManagedBuffer;
 import org.apache.spark.network.buffer.NioManagedBuffer;
@@ -49,19 +51,22 @@ class StreamTestHelper {
   }
 
   StreamTestHelper() throws Exception {
-    tempDir = JavaUtils.createTempDir();
+    tempDir = Files.createTempDir();
     emptyBuffer = createBuffer(0);
     smallBuffer = createBuffer(100);
     largeBuffer = createBuffer(100000);
 
     testFile = File.createTempFile("stream-test-file", "txt", tempDir);
-    try (FileOutputStream fp = new FileOutputStream(testFile)) {
+    FileOutputStream fp = new FileOutputStream(testFile);
+    try {
       Random rnd = new Random();
       for (int i = 0; i < 512; i++) {
         byte[] fileContent = new byte[1024];
         rnd.nextBytes(fileContent);
         fp.write(fileContent);
       }
+    } finally {
+      fp.close();
     }
   }
 

@@ -58,7 +58,10 @@ public class JavaDataStreamReaderWriterSuite {
       .readStream()
       .textFile(input)
       .writeStream()
-      .foreachBatch((VoidFunction2<Dataset<String>, Long>) (v1, v2) -> {})
+      .foreachBatch(new VoidFunction2<Dataset<String>, Long>() {
+        @Override
+        public void call(Dataset<String> v1, Long v2) throws Exception {}
+      })
       .start();
     query.stop();
   }

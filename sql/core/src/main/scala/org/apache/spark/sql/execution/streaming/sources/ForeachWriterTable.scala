@@ -19,6 +19,8 @@ package org.apache.spark.sql.execution.streaming.sources
 
 import java.util
 
+import scala.collection.JavaConverters._
+
 import org.apache.spark.sql.{ForeachWriter, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
@@ -49,7 +51,7 @@ case class ForeachWriterTable[T](
   override def schema(): StructType = StructType(Nil)
 
   override def capabilities(): util.Set[TableCapability] = {
-    util.EnumSet.of(TableCapability.STREAMING_WRITE)
+    Set(TableCapability.STREAMING_WRITE).asJava
   }
 
   override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {

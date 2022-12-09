@@ -31,7 +31,6 @@ abstract class LogicalPlan
   extends QueryPlan[LogicalPlan]
   with AnalysisHelper
   with LogicalPlanStats
-  with LogicalPlanDistinctKeys
   with QueryPlanConstraints
   with Logging {
 
@@ -42,8 +41,7 @@ abstract class LogicalPlan
   def metadataOutput: Seq[Attribute] = children.flatMap(_.metadataOutput)
 
   /** Returns true if this subtree has data from a streaming data source. */
-  def isStreaming: Boolean = _isStreaming
-  private[this] lazy val _isStreaming = children.exists(_.isStreaming)
+  def isStreaming: Boolean = children.exists(_.isStreaming)
 
   override def verboseStringWithSuffix(maxFields: Int): String = {
     super.verboseString(maxFields) + statsCache.map(", " + _.toString).getOrElse("")
@@ -213,12 +211,11 @@ object LogicalPlanIntegrity {
 
   private def canGetOutputAttrs(p: LogicalPlan): Boolean = {
     p.resolved && !p.expressions.exists { e =>
-      e.exists {
+      e.collectFirst {
         // We cannot call `output` in plans with a `ScalarSubquery` expr having no column,
         // so, we filter out them in advance.
-        case s: ScalarSubquery => s.plan.schema.fields.isEmpty
-        case _ => false
-      }
+        case s: ScalarSubquery if s.plan.schema.fields.isEmpty => true
+      }.isDefined
     }
   }
 
@@ -278,11 +275,4 @@ object LogicalPlanIntegrity {
   def checkIfExprIdsAreGloballyUnique(plan: LogicalPlan): Boolean = {
     checkIfSameExprIdNotReused(plan) && hasUniqueExprIdsForOutput(plan)
   }
-}
-
-/**
- * A logical plan node that can generate metadata columns
- */
-trait ExposesMetadataColumns extends LogicalPlan {
-  def withMetadataColumns(): LogicalPlan
 }

@@ -233,8 +233,6 @@ private[spark] class MetricsSystem private (
       }
     }
   }
-
-  def metricsProperties(): Properties = metricsConfig.properties
 }
 
 private[spark] object MetricsSystem {

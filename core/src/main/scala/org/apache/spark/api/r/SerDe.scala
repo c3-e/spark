@@ -21,9 +21,8 @@ import java.io.{DataInputStream, DataOutputStream}
 import java.nio.charset.StandardCharsets
 import java.sql.{Date, Time, Timestamp}
 
-import scala.collection.mutable
-
-import org.apache.spark.util.collection.Utils
+import scala.collection.JavaConverters._
+import scala.collection.mutable.WrappedArray
 
 /**
  * Utility functions to serialize, deserialize objects to / from R
@@ -237,7 +236,7 @@ private[spark] object SerDe {
       val keys = readArray(in, jvmObjectTracker).asInstanceOf[Array[Object]]
       val values = readList(in, jvmObjectTracker)
 
-      Utils.toJavaMap(keys, values)
+      keys.zip(values).toMap.asJava
     } else {
       new java.util.HashMap[Object, Object]()
     }
@@ -304,10 +303,12 @@ private[spark] object SerDe {
       // Convert ArrayType collected from DataFrame to Java array
       // Collected data of ArrayType from a DataFrame is observed to be of
       // type "scala.collection.mutable.WrappedArray"
-      val value = obj match {
-        case wa: mutable.WrappedArray[_] => wa.array
-        case other => other
-      }
+      val value =
+        if (obj.isInstanceOf[WrappedArray[_]]) {
+          obj.asInstanceOf[WrappedArray[_]].toArray
+        } else {
+          obj
+        }
 
       value match {
         case v: java.lang.Character =>

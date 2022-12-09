@@ -76,7 +76,6 @@ class TaskDescriptionSuite extends SparkFunSuite {
       originalJars,
       originalArchives,
       originalProperties,
-      cpus = 2,
       originalResources,
       taskBuffer
     )
@@ -95,7 +94,6 @@ class TaskDescriptionSuite extends SparkFunSuite {
     assert(decodedTaskDescription.addedJars.equals(originalJars))
     assert(decodedTaskDescription.addedArchives.equals(originalArchives))
     assert(decodedTaskDescription.properties.equals(originalTaskDescription.properties))
-    assert(decodedTaskDescription.cpus.equals(originalTaskDescription.cpus))
     assert(equalResources(decodedTaskDescription.resources, originalTaskDescription.resources))
     assert(decodedTaskDescription.serializedTask.equals(taskBuffer))
 

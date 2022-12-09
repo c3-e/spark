@@ -33,8 +33,10 @@ import org.apache.spark.unsafe.Platform;
 import org.apache.spark.unsafe.memory.MemoryBlock;
 import org.apache.spark.internal.config.package$;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.isIn;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 
 public class UnsafeInMemorySorterSuite {
@@ -135,8 +137,8 @@ public class UnsafeInMemorySorterSuite {
       final String str =
         getStringFromDataPage(iter.getBaseObject(), iter.getBaseOffset(), iter.getRecordLength());
       final long keyPrefix = iter.getKeyPrefix();
-      assertTrue(Arrays.asList(dataToSort).contains(str));
-      assertTrue(keyPrefix >= prevPrefix);
+      assertThat(str, isIn(Arrays.asList(dataToSort)));
+      assertThat(keyPrefix, greaterThanOrEqualTo(prevPrefix));
       prevPrefix = keyPrefix;
       iterLength++;
     }

@@ -30,7 +30,8 @@ private[history] class HistoryPage(parent: HistoryServer) extends WebUIPage("") 
     val requestedIncomplete = Option(request.getParameter("showIncomplete"))
       .getOrElse("false").toBoolean
 
-    val displayApplications = shouldDisplayApplications(requestedIncomplete)
+    val displayApplications = parent.getApplicationList()
+      .exists(isApplicationCompleted(_) != requestedIncomplete)
     val eventLogsUnderProcessCount = parent.getEventLogsUnderProcess()
     val lastUpdatedTime = parent.getLastUpdatedTime()
     val providerConfig = parent.getProviderConfig()
@@ -88,10 +89,6 @@ private[history] class HistoryPage(parent: HistoryServer) extends WebUIPage("") 
           </div>
       </div>
     UIUtils.basicSparkPage(request, content, "History Server", true)
-  }
-
-  def shouldDisplayApplications(requestedIncomplete: Boolean): Boolean = {
-    parent.getApplicationList().exists(isApplicationCompleted(_) != requestedIncomplete)
   }
 
   private def makePageLink(request: HttpServletRequest, showIncomplete: Boolean): String = {

@@ -21,9 +21,9 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable
 
 import org.apache.spark.annotation.Experimental
-import org.apache.spark.sql.catalyst.analysis.{CannotReplaceMissingTableException, NoSuchTableException, TableAlreadyExistsException, UnresolvedIdentifier, UnresolvedRelation}
+import org.apache.spark.sql.catalyst.analysis.{CannotReplaceMissingTableException, NoSuchTableException, TableAlreadyExistsException, UnresolvedRelation}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Bucket, Days, Hours, Literal, Months, Years}
-import org.apache.spark.sql.catalyst.plans.logical.{AppendData, CreateTableAsSelect, LogicalPlan, OverwriteByExpression, OverwritePartitionsDynamic, ReplaceTableAsSelect, TableSpec}
+import org.apache.spark.sql.catalyst.plans.logical.{AppendData, CreateTableAsSelectStatement, LogicalPlan, OverwriteByExpression, OverwritePartitionsDynamic, ReplaceTableAsSelectStatement}
 import org.apache.spark.sql.connector.expressions.{LogicalExpressions, NamedReference, Transform}
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.types.IntegerType
@@ -107,22 +107,21 @@ final class DataFrameWriterV2[T] private[sql](table: String, ds: Dataset[T])
   }
 
   override def create(): Unit = {
-    val tableSpec = TableSpec(
-      properties = properties.toMap,
-      provider = provider,
-      options = Map.empty,
-      location = None,
-      comment = None,
-      serde = None,
-      external = false)
     runCommand(
-      CreateTableAsSelect(
-        UnresolvedIdentifier(tableName),
-        partitioning.getOrElse(Seq.empty),
+      CreateTableAsSelectStatement(
+        tableName,
         logicalPlan,
-        tableSpec,
+        partitioning.getOrElse(Seq.empty),
+        None,
+        properties.toMap,
+        provider,
+        Map.empty,
+        None,
+        None,
         options.toMap,
-        false))
+        None,
+        ifNotExists = false,
+        external = false))
   }
 
   override def replace(): Unit = {
@@ -196,21 +195,20 @@ final class DataFrameWriterV2[T] private[sql](table: String, ds: Dataset[T])
   }
 
   private def internalReplace(orCreate: Boolean): Unit = {
-    val tableSpec = TableSpec(
-      properties = properties.toMap,
-      provider = provider,
-      options = Map.empty,
-      location = None,
-      comment = None,
-      serde = None,
-      external = false)
-    runCommand(ReplaceTableAsSelect(
-      UnresolvedIdentifier(tableName),
-      partitioning.getOrElse(Seq.empty),
-      logicalPlan,
-      tableSpec,
-      writeOptions = options.toMap,
-      orCreate = orCreate))
+    runCommand(
+      ReplaceTableAsSelectStatement(
+        tableName,
+        logicalPlan,
+        partitioning.getOrElse(Seq.empty),
+        None,
+        properties.toMap,
+        provider,
+        Map.empty,
+        None,
+        None,
+        options.toMap,
+        None,
+        orCreate = orCreate))
   }
 }
 

@@ -37,8 +37,7 @@ case class DropTableExec(
       invalidateCache()
       if (purge) catalog.purgeTable(ident) else catalog.dropTable(ident)
     } else if (!ifExists) {
-      throw QueryCompilationErrors.noSuchTableError(
-        catalog.name() +: ident.namespace() :+ ident.name())
+      throw QueryCompilationErrors.noSuchTableError(ident)
     }
 
     Seq.empty

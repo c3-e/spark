@@ -56,6 +56,7 @@ public class JavaStreamingKMeansSuite {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void javaAPI() {
     List<Vector> trainingBatch = Arrays.asList(
       Vectors.dense(1.0),

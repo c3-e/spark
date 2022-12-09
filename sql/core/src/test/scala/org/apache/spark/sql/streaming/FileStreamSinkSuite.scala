@@ -47,7 +47,7 @@ abstract class FileStreamSinkSuite extends StreamTest {
 
   override def beforeAll(): Unit = {
     super.beforeAll()
-    spark.conf.set(SQLConf.ORC_IMPLEMENTATION, "native")
+    spark.sessionState.conf.setConf(SQLConf.ORC_IMPLEMENTATION, "native")
   }
 
   override def afterAll(): Unit = {
@@ -371,12 +371,10 @@ abstract class FileStreamSinkSuite extends StreamTest {
           }
         }
 
-        checkError(
-          exception = intercept[AnalysisException] {
-            spark.read.schema(s"$c0 INT, $c1 INT").json(outputDir).as[(Int, Int)]
-          },
-          errorClass = "COLUMN_ALREADY_EXISTS",
-          parameters = Map("columnName" -> s"`${c1.toLowerCase(Locale.ROOT)}`"))
+        val errorMsg = intercept[AnalysisException] {
+          spark.read.schema(s"$c0 INT, $c1 INT").json(outputDir).as[(Int, Int)]
+        }.getMessage
+        assert(errorMsg.contains("Found duplicate column(s) in the data schema: "))
       }
     }
   }

@@ -26,21 +26,18 @@ import org.apache.spark.sql.connector.write.streaming.{StreamingDataWriterFactor
  * the non-streaming interface, forwarding the epoch ID determined at construction to a wrapped
  * streaming write support.
  */
-class MicroBatchWrite(epochId: Long, val writeSupport: StreamingWrite) extends BatchWrite {
-  override def toString: String = {
-    s"MicroBatchWrite[epoch: $epochId, writer: $writeSupport]"
-  }
+class MicroBatchWrite(eppchId: Long, val writeSupport: StreamingWrite) extends BatchWrite {
 
   override def commit(messages: Array[WriterCommitMessage]): Unit = {
-    writeSupport.commit(epochId, messages)
+    writeSupport.commit(eppchId, messages)
   }
 
   override def abort(messages: Array[WriterCommitMessage]): Unit = {
-    writeSupport.abort(epochId, messages)
+    writeSupport.abort(eppchId, messages)
   }
 
   override def createBatchWriterFactory(info: PhysicalWriteInfo): DataWriterFactory = {
-    new MicroBatchWriterFactory(epochId, writeSupport.createStreamingWriterFactory(info))
+    new MicroBatchWriterFactory(eppchId, writeSupport.createStreamingWriterFactory(info))
   }
 }
 

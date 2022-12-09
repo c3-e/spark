@@ -129,7 +129,7 @@ private[spark] object TaskIndexNames {
   final val SER_TIME = "rst"
   final val SHUFFLE_LOCAL_BLOCKS = "slbl"
   final val SHUFFLE_READ_RECORDS = "srr"
-  final val SHUFFLE_READ_FETCH_WAIT_TIME = "srt"
+  final val SHUFFLE_READ_TIME = "srt"
   final val SHUFFLE_REMOTE_BLOCKS = "srbl"
   final val SHUFFLE_REMOTE_READS = "srby"
   final val SHUFFLE_REMOTE_READS_TO_DISK = "srbd"
@@ -141,7 +141,6 @@ private[spark] object TaskIndexNames {
   final val STAGE = "stage"
   final val STATUS = "sta"
   final val TASK_INDEX = "idx"
-  final val TASK_PARTITION_ID = "partid"
   final val COMPLETION_TIME = "ct"
 }
 
@@ -162,10 +161,6 @@ private[spark] class TaskDataWrapper(
     val index: Int,
     @KVIndexParam(value = TaskIndexNames.ATTEMPT, parent = TaskIndexNames.STAGE)
     val attempt: Int,
-    @KVIndexParam(value = TaskIndexNames.TASK_PARTITION_ID, parent = TaskIndexNames.STAGE)
-    // Different kvstores have different default values (eg 0 or -1),
-    // thus we use the default value here for backwards compatibility.
-    val partitionId: Int = -1,
     @KVIndexParam(value = TaskIndexNames.LAUNCH_TIME, parent = TaskIndexNames.STAGE)
     val launchTime: Long,
     val resultFetchStart: Long,
@@ -222,8 +217,7 @@ private[spark] class TaskDataWrapper(
     val shuffleRemoteBlocksFetched: Long,
     @KVIndexParam(value = TaskIndexNames.SHUFFLE_LOCAL_BLOCKS, parent = TaskIndexNames.STAGE)
     val shuffleLocalBlocksFetched: Long,
-    @KVIndexParam(value = TaskIndexNames.SHUFFLE_READ_FETCH_WAIT_TIME,
-      parent = TaskIndexNames.STAGE)
+    @KVIndexParam(value = TaskIndexNames.SHUFFLE_READ_TIME, parent = TaskIndexNames.STAGE)
     val shuffleFetchWaitTime: Long,
     @KVIndexParam(value = TaskIndexNames.SHUFFLE_REMOTE_READS, parent = TaskIndexNames.STAGE)
     val shuffleRemoteBytesRead: Long,
@@ -291,7 +285,6 @@ private[spark] class TaskDataWrapper(
       taskId,
       index,
       attempt,
-      partitionId,
       new Date(launchTime),
       if (resultFetchStart > 0L) Some(new Date(resultFetchStart)) else None,
       if (duration > 0L) Some(duration) else None,
@@ -404,18 +397,6 @@ private[spark] class ExecutorStageSummaryWrapper(
   @JsonIgnore
   def id: Array[Any] = _id
 
-}
-
-private[spark] class SpeculationStageSummaryWrapper(
-    val stageId: Int,
-    val stageAttemptId: Int,
-    val info: SpeculationStageSummary) {
-
-  @JsonIgnore @KVIndex("stage")
-  private def stage: Array[Int] = Array(stageId, stageAttemptId)
-
-  @KVIndex
-  private[this] val id: Array[Int] = Array(stageId, stageAttemptId)
 }
 
 private[spark] class StreamBlockData(

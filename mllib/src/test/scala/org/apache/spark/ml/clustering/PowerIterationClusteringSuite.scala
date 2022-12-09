@@ -19,7 +19,7 @@ package org.apache.spark.ml.clustering
 
 import scala.collection.mutable
 
-import org.apache.spark.SparkFunSuite
+import org.apache.spark.{SparkException, SparkFunSuite}
 import org.apache.spark.ml.util.DefaultReadWriteTest
 import org.apache.spark.mllib.util.MLlibTestSparkContext
 import org.apache.spark.sql.{DataFrame, Dataset, SparkSession}
@@ -139,10 +139,10 @@ class PowerIterationClusteringSuite extends SparkFunSuite
       (0, 1, -1.0),
       (1, 0, -1.0)
     )).toDF("src", "dst", "weight")
-    val msg = intercept[Exception] {
+    val msg = intercept[SparkException] {
       pic.assignClusters(badData)
-    }.getMessage
-    assert(msg.contains("Weights MUST NOT be Negative or Infinity"))
+    }.getCause.getMessage
+    assert(msg.contains("Similarity must be nonnegative"))
   }
 
   test("check for invalid input types of weight") {

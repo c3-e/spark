@@ -65,16 +65,11 @@ class AttributeResolutionSuite extends SparkFunSuite {
       AttributeReference("a", IntegerType)(qualifier = Seq("ns1", "t1")),
       AttributeReference("a", IntegerType)(qualifier = Seq("ns1", "ns2", "t2")))
 
-    checkError(
-      exception = intercept[AnalysisException] {
-        attrs.resolve(Seq("a"), resolver)
-      },
-      errorClass = "AMBIGUOUS_REFERENCE",
-      parameters = Map(
-        "name" -> "`a`",
-        "referenceNames" -> "[`ns1`.`ns2`.`t2`.`a`, `ns1`.`t1`.`a`]"
-      )
-    )
+    val ex = intercept[AnalysisException] {
+      attrs.resolve(Seq("a"), resolver)
+    }
+    assert(ex.getMessage.contains(
+      "Reference 'a' is ambiguous, could be: ns1.t1.a, ns1.ns2.t2.a."))
   }
 
   test("attribute resolution ambiguity at the qualifier level") {
@@ -82,16 +77,11 @@ class AttributeResolutionSuite extends SparkFunSuite {
       AttributeReference("a", IntegerType)(qualifier = Seq("ns1", "t")),
       AttributeReference("a", IntegerType)(qualifier = Seq("ns2", "ns1", "t")))
 
-    checkError(
-      exception = intercept[AnalysisException] {
-        attrs.resolve(Seq("ns1", "t", "a"), resolver)
-      },
-      errorClass = "AMBIGUOUS_REFERENCE",
-      parameters = Map(
-        "name" -> "`ns1`.`t`.`a`",
-        "referenceNames" -> "[`ns1`.`t`.`a`, `ns2`.`ns1`.`t`.`a`]"
-      )
-    )
+    val ex = intercept[AnalysisException] {
+      attrs.resolve(Seq("ns1", "t", "a"), resolver)
+    }
+    assert(ex.getMessage.contains(
+      "Reference 'ns1.t.a' is ambiguous, could be: ns1.t.a, ns2.ns1.t.a."))
   }
 
   test("attribute resolution with nested fields") {
@@ -104,12 +94,10 @@ class AttributeResolutionSuite extends SparkFunSuite {
       case _ => fail()
     }
 
-    checkError(
-      exception = intercept[AnalysisException] {
-        attrs.resolve(Seq("ns1", "t", "a", "cc"), resolver)
-      },
-      errorClass = "FIELD_NOT_FOUND",
-      parameters = Map("fieldName" -> "`cc`", "fields" -> "`aa`, `bb`"))
+    val ex = intercept[AnalysisException] {
+      attrs.resolve(Seq("ns1", "t", "a", "cc"), resolver)
+    }
+    assert(ex.getMessage.contains("No such struct field cc in aa, bb"))
   }
 
   test("attribute resolution with case insensitive resolver") {

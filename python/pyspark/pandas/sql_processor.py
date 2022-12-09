@@ -15,12 +15,12 @@
 # limitations under the License.
 #
 
-import _string  # type: ignore[import]
-from typing import Any, Dict, Optional, Union, List
+import _string  # type: ignore
+from typing import Any, Dict, Optional, Union, List  # noqa: F401 (SPARK-34943)
 import inspect
 import pandas as pd
 
-from pyspark.sql import SparkSession, DataFrame as SDataFrame
+from pyspark.sql import SparkSession, DataFrame as SDataFrame  # noqa: F401 (SPARK-34943)
 
 from pyspark import pandas as ps  # For running doctests and reference resolution in PyCharm.
 from pyspark.pandas.utils import default_session
@@ -41,7 +41,7 @@ def sql(
     index_col: Optional[Union[str, List[str]]] = None,
     globals: Optional[Dict[str, Any]] = None,
     locals: Optional[Dict[str, Any]] = None,
-    **kwargs: Any,
+    **kwargs: Any
 ) -> DataFrame:
     """
     Execute a SQL query and return the result as a pandas-on-Spark DataFrame.
@@ -77,13 +77,9 @@ def sql(
 
             For example,
 
-            >>> from pyspark.pandas import sql_processor
-            >>> # we will call 'sql_processor' directly in doctests so decrease one level.
-            >>> sql_processor._CAPTURE_SCOPES = 2
-            >>> sql = sql_processor.sql
             >>> psdf = ps.DataFrame({"A": [1, 2, 3], "B":[4, 5, 6]}, index=['a', 'b', 'c'])
             >>> psdf_reset_index = psdf.reset_index()
-            >>> sql("SELECT * FROM {psdf_reset_index}", index_col="index")
+            >>> ps.sql("SELECT * FROM {psdf_reset_index}", index_col="index")
             ... # doctest: +NORMALIZE_WHITESPACE
                    A  B
             index
@@ -100,7 +96,7 @@ def sql(
             ...     ),
             ... )
             >>> psdf_reset_index = psdf.reset_index()
-            >>> sql("SELECT * FROM {psdf_reset_index}", index_col=["index1", "index2"])
+            >>> ps.sql("SELECT * FROM {psdf_reset_index}", index_col=["index1", "index2"])
             ... # doctest: +NORMALIZE_WHITESPACE
                            A  B
             index1 index2
@@ -126,7 +122,7 @@ def sql(
 
     Calling a built-in SQL function.
 
-    >>> sql("select * from range(10) where id > 7")
+    >>> ps.sql("select * from range(10) where id > 7")
        id
     0   8
     1   9
@@ -134,7 +130,7 @@ def sql(
     A query can also reference a local variable or parameter by wrapping them in curly braces:
 
     >>> bound1 = 7
-    >>> sql("select * from range(10) where id > {bound1} and id < {bound2}", bound2=9)
+    >>> ps.sql("select * from range(10) where id > {bound1} and id < {bound2}", bound2=9)
        id
     0   8
 
@@ -143,7 +139,7 @@ def sql(
 
     >>> mydf = ps.range(10)
     >>> x = range(4)
-    >>> sql("SELECT * from {mydf} WHERE id IN {x}")
+    >>> ps.sql("SELECT * from {mydf} WHERE id IN {x}")
        id
     0   0
     1   1
@@ -154,7 +150,7 @@ def sql(
 
     >>> def statement():
     ...     mydf2 = ps.DataFrame({"x": range(2)})
-    ...     return sql("SELECT * from {mydf2}")
+    ...     return ps.sql("SELECT * from {mydf2}")
     >>> statement()
        x
     0  0
@@ -163,7 +159,7 @@ def sql(
     Mixing pandas-on-Spark and pandas DataFrames in a join operation. Note that the index is
     dropped.
 
-    >>> sql('''
+    >>> ps.sql('''
     ...   SELECT m1.a, m2.b
     ...   FROM {table1} m1 INNER JOIN {table2} m2
     ...   ON m1.key = m2.key
@@ -178,7 +174,7 @@ def sql(
     Also, it is possible to query using Series.
 
     >>> myser = ps.Series({'a': [1.0, 2.0, 3.0], 'b': [15.0, 30.0, 45.0]})
-    >>> sql("SELECT * from {myser}")
+    >>> ps.sql("SELECT * from {myser}")
                         0
     0     [1.0, 2.0, 3.0]
     1  [15.0, 30.0, 45.0]
@@ -199,14 +195,14 @@ def sql(
     return SQLProcessor(_dict, query, default_session()).execute(index_col)
 
 
-_CAPTURE_SCOPES = 3
+_CAPTURE_SCOPES = 2
 
 
 def _get_local_scope() -> Dict[str, Any]:
     # Get 2 scopes above (_get_local_scope -> sql -> ...) to capture the vars there.
     try:
         return inspect.stack()[_CAPTURE_SCOPES][0].f_locals
-    except Exception:
+    except Exception as e:
         # TODO (rxin, thunterdb): use a more narrow scope exception.
         # See https://github.com/pyspark.pandas/pull/448
         return {}
@@ -218,11 +214,11 @@ def _get_ipython_scope() -> Dict[str, Any]:
     in an IPython notebook environment.
     """
     try:
-        from IPython import get_ipython  # type: ignore[import]
+        from IPython import get_ipython  # type: ignore
 
         shell = get_ipython()
         return shell.user_ns
-    except Exception:
+    except Exception as e:
         # TODO (rxin, thunterdb): use a more narrow scope exception.
         # See https://github.com/pyspark.pandas/pull/448
         return None
@@ -254,21 +250,21 @@ def escape_sql_string(value: str) -> str:
     return value.translate(_escape_table)
 
 
-class SQLProcessor:
+class SQLProcessor(object):
     def __init__(self, scope: Dict[str, Any], statement: str, session: SparkSession):
         self._scope = scope
         self._statement = statement
         # All the temporary views created when executing this statement
         # The key is the name of the variable in {}
         # The value is the cached Spark Dataframe.
-        self._temp_views: Dict[str, SDataFrame] = {}
+        self._temp_views = {}  # type: Dict[str, SDataFrame]
         # All the other variables, converted to a normalized form.
         # The normalized form is typically a string
-        self._cached_vars: Dict[str, Any] = {}
+        self._cached_vars = {}  # type: Dict[str, Any]
         # The SQL statement after:
         # - all the dataframes have been registered as temporary views
         # - all the values have been converted normalized to equivalent SQL representations
-        self._normalized_statement: Optional[str] = None
+        self._normalized_statement = None  # type: Optional[str]
         self._session = session
 
     def execute(self, index_col: Optional[Union[str, List[str]]]) -> DataFrame:
@@ -276,23 +272,19 @@ class SQLProcessor:
         Returns a DataFrame for which the SQL statement has been executed by
         the underlying SQL engine.
 
-        >>> from pyspark.pandas import sql_processor
-        >>> # we will call 'sql_processor' directly in doctests so decrease one level.
-        >>> sql_processor._CAPTURE_SCOPES = 2
-        >>> sql = sql_processor.sql
         >>> str0 = 'abc'
-        >>> sql("select {str0}")
+        >>> ps.sql("select {str0}")
            abc
         0  abc
 
         >>> str1 = 'abc"abc'
         >>> str2 = "abc'abc"
-        >>> sql("select {str0}, {str1}, {str2}")
+        >>> ps.sql("select {str0}, {str1}, {str2}")
            abc  abc"abc  abc'abc
         0  abc  abc"abc  abc'abc
 
         >>> strs = ['a', 'b']
-        >>> sql("select 'a' in {strs} as cond1, 'c' in {strs} as cond2")
+        >>> ps.sql("select 'a' in {strs} as cond1, 'c' in {strs} as cond2")
            cond1  cond2
         0   True  False
         """
@@ -351,7 +343,7 @@ class SQLProcessor:
         if isinstance(var, DataFrame):
             df_id = "pandas_on_spark_" + str(id(var))
             if df_id not in self._temp_views:
-                sdf = var._to_spark()
+                sdf = var.to_spark()
                 sdf.createOrReplaceTempView(df_id)
                 self._temp_views[df_id] = sdf
             return df_id

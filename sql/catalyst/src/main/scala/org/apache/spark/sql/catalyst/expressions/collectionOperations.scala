@@ -24,16 +24,14 @@ import scala.reflect.ClassTag
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, TypeCoercion, UnresolvedAttribute, UnresolvedSeed}
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.catalyst.expressions.ArraySortLike.NullOrder
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
-import org.apache.spark.sql.catalyst.trees.{BinaryLike, SQLQueryContext, UnaryLike}
 import org.apache.spark.sql.catalyst.trees.TreePattern.{ARRAYS_ZIP, CONCAT, TreePattern}
 import org.apache.spark.sql.catalyst.util._
 import org.apache.spark.sql.catalyst.util.DateTimeConstants._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils._
-import org.apache.spark.sql.errors.{QueryErrorsBase, QueryExecutionErrors}
+import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.SQLOpenHashSet
@@ -46,10 +44,8 @@ import org.apache.spark.unsafe.types.{ByteArray, CalendarInterval, UTF8String}
  * Base trait for [[BinaryExpression]]s with two arrays of the same element type and implicit
  * casting.
  */
-trait BinaryArrayExpressionWithImplicitCast
-  extends BinaryExpression
-  with ImplicitCastInputTypes
-  with QueryErrorsBase {
+trait BinaryArrayExpressionWithImplicitCast extends BinaryExpression
+  with ImplicitCastInputTypes {
 
   @transient protected lazy val elementType: DataType =
     inputTypes.head.asInstanceOf[ArrayType].elementType
@@ -69,21 +65,11 @@ trait BinaryArrayExpressionWithImplicitCast
     (left.dataType, right.dataType) match {
       case (ArrayType(e1, _), ArrayType(e2, _)) if e1.sameType(e2) =>
         TypeCheckResult.TypeCheckSuccess
-      case _ =>
-        DataTypeMismatch(
-          errorSubClass = "BINARY_ARRAY_DIFF_TYPES",
-          messageParameters = Map(
-            "functionName" -> toSQLId(prettyName),
-            "arrayType" -> toSQLType(ArrayType),
-            "leftType" -> toSQLType(left.dataType),
-            "rightType" -> toSQLType(right.dataType)
-          )
-        )
+      case _ => TypeCheckResult.TypeCheckFailure(s"input to function $prettyName should have " +
+        s"been two ${ArrayType.simpleString}s with same element type, but it's " +
+        s"[${left.dataType.catalogString}, ${right.dataType.catalogString}]")
     }
   }
-
-  protected def leftArrayElementNullable = left.dataType.asInstanceOf[ArrayType].containsNull
-  protected def rightArrayElementNullable = right.dataType.asInstanceOf[ArrayType].containsNull
 }
 
 
@@ -103,6 +89,8 @@ trait BinaryArrayExpressionWithImplicitCast
        4
       > SELECT _FUNC_(map('a', 1, 'b', 2));
        2
+      > SELECT _FUNC_(NULL);
+       -1
   """,
   since = "1.5.0",
   group = "collection_funcs")
@@ -146,31 +134,6 @@ object Size {
   def apply(child: Expression): Size = new Size(child)
 }
 
-
-/**
- * Given an array, returns total number of elements in it.
- */
-@ExpressionDescription(
-  usage = "_FUNC_(expr) - Returns the size of an array. The function returns null for null input.",
-  examples = """
-    Examples:
-      > SELECT _FUNC_(array('b', 'd', 'c', 'a'));
-       4
-  """,
-  since = "3.3.0",
-  group = "collection_funcs")
-case class ArraySize(child: Expression)
-  extends RuntimeReplaceable with ImplicitCastInputTypes with UnaryLike[Expression] {
-
-  override lazy val replacement: Expression = Size(child, legacySizeOfNull = false)
-
-  override def prettyName: String = "array_size"
-
-  override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType)
-
-  protected def withNewChildInternal(newChild: Expression): ArraySize = copy(child = newChild)
-}
-
 /**
  * Returns an unordered array containing the keys of the map.
  */
@@ -204,70 +167,6 @@ case class MapKeys(child: Expression)
     copy(child = newChild)
 }
 
-
-/**
- * Returns an unordered array containing the keys of the map.
- */
-@ExpressionDescription(
-  usage = "_FUNC_(map, key) - Returns true if the map contains the key.",
-  examples = """
-    Examples:
-      > SELECT _FUNC_(map(1, 'a', 2, 'b'), 1);
-       true
-      > SELECT _FUNC_(map(1, 'a', 2, 'b'), 3);
-       false
-  """,
-  group = "map_funcs",
-  since = "3.3.0")
-case class MapContainsKey(left: Expression, right: Expression)
-  extends RuntimeReplaceable
-  with BinaryLike[Expression]
-  with ImplicitCastInputTypes
-  with QueryErrorsBase {
-
-  override lazy val replacement: Expression = ArrayContains(MapKeys(left), right)
-
-  override def inputTypes: Seq[AbstractDataType] = {
-    (left.dataType, right.dataType) match {
-      case (_, NullType) => Seq.empty
-      case (MapType(kt, vt, valueContainsNull), dt) =>
-        TypeCoercion.findWiderTypeWithoutStringPromotionForTwo(kt, dt) match {
-          case Some(widerType) => Seq(MapType(widerType, vt, valueContainsNull), widerType)
-          case _ => Seq.empty
-        }
-      case _ => Seq.empty
-    }
-  }
-
-  override def checkInputDataTypes(): TypeCheckResult = {
-    (left.dataType, right.dataType) match {
-      case (_, NullType) =>
-        DataTypeMismatch(
-          errorSubClass = "NULL_TYPE",
-          Map("functionName" -> toSQLId(prettyName)))
-      case (MapType(kt, _, _), dt) if kt.sameType(dt) =>
-        TypeUtils.checkForOrderingExpr(kt, prettyName)
-      case _ =>
-        DataTypeMismatch(
-          errorSubClass = "MAP_FUNCTION_DIFF_TYPES",
-          messageParameters = Map(
-            "functionName" -> toSQLId(prettyName),
-            "dataType" -> toSQLType(MapType),
-            "leftType" -> toSQLType(left.dataType),
-            "rightType" -> toSQLType(right.dataType)
-          )
-        )
-    }
-  }
-
-  override def prettyName: String = "map_contains_key"
-
-  override protected def withNewChildrenInternal(
-      newLeft: Expression, newRight: Expression): Expression = {
-    copy(newLeft, newRight)
-  }
-}
-
 @ExpressionDescription(
   usage = """
     _FUNC_(a1, a2, ...) - Returns a merged array of structs in which the N-th struct contains all
@@ -292,9 +191,6 @@ case class ArraysZip(children: Seq[Expression], names: Seq[Expression])
         case (u: UnresolvedAttribute, _) => Literal(u.nameParts.last)
         case (e: NamedExpression, _) if e.resolved => Literal(e.name)
         case (e: NamedExpression, _) => NamePlaceholder
-        case (g: GetStructField, _) => Literal(g.extractFieldName)
-        case (g: GetArrayStructFields, _) => Literal(g.field.name)
-        case (g: GetMapValue, _) => Literal(g.key)
         case (_, idx) => Literal(idx.toString)
       })
   }
@@ -680,21 +576,16 @@ case class MapEntries(child: Expression)
   """,
   group = "map_funcs",
   since = "2.4.0")
-case class MapConcat(children: Seq[Expression])
-  extends ComplexTypeMergingExpression
-  with QueryErrorsBase {
+case class MapConcat(children: Seq[Expression]) extends ComplexTypeMergingExpression {
 
   override def checkInputDataTypes(): TypeCheckResult = {
+    val funcName = s"function $prettyName"
     if (children.exists(!_.dataType.isInstanceOf[MapType])) {
-      DataTypeMismatch(
-        errorSubClass = "MAP_CONCAT_DIFF_TYPES",
-        messageParameters = Map(
-          "functionName" -> toSQLId(prettyName),
-          "dataType" -> children.map(_.dataType).map(toSQLType).mkString("[", ", ", "]")
-        )
-      )
+      TypeCheckResult.TypeCheckFailure(
+        s"input to $funcName should all be of type map, but it's " +
+          children.map(_.dataType.catalogString).mkString("[", ", ", "]"))
     } else {
-      val sameTypeCheck = TypeUtils.checkForSameTypeInputExpr(children.map(_.dataType), prettyName)
+      val sameTypeCheck = TypeUtils.checkForSameTypeInputExpr(children.map(_.dataType), funcName)
       if (sameTypeCheck.isFailure) {
         sameTypeCheck
       } else {
@@ -757,7 +648,7 @@ case class MapConcat(children: Seq[Expression])
     val prepareMaps = ctx.splitExpressionsWithCurrentInputs(
       expressions = assignments,
       funcName = "getMapConcatInputs",
-      extraArguments = ("MapData[]", argsName) :: ("boolean", hasNullName) :: Nil,
+      extraArguments = (s"MapData[]", argsName) :: ("boolean", hasNullName) :: Nil,
       returnType = "boolean",
       makeSplitFunction = body =>
         s"""
@@ -807,10 +698,7 @@ case class MapConcat(children: Seq[Expression])
   """,
   group = "map_funcs",
   since = "2.4.0")
-case class MapFromEntries(child: Expression)
-  extends UnaryExpression
-  with NullIntolerant
-  with QueryErrorsBase {
+case class MapFromEntries(child: Expression) extends UnaryExpression with NullIntolerant {
 
   @transient
   private lazy val dataTypeDetails: Option[(MapType, Boolean, Boolean)] = child.dataType match {
@@ -831,16 +719,8 @@ case class MapFromEntries(child: Expression)
   override def checkInputDataTypes(): TypeCheckResult = dataTypeDetails match {
     case Some((mapType, _, _)) =>
       TypeUtils.checkForMapKeyType(mapType.keyType)
-    case None =>
-      DataTypeMismatch(
-        errorSubClass = "UNEXPECTED_INPUT_TYPE",
-        messageParameters = Map(
-          "paramIndex" -> "1",
-          "requiredType" -> s"${toSQLType(ArrayType)} of pair ${toSQLType(StructType)}",
-          "inputSql" -> toSQLExpr(child),
-          "inputType" -> toSQLType(child.dataType)
-        )
-      )
+    case None => TypeCheckResult.TypeCheckFailure(s"'${child.sql}' is of " +
+      s"${child.dataType.catalogString} type. $prettyName accepts only arrays of pair structs.")
   }
 
   private lazy val mapBuilder = new ArrayBasedMapBuilder(dataType.keyType, dataType.valueType)
@@ -939,8 +819,7 @@ trait ArraySortLike extends ExpectsInputTypes {
   @transient lazy val elementType: DataType =
     arrayExpression.dataType.asInstanceOf[ArrayType].elementType
 
-  private def resultArrayElementNullable: Boolean =
-    arrayExpression.dataType.asInstanceOf[ArrayType].containsNull
+  def containsNull: Boolean = arrayExpression.dataType.asInstanceOf[ArrayType].containsNull
 
   def sortEval(array: Any, ascending: Boolean): Any = {
     val data = array.asInstanceOf[ArrayData].toArray[AnyRef](elementType)
@@ -975,8 +854,8 @@ trait ArraySortLike extends ExpectsInputTypes {
       } else {
         s"int $c = ${ctx.genComp(elementType, s"(($jt) $o1)", s"(($jt) $o2)")};"
       }
-      val canPerformFastSort = CodeGenerator.isPrimitiveType(elementType) &&
-        elementType != BooleanType && !resultArrayElementNullable
+      val canPerformFastSort =
+        CodeGenerator.isPrimitiveType(elementType) && elementType != BooleanType && !containsNull
       val nonNullPrimitiveAscendingSort = if (canPerformFastSort) {
           val javaType = CodeGenerator.javaType(elementType)
           val primitiveTypeName = CodeGenerator.primitiveTypeName(elementType)
@@ -1047,7 +926,7 @@ object ArraySortLike {
   since = "1.5.0")
 // scalastyle:on line.size.limit
 case class SortArray(base: Expression, ascendingOrder: Expression)
-  extends BinaryExpression with ArraySortLike with NullIntolerant with QueryErrorsBase {
+  extends BinaryExpression with ArraySortLike with NullIntolerant {
 
   def this(e: Expression) = this(e, Literal(true))
 
@@ -1065,32 +944,15 @@ case class SortArray(base: Expression, ascendingOrder: Expression)
         case Literal(_: Boolean, BooleanType) =>
           TypeCheckResult.TypeCheckSuccess
         case _ =>
-          DataTypeMismatch(
-            errorSubClass = "UNEXPECTED_INPUT_TYPE",
-            messageParameters = Map(
-              "paramIndex" -> "2",
-              "requiredType" -> toSQLType(BooleanType),
-              "inputSql" -> toSQLExpr(ascendingOrder),
-              "inputType" -> toSQLType(ascendingOrder.dataType))
-          )
+          TypeCheckResult.TypeCheckFailure(
+            "Sort order in second argument requires a boolean literal.")
       }
     case ArrayType(dt, _) =>
-      DataTypeMismatch(
-        errorSubClass = "INVALID_ORDERING_TYPE",
-        messageParameters = Map(
-          "functionName" -> toSQLId(prettyName),
-          "dataType" -> toSQLType(base.dataType)
-        )
-      )
+      val dtSimple = dt.catalogString
+      TypeCheckResult.TypeCheckFailure(
+        s"$prettyName does not support sorting array of type $dtSimple which is not orderable")
     case _ =>
-      DataTypeMismatch(
-        errorSubClass = "UNEXPECTED_INPUT_TYPE",
-        messageParameters = Map(
-          "paramIndex" -> "1",
-          "requiredType" -> toSQLType(ArrayType),
-          "inputSql" -> toSQLExpr(base),
-          "inputType" -> toSQLType(base.dataType))
-      )
+      TypeCheckResult.TypeCheckFailure(s"$prettyName only supports array input.")
   }
 
   override def nullSafeEval(array: Any, ascending: Any): Any = {
@@ -1141,8 +1003,6 @@ case class Shuffle(child: Expression, randomSeed: Option[Long] = None)
 
   override def dataType: DataType = child.dataType
 
-  private def resultArrayElementNullable = dataType.asInstanceOf[ArrayType].containsNull
-
   @transient lazy val elementType: DataType = dataType.asInstanceOf[ArrayType].elementType
 
   @transient private[this] var random: RandomIndicesGenerator = _
@@ -1182,7 +1042,7 @@ case class Shuffle(child: Expression, randomSeed: Option[Long] = None)
     val initialization = CodeGenerator.createArrayData(
       arrayData, elementType, numElements, s" $prettyName failed.")
     val assignment = CodeGenerator.createArrayAssignment(arrayData, elementType, childName,
-      i, s"$indices[$i]", resultArrayElementNullable)
+      i, s"$indices[$i]", dataType.asInstanceOf[ArrayType].containsNull)
 
     s"""
        |int $numElements = $childName.numElements();
@@ -1226,8 +1086,6 @@ case class Reverse(child: Expression)
 
   override def dataType: DataType = child.dataType
 
-  private def resultArrayElementNullable = dataType.asInstanceOf[ArrayType].containsNull
-
   override def nullSafeEval(input: Any): Any = doReverse(input)
 
   @transient private lazy val doReverse: Any => Any = dataType match {
@@ -1262,7 +1120,7 @@ case class Reverse(child: Expression)
     val initialization = CodeGenerator.createArrayData(
       arrayData, elementType, numElements, s" $prettyName failed.")
     val assignment = CodeGenerator.createArrayAssignment(
-      arrayData, elementType, childName, i, j, resultArrayElementNullable)
+      arrayData, elementType, childName, i, j, dataType.asInstanceOf[ArrayType].containsNull)
 
     s"""
        |final int $numElements = $childName.numElements();
@@ -1294,8 +1152,9 @@ case class Reverse(child: Expression)
   group = "array_funcs",
   since = "1.5.0")
 case class ArrayContains(left: Expression, right: Expression)
-  extends BinaryExpression with ImplicitCastInputTypes with NullIntolerant with Predicate
-  with QueryErrorsBase {
+  extends BinaryExpression with ImplicitCastInputTypes with NullIntolerant {
+
+  override def dataType: DataType = BooleanType
 
   @transient private lazy val ordering: Ordering[Any] =
     TypeUtils.getInterpretedOrdering(right.dataType)
@@ -1314,31 +1173,13 @@ case class ArrayContains(left: Expression, right: Expression)
 
   override def checkInputDataTypes(): TypeCheckResult = {
     (left.dataType, right.dataType) match {
-      case (_, NullType) | (NullType, _) =>
-        DataTypeMismatch(
-          errorSubClass = "NULL_TYPE",
-          messageParameters = Map("functionName" -> toSQLId(prettyName)))
-      case (l, _) if !ArrayType.acceptsType(l) =>
-        DataTypeMismatch(
-          errorSubClass = "UNEXPECTED_INPUT_TYPE",
-          messageParameters = Map(
-            "paramIndex" -> "1",
-            "requiredType" -> toSQLType(ArrayType),
-            "inputSql" -> toSQLExpr(left),
-            "inputType" -> toSQLType(left.dataType))
-        )
+      case (_, NullType) =>
+        TypeCheckResult.TypeCheckFailure("Null typed values cannot be used as arguments")
       case (ArrayType(e1, _), e2) if e1.sameType(e2) =>
-        TypeUtils.checkForOrderingExpr(e2, prettyName)
-      case _ =>
-        DataTypeMismatch(
-          errorSubClass = "ARRAY_FUNCTION_DIFF_TYPES",
-          messageParameters = Map(
-            "functionName" -> toSQLId(prettyName),
-            "dataType" -> toSQLType(ArrayType),
-            "leftType" -> toSQLType(left.dataType),
-            "rightType" -> toSQLType(right.dataType)
-          )
-        )
+        TypeUtils.checkForOrderingExpr(e2, s"function $prettyName")
+      case _ => TypeCheckResult.TypeCheckFailure(s"Input to function $prettyName should have " +
+        s"been ${ArrayType.simpleString} followed by a value with same element type, but it's " +
+        s"[${left.dataType.catalogString}, ${right.dataType.catalogString}].")
     }
   }
 
@@ -1414,11 +1255,11 @@ case class ArrayContains(left: Expression, right: Expression)
   since = "2.4.0")
 // scalastyle:off line.size.limit
 case class ArraysOverlap(left: Expression, right: Expression)
-  extends BinaryArrayExpressionWithImplicitCast with NullIntolerant with Predicate {
+  extends BinaryArrayExpressionWithImplicitCast with NullIntolerant {
 
   override def checkInputDataTypes(): TypeCheckResult = super.checkInputDataTypes() match {
     case TypeCheckResult.TypeCheckSuccess =>
-      TypeUtils.checkForOrderingExpr(elementType, prettyName)
+      TypeUtils.checkForOrderingExpr(elementType, s"function $prettyName")
     case failure => failure
   }
 
@@ -1431,8 +1272,11 @@ case class ArraysOverlap(left: Expression, right: Expression)
     bruteForceEval _
   }
 
+  override def dataType: DataType = BooleanType
+
   override def nullable: Boolean = {
-    left.nullable || right.nullable || leftArrayElementNullable || rightArrayElementNullable
+    left.nullable || right.nullable || left.dataType.asInstanceOf[ArrayType].containsNull ||
+      right.dataType.asInstanceOf[ArrayType].containsNull
   }
 
   override def nullSafeEval(a1: Any, a2: Any): Any = {
@@ -1644,8 +1488,6 @@ case class Slice(x: Expression, start: Expression, length: Expression)
 
   override def dataType: DataType = x.dataType
 
-  private def resultArrayElementNullable = dataType.asInstanceOf[ArrayType].containsNull
-
   override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType, IntegerType, IntegerType)
 
   override def first: Expression = x
@@ -1718,7 +1560,7 @@ case class Slice(x: Expression, start: Expression, length: Expression)
     val allocation = CodeGenerator.createArrayData(
       values, elementType, resLength, s" $prettyName failed.")
     val assignment = CodeGenerator.createArrayAssignment(values, elementType, inputArray,
-      i, s"$i + $startIdx", resultArrayElementNullable)
+      i, s"$i + $startIdx", dataType.asInstanceOf[ArrayType].containsNull)
 
     s"""
        |if ($startIdx < 0 || $startIdx >= $inputArray.numElements()) {
@@ -1946,7 +1788,7 @@ case class ArrayMin(child: Expression)
   override def checkInputDataTypes(): TypeCheckResult = {
     val typeCheckResult = super.checkInputDataTypes()
     if (typeCheckResult.isSuccess) {
-      TypeUtils.checkForOrderingExpr(dataType, prettyName)
+      TypeUtils.checkForOrderingExpr(dataType, s"function $prettyName")
     } else {
       typeCheckResult
     }
@@ -2019,7 +1861,7 @@ case class ArrayMax(child: Expression)
   override def checkInputDataTypes(): TypeCheckResult = {
     val typeCheckResult = super.checkInputDataTypes()
     if (typeCheckResult.isSuccess) {
-      TypeUtils.checkForOrderingExpr(dataType, prettyName)
+      TypeUtils.checkForOrderingExpr(dataType, s"function $prettyName")
     } else {
       typeCheckResult
     }
@@ -2087,7 +1929,7 @@ case class ArrayMax(child: Expression)
   group = "array_funcs",
   since = "2.4.0")
 case class ArrayPosition(left: Expression, right: Expression)
-  extends BinaryExpression with ImplicitCastInputTypes with NullIntolerant with QueryErrorsBase {
+  extends BinaryExpression with ImplicitCastInputTypes with NullIntolerant {
 
   @transient private lazy val ordering: Ordering[Any] =
     TypeUtils.getInterpretedOrdering(right.dataType)
@@ -2107,31 +1949,11 @@ case class ArrayPosition(left: Expression, right: Expression)
 
   override def checkInputDataTypes(): TypeCheckResult = {
     (left.dataType, right.dataType) match {
-      case (NullType, _) | (_, NullType) =>
-        DataTypeMismatch(
-          errorSubClass = "NULL_TYPE",
-          Map("functionName" -> toSQLId(prettyName)))
-      case (t, _) if !ArrayType.acceptsType(t) =>
-        DataTypeMismatch(
-          errorSubClass = "UNEXPECTED_INPUT_TYPE",
-          messageParameters = Map(
-            "paramIndex" -> "1",
-            "requiredType" -> toSQLType(ArrayType),
-            "inputSql" -> toSQLExpr(left),
-            "inputType" -> toSQLType(left.dataType))
-        )
       case (ArrayType(e1, _), e2) if e1.sameType(e2) =>
-        TypeUtils.checkForOrderingExpr(e2, prettyName)
-      case _ =>
-        DataTypeMismatch(
-          errorSubClass = "ARRAY_FUNCTION_DIFF_TYPES",
-          messageParameters = Map(
-            "functionName" -> toSQLId(prettyName),
-            "dataType" -> toSQLType(ArrayType),
-            "leftType" -> toSQLType(left.dataType),
-            "rightType" -> toSQLType(right.dataType)
-          )
-        )
+        TypeUtils.checkForOrderingExpr(e2, s"function $prettyName")
+      case _ => TypeCheckResult.TypeCheckFailure(s"Input to function $prettyName should have " +
+        s"been ${ArrayType.simpleString} followed by a value with same element type, but it's " +
+        s"[${left.dataType.catalogString}, ${right.dataType.catalogString}].")
     }
   }
 
@@ -2170,55 +1992,19 @@ case class ArrayPosition(left: Expression, right: Expression)
 }
 
 /**
- * Returns the value of index `right` in Array `left`. If the index points outside of the array
- * boundaries, then this function returns NULL.
- */
-@ExpressionDescription(
-  usage = """
-    _FUNC_(array, index) - Returns element of array at given (0-based) index. If the index points
-     outside of the array boundaries, then this function returns NULL.
-  """,
-  examples = """
-    Examples:
-      > SELECT _FUNC_(array(1, 2, 3), 0);
-       1
-      > SELECT _FUNC_(array(1, 2, 3), 3);
-       NULL
-      > SELECT _FUNC_(array(1, 2, 3), -1);
-       NULL
-  """,
-  since = "3.4.0",
-  group = "array_funcs")
-case class Get(
-    left: Expression,
-    right: Expression,
-    replacement: Expression) extends RuntimeReplaceable with InheritAnalysisRules {
-
-  def this(left: Expression, right: Expression) =
-    this(left, right, GetArrayItem(left, right, failOnError = false))
-
-  override def prettyName: String = "get"
-
-  override def parameters: Seq[Expression] = Seq(left, right)
-
-  override protected def withNewChildInternal(newChild: Expression): Expression =
-    this.copy(replacement = newChild)
-}
-
-/**
  * Returns the value of index `right` in Array `left` or the value for key `right` in Map `left`.
  */
 @ExpressionDescription(
   usage = """
-    _FUNC_(array, index) - Returns element of array at given (1-based) index. If Index is 0,
-      Spark will throw an error. If index < 0, accesses elements from the last to the first.
-      The function returns NULL if the index exceeds the length of the array and
-      `spark.sql.ansi.enabled` is set to false.
+    _FUNC_(array, index) - Returns element of array at given (1-based) index. If index < 0,
+      accesses elements from the last to the first. The function returns NULL
+      if the index exceeds the length of the array and `spark.sql.ansi.enabled` is set to false.
       If `spark.sql.ansi.enabled` is set to true, it throws ArrayIndexOutOfBoundsException
       for invalid indices.
 
-    _FUNC_(map, key) - Returns value for given key. The function returns NULL if the key is not
-       contained in the map.
+    _FUNC_(map, key) - Returns value for given key. The function returns NULL
+      if the key is not contained in the map and `spark.sql.ansi.enabled` is set to false.
+      If `spark.sql.ansi.enabled` is set to true, it throws NoSuchElementException instead.
   """,
   examples = """
     Examples:
@@ -2232,21 +2018,17 @@ case class Get(
 case class ElementAt(
     left: Expression,
     right: Expression,
-    // The value to return if index is out of bound
-    defaultValueOutOfBound: Option[Literal] = None,
     failOnError: Boolean = SQLConf.get.ansiEnabled)
-  extends GetMapValueUtil with GetArrayItemUtil with NullIntolerant with SupportQueryContext
-  with QueryErrorsBase {
+  extends GetMapValueUtil with GetArrayItemUtil with NullIntolerant {
 
-  def this(left: Expression, right: Expression) = this(left, right, None, SQLConf.get.ansiEnabled)
+  def this(left: Expression, right: Expression) = this(left, right, SQLConf.get.ansiEnabled)
 
   @transient private lazy val mapKeyType = left.dataType.asInstanceOf[MapType].keyType
 
   @transient private lazy val mapValueContainsNull =
     left.dataType.asInstanceOf[MapType].valueContainsNull
 
-  @transient private lazy val arrayElementNullable =
-    left.dataType.asInstanceOf[ArrayType].containsNull
+  @transient private lazy val arrayContainsNull = left.dataType.asInstanceOf[ArrayType].containsNull
 
   @transient private lazy val ordering: Ordering[Any] = TypeUtils.getInterpretedOrdering(mapKeyType)
 
@@ -2272,33 +2054,17 @@ case class ElementAt(
   override def checkInputDataTypes(): TypeCheckResult = {
     (left.dataType, right.dataType) match {
       case (_: ArrayType, e2) if e2 != IntegerType =>
-        DataTypeMismatch(
-          errorSubClass = "UNEXPECTED_INPUT_TYPE",
-          messageParameters = Map(
-            "paramIndex" -> "2",
-            "requiredType" -> toSQLType(IntegerType),
-            "inputSql" -> toSQLExpr(right),
-            "inputType" -> toSQLType(right.dataType))
-        )
+        TypeCheckResult.TypeCheckFailure(s"Input to function $prettyName should have " +
+          s"been ${ArrayType.simpleString} followed by a ${IntegerType.simpleString}, but it's " +
+          s"[${left.dataType.catalogString}, ${right.dataType.catalogString}].")
       case (MapType(e1, _, _), e2) if (!e2.sameType(e1)) =>
-        DataTypeMismatch(
-          errorSubClass = "MAP_FUNCTION_DIFF_TYPES",
-          messageParameters = Map(
-            "functionName" -> toSQLId(prettyName),
-            "dataType" -> toSQLType(MapType),
-            "leftType" -> toSQLType(left.dataType),
-            "rightType" -> toSQLType(right.dataType)
-          )
-        )
+        TypeCheckResult.TypeCheckFailure(s"Input to function $prettyName should have " +
+          s"been ${MapType.simpleString} followed by a value of same key type, but it's " +
+          s"[${left.dataType.catalogString}, ${right.dataType.catalogString}].")
       case (e1, _) if (!e1.isInstanceOf[MapType] && !e1.isInstanceOf[ArrayType]) =>
-        DataTypeMismatch(
-          errorSubClass = "UNEXPECTED_INPUT_TYPE",
-          messageParameters = Map(
-            "paramIndex" -> "1",
-            "requiredType" -> toSQLType(TypeCollection(ArrayType, MapType)),
-            "inputSql" -> toSQLExpr(left),
-            "inputType" -> toSQLType(left.dataType))
-        )
+        TypeCheckResult.TypeCheckFailure(s"The first argument to function $prettyName should " +
+          s"have been ${ArrayType.simpleString} or ${MapType.simpleString} type, but its " +
+          s"${left.dataType.catalogString} type.")
       case _ => TypeCheckResult.TypeCheckSuccess
     }
   }
@@ -2320,7 +2086,7 @@ case class ElementAt(
   override def nullable: Boolean = left.dataType match {
     case _: ArrayType =>
       computeNullabilityFromArray(left, right, failOnError, nullability)
-    case _: MapType => true
+    case _: MapType => if (failOnError) mapValueContainsNull else true
   }
 
   override def nullSafeEval(value: Any, ordinal: Any): Any = doElementAt(value, ordinal)
@@ -2332,23 +2098,19 @@ case class ElementAt(
         val index = ordinal.asInstanceOf[Int]
         if (array.numElements() < math.abs(index)) {
           if (failOnError) {
-            throw QueryExecutionErrors.invalidElementAtIndexError(
-              index, array.numElements(), getContextOrNull())
+            throw QueryExecutionErrors.invalidArrayIndexError(index, array.numElements())
           } else {
-            defaultValueOutOfBound match {
-              case Some(value) => value.eval()
-              case None => null
-            }
+            null
           }
         } else {
           val idx = if (index == 0) {
-            throw QueryExecutionErrors.elementAtByIndexZeroError(getContextOrNull())
+            throw QueryExecutionErrors.sqlArrayIndexNotStartAtOneError()
           } else if (index > 0) {
             index - 1
           } else {
             array.numElements() + index
           }
-          if (arrayElementNullable && array.isNullAt(idx)) {
+          if (arrayContainsNull && array.isNullAt(idx)) {
             null
           } else {
             array.get(idx, dataType)
@@ -2356,7 +2118,7 @@ case class ElementAt(
         }
       }
     case _: MapType =>
-      (value, ordinal) => getValueEval(value, ordinal, mapKeyType, ordering)
+      (value, ordinal) => getValueEval(value, ordinal, mapKeyType, ordering, failOnError)
   }
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
@@ -2364,7 +2126,7 @@ case class ElementAt(
       case _: ArrayType =>
         nullSafeCodeGen(ctx, ev, (eval1, eval2) => {
           val index = ctx.freshName("elementAtIndex")
-          val nullCheck = if (arrayElementNullable) {
+          val nullCheck = if (arrayContainsNull) {
             s"""
                |if ($eval1.isNullAt($index)) {
                |  ${ev.isNull} = true;
@@ -2373,22 +2135,11 @@ case class ElementAt(
           } else {
             ""
           }
-          val errorContext = getContextOrNullCode(ctx)
+
           val indexOutOfBoundBranch = if (failOnError) {
-            // scalastyle:off line.size.limit
-            s"throw QueryExecutionErrors.invalidElementAtIndexError($index, $eval1.numElements(), $errorContext);"
-            // scalastyle:on line.size.limit
+            s"throw QueryExecutionErrors.invalidArrayIndexError($index, $eval1.numElements());"
           } else {
-            defaultValueOutOfBound match {
-              case Some(value) =>
-                val defaultValueEval = value.genCode(ctx)
-                s"""
-                  ${defaultValueEval.code}
-                  ${ev.isNull} = ${defaultValueEval.isNull};
-                  ${ev.value} = ${defaultValueEval.value};
-                """.stripMargin
-              case None => s"${ev.isNull} = true;"
-            }
+            s"${ev.isNull} = true;"
           }
 
           s"""
@@ -2397,7 +2148,7 @@ case class ElementAt(
              |  $indexOutOfBoundBranch
              |} else {
              |  if ($index == 0) {
-             |    throw QueryExecutionErrors.elementAtByIndexZeroError($errorContext);
+             |    throw QueryExecutionErrors.sqlArrayIndexNotStartAtOneError();
              |  } else if ($index > 0) {
              |    $index--;
              |  } else {
@@ -2411,7 +2162,7 @@ case class ElementAt(
            """.stripMargin
         })
       case _: MapType =>
-        doGetValueGenCode(ctx, ev, left.dataType.asInstanceOf[MapType])
+        doGetValueGenCode(ctx, ev, left.dataType.asInstanceOf[MapType], failOnError)
     }
   }
 
@@ -2419,51 +2170,6 @@ case class ElementAt(
 
   override protected def withNewChildrenInternal(
     newLeft: Expression, newRight: Expression): ElementAt = copy(left = newLeft, right = newRight)
-
-  override def initQueryContext(): Option[SQLQueryContext] = {
-    if (failOnError && left.resolved && left.dataType.isInstanceOf[ArrayType]) {
-      Some(origin.context)
-    } else {
-      None
-    }
-  }
-}
-
-/**
- * Returns the value of index `right` in Array `left` or the value for key `right` in Map `left`.
- * The function is identical to the function `element_at`, except that it returns `NULL` result
- * instead of throwing an exception on array's index out of bound or map's key not found when
- * `spark.sql.ansi.enabled` is true.
- */
-@ExpressionDescription(
-  usage = """
-    _FUNC_(array, index) - Returns element of array at given (1-based) index. If Index is 0,
-      Spark will throw an error. If index < 0, accesses elements from the last to the first.
-      The function always returns NULL if the index exceeds the length of the array.
-
-    _FUNC_(map, key) - Returns value for given key. The function always returns NULL
-      if the key is not contained in the map.
-  """,
-  examples = """
-    Examples:
-      > SELECT _FUNC_(array(1, 2, 3), 2);
-       2
-      > SELECT _FUNC_(map(1, 'a', 2, 'b'), 2);
-       b
-  """,
-  since = "3.3.0",
-  group = "map_funcs")
-case class TryElementAt(left: Expression, right: Expression, replacement: Expression)
-  extends RuntimeReplaceable with InheritAnalysisRules {
-  def this(left: Expression, right: Expression) =
-    this(left, right, ElementAt(left, right, None, failOnError = false))
-
-  override def prettyName: String = "try_element_at"
-
-  override def parameters: Seq[Expression] = Seq(left, right)
-
-  override protected def withNewChildInternal(newChild: Expression): Expression =
-    this.copy(replacement = newChild)
 }
 
 /**
@@ -2484,8 +2190,7 @@ case class TryElementAt(left: Expression, right: Expression, replacement: Expres
   """,
   group = "collection_funcs",
   since = "1.5.0")
-case class Concat(children: Seq[Expression]) extends ComplexTypeMergingExpression
-  with QueryErrorsBase {
+case class Concat(children: Seq[Expression]) extends ComplexTypeMergingExpression {
 
   private def allowedTypes: Seq[AbstractDataType] = Seq(StringType, BinaryType, ArrayType)
 
@@ -2495,21 +2200,14 @@ case class Concat(children: Seq[Expression]) extends ComplexTypeMergingExpressio
     if (children.isEmpty) {
       TypeCheckResult.TypeCheckSuccess
     } else {
-      val dataTypeMismatch = children.zipWithIndex.collectFirst {
-        case (e, idx) if !allowedTypes.exists(_.acceptsType(e.dataType)) =>
-          DataTypeMismatch(
-            errorSubClass = "UNEXPECTED_INPUT_TYPE",
-            messageParameters = Map(
-              "paramIndex" -> (idx + 1).toString,
-              "requiredType" -> toSQLType(TypeCollection(allowedTypes: _*)),
-              "inputSql" -> toSQLExpr(e),
-              "inputType" -> toSQLType(e.dataType))
-          )
+      val childTypes = children.map(_.dataType)
+      if (childTypes.exists(tpe => !allowedTypes.exists(_.acceptsType(tpe)))) {
+        return TypeCheckResult.TypeCheckFailure(
+          s"input to function $prettyName should have been ${StringType.simpleString}," +
+            s" ${BinaryType.simpleString} or ${ArrayType.simpleString}, but it's " +
+            childTypes.map(_.catalogString).mkString("[", ", ", "]"))
       }
-      dataTypeMismatch match {
-        case Some(mismatch) => mismatch
-        case _ => TypeUtils.checkForSameTypeInputExpr(children.map(_.dataType), prettyName)
-      }
+      TypeUtils.checkForSameTypeInputExpr(childTypes, s"function $prettyName")
     }
   }
 
@@ -2520,8 +2218,6 @@ case class Concat(children: Seq[Expression]) extends ComplexTypeMergingExpressio
       super.dataType
     }
   }
-
-  private def resultArrayElementNullable = dataType.asInstanceOf[ArrayType].containsNull
 
   private def javaType: String = CodeGenerator.javaType(dataType)
 
@@ -2654,7 +2350,8 @@ case class Concat(children: Seq[Expression]) extends ComplexTypeMergingExpressio
     val initialization = CodeGenerator.createArrayData(
       arrayData, elementType, numElemName, s" $prettyName failed.")
     val assignment = CodeGenerator.createArrayAssignment(
-      arrayData, elementType, s"args[$y]", counter, z, resultArrayElementNullable)
+      arrayData, elementType, s"args[$y]", counter, z,
+      dataType.asInstanceOf[ArrayType].containsNull)
 
     val concat = ctx.freshName("concat")
     val concatDef =
@@ -2696,8 +2393,7 @@ case class Concat(children: Seq[Expression]) extends ComplexTypeMergingExpressio
   """,
   group = "array_funcs",
   since = "2.4.0")
-case class Flatten(child: Expression) extends UnaryExpression with NullIntolerant
-  with QueryErrorsBase {
+case class Flatten(child: Expression) extends UnaryExpression with NullIntolerant {
 
   private def childDataType: ArrayType = child.dataType.asInstanceOf[ArrayType]
 
@@ -2705,21 +2401,15 @@ case class Flatten(child: Expression) extends UnaryExpression with NullIntoleran
 
   @transient override lazy val dataType: DataType = childDataType.elementType
 
-  private def resultArrayElementNullable = dataType.asInstanceOf[ArrayType].containsNull
-
   @transient private lazy val elementType: DataType = dataType.asInstanceOf[ArrayType].elementType
 
   override def checkInputDataTypes(): TypeCheckResult = child.dataType match {
     case ArrayType(_: ArrayType, _) =>
       TypeCheckResult.TypeCheckSuccess
     case _ =>
-      DataTypeMismatch(
-        errorSubClass = "UNEXPECTED_INPUT_TYPE",
-        messageParameters = Map(
-          "paramIndex" -> "1",
-          "requiredType" -> s"${toSQLType(ArrayType)} of ${toSQLType(ArrayType)}",
-          "inputSql" -> toSQLExpr(child),
-          "inputType" -> toSQLType(child.dataType))
+      TypeCheckResult.TypeCheckFailure(
+        s"The argument should be an array of arrays, " +
+        s"but '${child.sql}' is of ${child.dataType.catalogString} type."
       )
   }
 
@@ -2780,7 +2470,8 @@ case class Flatten(child: Expression) extends UnaryExpression with NullIntoleran
     val allocation = CodeGenerator.createArrayData(
       tempArrayDataName, elementType, numElemName, s" $prettyName failed.")
     val assignment = CodeGenerator.createArrayAssignment(
-      tempArrayDataName, elementType, arr, counter, l, resultArrayElementNullable)
+      tempArrayDataName, elementType, arr, counter, l,
+      dataType.asInstanceOf[ArrayType].containsNull)
 
     s"""
     |$numElemCode
@@ -2845,8 +2536,7 @@ case class Sequence(
     stepOpt: Option[Expression],
     timeZoneId: Option[String] = None)
   extends Expression
-  with TimeZoneAwareExpression
-  with QueryErrorsBase {
+  with TimeZoneAwareExpression {
 
   import Sequence._
 
@@ -2898,16 +2588,15 @@ case class Sequence(
     if (typesCorrect) {
       TypeCheckResult.TypeCheckSuccess
     } else {
-      DataTypeMismatch(
-        errorSubClass = "SEQUENCE_WRONG_INPUT_TYPES",
-        messageParameters = Map(
-          "functionName" -> toSQLId(prettyName),
-          "startType" -> toSQLType(TypeCollection(TimestampType, TimestampNTZType, DateType)),
-          "stepType" -> toSQLType(
-            TypeCollection(CalendarIntervalType, YearMonthIntervalType, DayTimeIntervalType)),
-          "otherStartType" -> toSQLType(IntegralType)
-        )
-      )
+      TypeCheckResult.TypeCheckFailure(
+        s"""
+           |$prettyName uses the wrong parameter type. The parameter type must conform to:
+           |1. The start and stop expressions must resolve to the same type.
+           |2. If start and stop expressions resolve to the 'date' or 'timestamp' type
+           |then the step expression must resolve to the 'interval' or
+           |'${YearMonthIntervalType.simpleString}' or '${DayTimeIntervalType.simpleString}' type,
+           |otherwise to the same type as the start and stop expressions.
+         """.stripMargin)
     }
   }
 
@@ -3232,23 +2921,17 @@ object Sequence {
         val startMicros: Long = toMicros(num.toLong(start), scale)
         val stopMicros: Long = toMicros(num.toLong(stop), scale)
 
-        val estimatedArrayLength =
+        val maxEstimatedArrayLength =
           getSequenceLength(startMicros, stopMicros, input3, intervalStepInMicros)
 
         val stepSign = if (intervalStepInMicros > 0) +1 else -1
         val exclusiveItem = stopMicros + stepSign
-        var arr = new Array[T](estimatedArrayLength)
+        val arr = new Array[T](maxEstimatedArrayLength)
         var t = startMicros
         var i = 0
 
         while (t < exclusiveItem ^ stepSign < 0) {
           val result = fromMicros(t, scale)
-          // if we've underestimated the size of the array, due to crossing a DST
-          // "spring forward" without a corresponding "fall back", make a copy
-          // that's larger by 1
-          if (i == arr.length) {
-            arr = arr.padTo(i + 1, fromLong(0L))
-          }
           arr(i) = fromLong(result)
           i += 1
           t = addInterval(startMicros, i * stepMonths, i * stepDays, i * stepMicros, zoneId)
@@ -3356,9 +3039,6 @@ object Sequence {
          |  int $i = 0;
          |
          |  while ($t < $exclusiveItem ^ $stepSign < 0) {
-         |    if ($i == $arr.length) {
-         |      $arr = java.util.Arrays.copyOf($arr, $i + 1);
-         |    }
          |    $arr[$i] = $fromMicrosCode;
          |    $i += 1;
          |    $t = $addIntervalCode(
@@ -3552,7 +3232,7 @@ case class ArrayRepeat(left: Expression, right: Expression)
   group = "array_funcs",
   since = "2.4.0")
 case class ArrayRemove(left: Expression, right: Expression)
-  extends BinaryExpression with ImplicitCastInputTypes with NullIntolerant with QueryErrorsBase {
+  extends BinaryExpression with ImplicitCastInputTypes with NullIntolerant {
 
   override def dataType: DataType = left.dataType
 
@@ -3570,17 +3250,10 @@ case class ArrayRemove(left: Expression, right: Expression)
   override def checkInputDataTypes(): TypeCheckResult = {
     (left.dataType, right.dataType) match {
       case (ArrayType(e1, _), e2) if e1.sameType(e2) =>
-        TypeUtils.checkForOrderingExpr(e2, prettyName)
-      case _ =>
-        DataTypeMismatch(
-          errorSubClass = "ARRAY_FUNCTION_DIFF_TYPES",
-          messageParameters = Map(
-            "functionName" -> toSQLId(prettyName),
-            "dataType" -> toSQLType(ArrayType),
-            "leftType" -> toSQLType(left.dataType),
-            "rightType" -> toSQLType(right.dataType)
-          )
-        )
+        TypeUtils.checkForOrderingExpr(e2, s"function $prettyName")
+      case _ => TypeCheckResult.TypeCheckFailure(s"Input to function $prettyName should have " +
+        s"been ${ArrayType.simpleString} followed by a value with same element type, but it's " +
+        s"[${left.dataType.catalogString}, ${right.dataType.catalogString}].")
     }
   }
 
@@ -3679,8 +3352,6 @@ trait ArraySetLike {
   @transient protected lazy val ordering: Ordering[Any] =
     TypeUtils.getInterpretedOrdering(et)
 
-  protected def resultArrayElementNullable = dt.asInstanceOf[ArrayType].containsNull
-
   protected def genGetValue(array: String, i: String): String =
     CodeGenerator.getValue(array, et, i)
 
@@ -3716,7 +3387,7 @@ trait ArraySetLike {
       body: String,
       value: String,
       nullElementIndex: String): String = {
-    if (resultArrayElementNullable) {
+    if (dt.asInstanceOf[ArrayType].containsNull) {
       s"""
          |$body
          |if ($nullElementIndex >= 0) {
@@ -3775,9 +3446,9 @@ case class ArrayDistinct(child: Expression)
 
   override def checkInputDataTypes(): TypeCheckResult = {
     super.checkInputDataTypes() match {
-      case f if f.isFailure => f
+      case f: TypeCheckResult.TypeCheckFailure => f
       case TypeCheckResult.TypeCheckSuccess =>
-        TypeUtils.checkForOrderingExpr(elementType, prettyName)
+        TypeUtils.checkForOrderingExpr(elementType, s"function $prettyName")
     }
   }
 
@@ -3800,21 +3471,26 @@ case class ArrayDistinct(child: Expression)
             hs.add(value)
           },
         (valueNaN: Any) => arrayBuffer += valueNaN)
-      val withNullCheckFunc = SQLOpenHashSet.withNullCheckFunc(elementType, hs,
-        (value: Any) => withNaNCheckFunc(value),
-        () => arrayBuffer += null)
       var i = 0
       while (i < array.numElements()) {
-        withNullCheckFunc(array, i)
+        if (array.isNullAt(i)) {
+          if (!hs.containsNull) {
+            hs.addNull
+            arrayBuffer += null
+          }
+        } else {
+          val elem = array.get(i, elementType)
+          withNaNCheckFunc(elem)
+        }
         i += 1
       }
-      new GenericArrayData(arrayBuffer)
+      new GenericArrayData(arrayBuffer.toSeq)
   } else {
     (data: ArrayData) => {
       val array = data.toArray[AnyRef](elementType)
       val arrayBuffer = new scala.collection.mutable.ArrayBuffer[AnyRef]
       var alreadyStoredNull = false
-      for (i <- array.indices) {
+      for (i <- 0 until array.length) {
         if (array(i) != null) {
           var found = false
           var j = 0
@@ -3834,7 +3510,7 @@ case class ArrayDistinct(child: Expression)
           }
         }
       }
-      new GenericArrayData(arrayBuffer)
+      new GenericArrayData(arrayBuffer.toSeq)
     }
   }
 
@@ -3857,13 +3533,31 @@ case class ArrayDistinct(child: Expression)
         val arrayBuilderClass = s"$arrayBuilder$$of$ptName"
 
         // Only need to track null element index when array's element is nullable.
-        val declareNullTrackVariables = if (resultArrayElementNullable) {
+        val declareNullTrackVariables = if (dataType.asInstanceOf[ArrayType].containsNull) {
           s"""
              |int $nullElementIndex = -1;
            """.stripMargin
         } else {
           ""
         }
+
+        def withArrayNullAssignment(body: String) =
+          if (dataType.asInstanceOf[ArrayType].containsNull) {
+            s"""
+               |if ($array.isNullAt($i)) {
+               |  if (!$hashSet.containsNull()) {
+               |    $nullElementIndex = $size;
+               |    $hashSet.addNull();
+               |    $size++;
+               |    $builder.$$plus$$eq($nullValueHolder);
+               |  }
+               |} else {
+               |  $body
+               |}
+             """.stripMargin
+          } else {
+            body
+          }
 
         val body =
           s"""
@@ -3876,25 +3570,14 @@ case class ArrayDistinct(child: Expression)
              |}
            """.stripMargin
 
-        val withNaNCheckCodeGenerator =
-          (array: String, index: String) =>
-              s"$jt $value = ${genGetValue(array, index)};" +
-                SQLOpenHashSet.withNaNCheckCode(elementType, value, hashSet, body,
-                  (valueNaN: String) =>
-                    s"""
-                       |$size++;
-                       |$builder.$$plus$$eq($valueNaN);
-                     """.stripMargin)
-
-        val processArray = SQLOpenHashSet.withNullCheckCode(
-          resultArrayElementNullable,
-          resultArrayElementNullable,
-          array, i, hashSet, withNaNCheckCodeGenerator,
-          s"""
-             |$nullElementIndex = $size;
-             |$size++;
-             |$builder.$$plus$$eq($nullValueHolder);
-           """.stripMargin)
+        val processArray = withArrayNullAssignment(
+          s"$jt $value = ${genGetValue(array, i)};" +
+            SQLOpenHashSet.withNaNCheckCode(elementType, value, hashSet, body,
+              (valueNaN: String) =>
+                s"""
+                   |$size++;
+                   |$builder.$$plus$$eq($valueNaN);
+                   |""".stripMargin))
 
         s"""
            |$openHashSet $hashSet = new $openHashSet$hsPostFix($classTag);
@@ -3932,7 +3615,8 @@ trait ArrayBinaryLike
   override def checkInputDataTypes(): TypeCheckResult = {
     val typeCheckResult = super.checkInputDataTypes()
     if (typeCheckResult.isSuccess) {
-      TypeUtils.checkForOrderingExpr(dataType.asInstanceOf[ArrayType].elementType, prettyName)
+      TypeUtils.checkForOrderingExpr(dataType.asInstanceOf[ArrayType].elementType,
+        s"function $prettyName")
     } else {
       typeCheckResult
     }
@@ -3979,18 +3663,22 @@ case class ArrayUnion(left: Expression, right: Expression) extends ArrayBinaryLi
               hs.add(value)
             },
           (valueNaN: Any) => arrayBuffer += valueNaN)
-        val withNullCheckFunc = SQLOpenHashSet.withNullCheckFunc(elementType, hs,
-          (value: Any) => withNaNCheckFunc(value),
-          () => arrayBuffer += null
-        )
         Seq(array1, array2).foreach { array =>
           var i = 0
           while (i < array.numElements()) {
-            withNullCheckFunc(array, i)
+            if (array.isNullAt(i)) {
+              if (!hs.containsNull) {
+                hs.addNull
+                arrayBuffer += null
+              }
+            } else {
+              val elem = array.get(i, elementType)
+              withNaNCheckFunc(elem)
+            }
             i += 1
           }
         }
-        new GenericArrayData(arrayBuffer)
+        new GenericArrayData(arrayBuffer.toSeq)
     } else {
       (array1, array2) =>
         val arrayBuffer = new scala.collection.mutable.ArrayBuffer[Any]
@@ -4021,7 +3709,7 @@ case class ArrayUnion(left: Expression, right: Expression) extends ArrayBinaryLi
             arrayBuffer += elem
           }
         }))
-        new GenericArrayData(arrayBuffer)
+        new GenericArrayData(arrayBuffer.toSeq)
     }
   }
 
@@ -4052,6 +3740,24 @@ case class ArrayUnion(left: Expression, right: Expression) extends ArrayBinaryLi
         val arrayBuilder = classOf[mutable.ArrayBuilder[_]].getName
         val arrayBuilderClass = s"$arrayBuilder$$of$ptName"
 
+        def withArrayNullAssignment(body: String) =
+          if (dataType.asInstanceOf[ArrayType].containsNull) {
+            s"""
+               |if ($array.isNullAt($i)) {
+               |  if (!$hashSet.containsNull()) {
+               |    $nullElementIndex = $size;
+               |    $hashSet.addNull();
+               |    $size++;
+               |    $builder.$$plus$$eq($nullValueHolder);
+               |  }
+               |} else {
+               |  $body
+               |}
+             """.stripMargin
+          } else {
+            body
+          }
+
         val body =
           s"""
              |if (!$hashSet.contains($hsValueCast$value)) {
@@ -4062,29 +3768,17 @@ case class ArrayUnion(left: Expression, right: Expression) extends ArrayBinaryLi
              |  $builder.$$plus$$eq($value);
              |}
            """.stripMargin
-
-        val withNaNCheckCodeGenerator =
-          (array: String, index: String) =>
-            s"$jt $value = ${genGetValue(array, index)};" +
+        val processArray = withArrayNullAssignment(
+          s"$jt $value = ${genGetValue(array, i)};" +
             SQLOpenHashSet.withNaNCheckCode(elementType, value, hashSet, body,
               (valueNaN: String) =>
                 s"""
                    |$size++;
                    |$builder.$$plus$$eq($valueNaN);
-                     """.stripMargin)
-
-        val processArray = SQLOpenHashSet.withNullCheckCode(
-          resultArrayElementNullable,
-          resultArrayElementNullable,
-          array, i, hashSet, withNaNCheckCodeGenerator,
-          s"""
-             |$nullElementIndex = $size;
-             |$size++;
-             |$builder.$$plus$$eq($nullValueHolder);
-           """.stripMargin)
+                 """.stripMargin))
 
         // Only need to track null element index when result array's element is nullable.
-        val declareNullTrackVariables = if (resultArrayElementNullable) {
+        val declareNullTrackVariables = if (dataType.asInstanceOf[ArrayType].containsNull) {
           s"""
              |int $nullElementIndex = -1;
            """.stripMargin
@@ -4155,7 +3849,7 @@ object ArrayUnion {
         arrayBuffer += elem
       }
     }))
-    new GenericArrayData(arrayBuffer)
+    new GenericArrayData(arrayBuffer.toSeq)
   }
 }
 
@@ -4179,7 +3873,9 @@ case class ArrayIntersect(left: Expression, right: Expression) extends ArrayBina
 
   private lazy val internalDataType: DataType = {
     dataTypeCheck
-    ArrayType(elementType, leftArrayElementNullable && rightArrayElementNullable)
+    ArrayType(elementType,
+      left.dataType.asInstanceOf[ArrayType].containsNull &&
+        right.dataType.asInstanceOf[ArrayType].containsNull)
   }
 
   override def dataType: DataType = internalDataType
@@ -4194,10 +3890,6 @@ case class ArrayIntersect(left: Expression, right: Expression) extends ArrayBina
           val withArray2NaNCheckFunc = SQLOpenHashSet.withNaNCheckFunc(elementType, hs,
             (value: Any) => hs.add(value),
             (valueNaN: Any) => {} )
-          val withArray2NullCheckFunc = SQLOpenHashSet.withNullCheckFunc(elementType, hs,
-            (value: Any) => withArray2NaNCheckFunc(value),
-            () => {}
-          )
           val withArray1NaNCheckFunc = SQLOpenHashSet.withNaNCheckFunc(elementType, hsResult,
             (value: Any) =>
               if (hs.contains(value) && !hsResult.contains(value)) {
@@ -4208,25 +3900,30 @@ case class ArrayIntersect(left: Expression, right: Expression) extends ArrayBina
               if (hs.containsNaN()) {
                 arrayBuffer += valueNaN
               })
-          val withArray1NullCheckFunc = SQLOpenHashSet.withNullCheckFunc(elementType, hsResult,
-            (value: Any) => withArray1NaNCheckFunc(value),
-            () =>
-              if (hs.containsNull()) {
-                arrayBuffer += null
-              }
-          )
-
           var i = 0
           while (i < array2.numElements()) {
-            withArray2NullCheckFunc(array2, i)
+            if (array2.isNullAt(i)) {
+              hs.addNull()
+            } else {
+              val elem = array2.get(i, elementType)
+              withArray2NaNCheckFunc(elem)
+            }
             i += 1
           }
           i = 0
           while (i < array1.numElements()) {
-            withArray1NullCheckFunc(array1, i)
+            if (array1.isNullAt(i)) {
+              if (hs.containsNull() && !hsResult.containsNull()) {
+                arrayBuffer += null
+                hsResult.addNull()
+              }
+            } else {
+              val elem = array1.get(i, elementType)
+              withArray1NaNCheckFunc(elem)
+            }
             i += 1
           }
-          new GenericArrayData(arrayBuffer)
+          new GenericArrayData(arrayBuffer.toSeq)
         } else {
           new GenericArrayData(Array.emptyObjectArray)
         }
@@ -4274,7 +3971,7 @@ case class ArrayIntersect(left: Expression, right: Expression) extends ArrayBina
             }
             i += 1
           }
-          new GenericArrayData(arrayBuffer)
+          new GenericArrayData(arrayBuffer.toSeq)
         } else {
           new GenericArrayData(Array.emptyObjectArray)
         }
@@ -4306,16 +4003,58 @@ case class ArrayIntersect(left: Expression, right: Expression) extends ArrayBina
         val arrayBuilder = classOf[mutable.ArrayBuilder[_]].getName
         val arrayBuilderClass = s"$arrayBuilder$$of$ptName"
 
-        val withArray2NaNCheckCodeGenerator =
-          (array: String, index: String) =>
-            s"$jt $value = ${genGetValue(array, index)};" +
-              SQLOpenHashSet.withNaNCheckCode(elementType, value, hashSet,
-                s"$hashSet.add$hsPostFix($hsValueCast$value);",
-                (valueNaN: String) => "")
+        def withArray2NullCheck(body: String): String =
+          if (right.dataType.asInstanceOf[ArrayType].containsNull) {
+            if (left.dataType.asInstanceOf[ArrayType].containsNull) {
+              s"""
+                 |if ($array2.isNullAt($i)) {
+                 |  $hashSet.addNull();
+                 |} else {
+                 |  $body
+                 |}
+               """.stripMargin
+            } else {
+              // if array1's element is not nullable, we don't need to track the null element index.
+              s"""
+                 |if (!$array2.isNullAt($i)) {
+                 |  $body
+                 |}
+               """.stripMargin
+            }
+          } else {
+            body
+          }
 
-        val writeArray2ToHashSet = SQLOpenHashSet.withNullCheckCode(
-          rightArrayElementNullable, leftArrayElementNullable,
-          array2, i, hashSet, withArray2NaNCheckCodeGenerator, "")
+        val writeArray2ToHashSet = withArray2NullCheck(
+        s"$jt $value = ${genGetValue(array2, i)};" +
+          SQLOpenHashSet.withNaNCheckCode(elementType, value, hashSet,
+            s"$hashSet.add$hsPostFix($hsValueCast$value);", (valueNaN: String) => ""))
+
+        def withArray1NullAssignment(body: String) =
+          if (left.dataType.asInstanceOf[ArrayType].containsNull) {
+            if (right.dataType.asInstanceOf[ArrayType].containsNull) {
+              s"""
+                 |if ($array1.isNullAt($i)) {
+                 |  if ($hashSet.containsNull() && !$hashSetResult.containsNull()) {
+                 |    $nullElementIndex = $size;
+                 |    $hashSetResult.addNull();
+                 |    $size++;
+                 |    $builder.$$plus$$eq($nullValueHolder);
+                 |  }
+                 |} else {
+                 |  $body
+                 |}
+               """.stripMargin
+            } else {
+              s"""
+                 |if (!$array1.isNullAt($i)) {
+                 |  $body
+                 |}
+               """.stripMargin
+            }
+          } else {
+            body
+          }
 
         val body =
           s"""
@@ -4329,31 +4068,19 @@ case class ArrayIntersect(left: Expression, right: Expression) extends ArrayBina
              |}
            """.stripMargin
 
-        val withArray1NaNCheckCodeGenerator =
-          (array: String, index: String) =>
-            s"$jt $value = ${genGetValue(array, index)};" +
-              SQLOpenHashSet.withNaNCheckCode(elementType, value, hashSetResult, body,
-                (valueNaN: Any) =>
-                  s"""
-                     |if ($hashSet.containsNaN()) {
-                     |  ++$size;
-                     |  $builder.$$plus$$eq($valueNaN);
-                     |}
-                 """.stripMargin)
-
-        val processArray1 = SQLOpenHashSet.withNullCheckCode(
-          leftArrayElementNullable, rightArrayElementNullable,
-          array1, i, hashSetResult, withArray1NaNCheckCodeGenerator,
-          s"""
-             |if ($hashSet.containsNull()) {
-             |  $nullElementIndex = $size;
-             |  $size++;
-             |  $builder.$$plus$$eq($nullValueHolder);
-             |}
-           """.stripMargin)
+        val processArray1 = withArray1NullAssignment(
+          s"$jt $value = ${genGetValue(array1, i)};" +
+            SQLOpenHashSet.withNaNCheckCode(elementType, value, hashSetResult, body,
+              (valueNaN: Any) =>
+                s"""
+                   |if ($hashSet.containsNaN()) {
+                   |  ++$size;
+                   |  $builder.$$plus$$eq($valueNaN);
+                   |}
+                 """.stripMargin))
 
         // Only need to track null element index when result array's element is nullable.
-        val declareNullTrackVariables = if (resultArrayElementNullable) {
+        val declareNullTrackVariables = if (dataType.asInstanceOf[ArrayType].containsNull) {
           s"""
              |int $nullElementIndex = -1;
            """.stripMargin
@@ -4424,10 +4151,6 @@ case class ArrayExcept(left: Expression, right: Expression) extends ArrayBinaryL
         val withArray2NaNCheckFunc = SQLOpenHashSet.withNaNCheckFunc(elementType, hs,
           (value: Any) => hs.add(value),
           (valueNaN: Any) => {})
-        val withArray2NullCheckFunc = SQLOpenHashSet.withNullCheckFunc(elementType, hs,
-          (value: Any) => withArray2NaNCheckFunc(value),
-          () => {}
-        )
         val withArray1NaNCheckFunc = SQLOpenHashSet.withNaNCheckFunc(elementType, hs,
           (value: Any) =>
             if (!hs.contains(value)) {
@@ -4435,21 +4158,30 @@ case class ArrayExcept(left: Expression, right: Expression) extends ArrayBinaryL
               hs.add(value)
             },
           (valueNaN: Any) => arrayBuffer += valueNaN)
-        val withArray1NullCheckFunc = SQLOpenHashSet.withNullCheckFunc(elementType, hs,
-          (value: Any) => withArray1NaNCheckFunc(value),
-          () => arrayBuffer += null
-        )
         var i = 0
         while (i < array2.numElements()) {
-          withArray2NullCheckFunc(array2, i)
+          if (array2.isNullAt(i)) {
+            hs.addNull()
+          } else {
+            val elem = array2.get(i, elementType)
+            withArray2NaNCheckFunc(elem)
+          }
           i += 1
         }
         i = 0
         while (i < array1.numElements()) {
-          withArray1NullCheckFunc(array1, i)
+          if (array1.isNullAt(i)) {
+            if (!hs.containsNull()) {
+              arrayBuffer += null
+              hs.addNull()
+            }
+          } else {
+            val elem = array1.get(i, elementType)
+            withArray1NaNCheckFunc(elem)
+          }
           i += 1
         }
-        new GenericArrayData(arrayBuffer)
+        new GenericArrayData(arrayBuffer.toSeq)
     } else {
       (array1, array2) =>
         val arrayBuffer = new scala.collection.mutable.ArrayBuffer[Any]
@@ -4494,7 +4226,7 @@ case class ArrayExcept(left: Expression, right: Expression) extends ArrayBinaryL
           }
           i += 1
         }
-        new GenericArrayData(arrayBuffer)
+        new GenericArrayData(arrayBuffer.toSeq)
     }
   }
 
@@ -4522,16 +4254,51 @@ case class ArrayExcept(left: Expression, right: Expression) extends ArrayBinaryL
         val arrayBuilder = classOf[mutable.ArrayBuilder[_]].getName
         val arrayBuilderClass = s"$arrayBuilder$$of$ptName"
 
-        val withArray2NaNCheckCodeGenerator =
-          (array: String, index: String) =>
-            s"$jt $value = ${genGetValue(array, i)};" +
-              SQLOpenHashSet.withNaNCheckCode(elementType, value, hashSet,
-                s"$hashSet.add$hsPostFix($hsValueCast$value);",
-                (valueNaN: Any) => "")
+        def withArray2NullCheck(body: String): String =
+          if (right.dataType.asInstanceOf[ArrayType].containsNull) {
+            if (left.dataType.asInstanceOf[ArrayType].containsNull) {
+              s"""
+                 |if ($array2.isNullAt($i)) {
+                 |  $hashSet.addNull();
+                 |} else {
+                 |  $body
+                 |}
+             """.stripMargin
+            } else {
+              // if array1's element is not nullable, we don't need to track the null element index.
+              s"""
+                 |if (!$array2.isNullAt($i)) {
+                 |  $body
+                 |}
+               """.stripMargin
+            }
+          } else {
+            body
+          }
 
-        val writeArray2ToHashSet = SQLOpenHashSet.withNullCheckCode(
-          rightArrayElementNullable, leftArrayElementNullable,
-          array2, i, hashSet, withArray2NaNCheckCodeGenerator, "")
+        val writeArray2ToHashSet = withArray2NullCheck(
+          s"$jt $value = ${genGetValue(array2, i)};" +
+            SQLOpenHashSet.withNaNCheckCode(elementType, value, hashSet,
+              s"$hashSet.add$hsPostFix($hsValueCast$value);",
+              (valueNaN: Any) => ""))
+
+        def withArray1NullAssignment(body: String) =
+          if (left.dataType.asInstanceOf[ArrayType].containsNull) {
+            s"""
+               |if ($array1.isNullAt($i)) {
+               |  if (!$hashSet.containsNull()) {
+               |    $hashSet.addNull();
+               |    $nullElementIndex = $size;
+               |    $size++;
+               |    $builder.$$plus$$eq($nullValueHolder);
+               |  }
+               |} else {
+               |  $body
+               |}
+             """.stripMargin
+          } else {
+            body
+          }
 
         val body =
           s"""
@@ -4544,28 +4311,17 @@ case class ArrayExcept(left: Expression, right: Expression) extends ArrayBinaryL
              |}
            """.stripMargin
 
-        val withArray1NaNCheckCodeGenerator =
-          (array: String, index: String) =>
-            s"$jt $value = ${genGetValue(array, index)};" +
-              SQLOpenHashSet.withNaNCheckCode(elementType, value, hashSet, body,
-                (valueNaN: String) =>
-                  s"""
-                     |$size++;
-                     |$builder.$$plus$$eq($valueNaN);
-                 """.stripMargin)
-
-        val processArray1 = SQLOpenHashSet.withNullCheckCode(
-          leftArrayElementNullable,
-          leftArrayElementNullable,
-          array1, i, hashSet, withArray1NaNCheckCodeGenerator,
-          s"""
-             |$nullElementIndex = $size;
-             |$size++;
-             |$builder.$$plus$$eq($nullValueHolder);
-           """.stripMargin)
+        val processArray1 = withArray1NullAssignment(
+          s"$jt $value = ${genGetValue(array1, i)};" +
+            SQLOpenHashSet.withNaNCheckCode(elementType, value, hashSet, body,
+              (valueNaN: String) =>
+                s"""
+                   |$size++;
+                   |$builder.$$plus$$eq($valueNaN);
+                 """.stripMargin))
 
         // Only need to track null element index when array1's element is nullable.
-        val declareNullTrackVariables = if (leftArrayElementNullable) {
+        val declareNullTrackVariables = if (left.dataType.asInstanceOf[ArrayType].containsNull) {
           s"""
              |int $nullElementIndex = -1;
            """.stripMargin

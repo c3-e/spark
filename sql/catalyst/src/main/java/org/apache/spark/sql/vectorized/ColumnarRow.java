@@ -19,7 +19,6 @@ package org.apache.spark.sql.vectorized;
 import org.apache.spark.annotation.Evolving;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
-import org.apache.spark.sql.catalyst.types.*;
 import org.apache.spark.sql.types.*;
 import org.apache.spark.unsafe.types.CalendarInterval;
 import org.apache.spark.unsafe.types.UTF8String;
@@ -56,34 +55,31 @@ public final class ColumnarRow extends InternalRow {
         row.setNullAt(i);
       } else {
         DataType dt = data.getChild(i).dataType();
-        PhysicalDataType pdt = dt.physicalDataType();
-        if (pdt instanceof PhysicalBooleanType) {
+        if (dt instanceof BooleanType) {
           row.setBoolean(i, getBoolean(i));
-        } else if (pdt instanceof PhysicalByteType) {
+        } else if (dt instanceof ByteType) {
           row.setByte(i, getByte(i));
-        } else if (pdt instanceof PhysicalShortType) {
+        } else if (dt instanceof ShortType) {
           row.setShort(i, getShort(i));
-        } else if (pdt instanceof PhysicalIntegerType) {
+        } else if (dt instanceof IntegerType) {
           row.setInt(i, getInt(i));
-        } else if (pdt instanceof PhysicalLongType) {
+        } else if (dt instanceof LongType) {
           row.setLong(i, getLong(i));
-        } else if (pdt instanceof PhysicalFloatType) {
+        } else if (dt instanceof FloatType) {
           row.setFloat(i, getFloat(i));
-        } else if (pdt instanceof PhysicalDoubleType) {
+        } else if (dt instanceof DoubleType) {
           row.setDouble(i, getDouble(i));
-        } else if (pdt instanceof PhysicalStringType) {
+        } else if (dt instanceof StringType) {
           row.update(i, getUTF8String(i).copy());
-        } else if (pdt instanceof PhysicalBinaryType) {
+        } else if (dt instanceof BinaryType) {
           row.update(i, getBinary(i));
-        } else if (pdt instanceof PhysicalDecimalType) {
-          PhysicalDecimalType t = (PhysicalDecimalType)pdt;
+        } else if (dt instanceof DecimalType) {
+          DecimalType t = (DecimalType)dt;
           row.setDecimal(i, getDecimal(i, t.precision(), t.scale()), t.precision());
-        } else if (pdt instanceof PhysicalStructType) {
-          row.update(i, getStruct(i, ((PhysicalStructType) pdt).fields().length).copy());
-        } else if (pdt instanceof PhysicalArrayType) {
-          row.update(i, getArray(i).copy());
-        } else if (pdt instanceof PhysicalMapType) {
-          row.update(i, getMap(i).copy());
+        } else if (dt instanceof DateType) {
+          row.setInt(i, getInt(i));
+        } else if (dt instanceof TimestampType) {
+          row.setLong(i, getLong(i));
         } else {
           throw new RuntimeException("Not implemented. " + dt);
         }
@@ -164,9 +160,9 @@ public final class ColumnarRow extends InternalRow {
       return getByte(ordinal);
     } else if (dataType instanceof ShortType) {
       return getShort(ordinal);
-    } else if (dataType instanceof IntegerType || dataType instanceof YearMonthIntervalType) {
+    } else if (dataType instanceof IntegerType) {
       return getInt(ordinal);
-    } else if (dataType instanceof LongType || dataType instanceof DayTimeIntervalType) {
+    } else if (dataType instanceof LongType) {
       return getLong(ordinal);
     } else if (dataType instanceof FloatType) {
       return getFloat(ordinal);

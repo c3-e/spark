@@ -127,10 +127,6 @@ trait StateStore extends ReadStateStore {
   /**
    * Return an iterator containing all the key-value pairs in the StateStore. Implementations must
    * ensure that updates (puts, removes) can be made while iterating over this iterator.
-   *
-   * It is not required for implementations to ensure the iterator reflects all updates being
-   * performed after initialization of the iterator. Callers should perform all updates before
-   * calling this method if all updates should be visible in the returned iterator.
    */
   override def iterator(): Iterator[UnsafeRowPair]
 
@@ -601,8 +597,9 @@ object StateStore extends Logging {
     }
     loadedProviders.synchronized { loadedProviders.toSeq }.foreach { case (id, provider) =>
       try {
-        provider.doMaintenance()
-        if (!verifyIfStoreInstanceActive(id)) {
+        if (verifyIfStoreInstanceActive(id)) {
+          provider.doMaintenance()
+        } else {
           unload(id)
           logInfo(s"Unloaded $provider")
         }

@@ -104,7 +104,7 @@ class HadoopMapReduceCommitProtocol(
    * The staging directory of this write job. Spark uses it to deal with files with absolute output
    * path, or writing data into partitioned directory with dynamicPartitionOverwrite=true.
    */
-  @transient protected lazy val stagingDir = getStagingDir(path, jobId)
+  protected def stagingDir = getStagingDir(path, jobId)
 
   protected def setupCommitter(context: TaskAttemptContext): OutputCommitter = {
     val format = context.getOutputFormatClass.getConstructor().newInstance()
@@ -118,12 +118,7 @@ class HadoopMapReduceCommitProtocol(
 
   override def newTaskTempFile(
       taskContext: TaskAttemptContext, dir: Option[String], ext: String): String = {
-    newTaskTempFile(taskContext, dir, FileNameSpec("", ext))
-  }
-
-  override def newTaskTempFile(
-      taskContext: TaskAttemptContext, dir: Option[String], spec: FileNameSpec): String = {
-    val filename = getFilename(taskContext, spec)
+    val filename = getFilename(taskContext, ext)
 
     val stagingDir: Path = committer match {
       // For FileOutputCommitter it has its own staging path called "work path".
@@ -146,12 +141,7 @@ class HadoopMapReduceCommitProtocol(
 
   override def newTaskTempFileAbsPath(
       taskContext: TaskAttemptContext, absoluteDir: String, ext: String): String = {
-    newTaskTempFileAbsPath(taskContext, absoluteDir, FileNameSpec("", ext))
-  }
-
-  override def newTaskTempFileAbsPath(
-      taskContext: TaskAttemptContext, absoluteDir: String, spec: FileNameSpec): String = {
-    val filename = getFilename(taskContext, spec)
+    val filename = getFilename(taskContext, ext)
     val absOutputPath = new Path(absoluteDir, filename).toString
 
     // Include a UUID here to prevent file collisions for one task writing to different dirs.
@@ -162,12 +152,12 @@ class HadoopMapReduceCommitProtocol(
     tmpOutputPath
   }
 
-  protected def getFilename(taskContext: TaskAttemptContext, spec: FileNameSpec): String = {
+  protected def getFilename(taskContext: TaskAttemptContext, ext: String): String = {
     // The file name looks like part-00000-2dd664f9-d2c4-4ffe-878f-c6c70c1fb0cb_00003-c000.parquet
     // Note that %05d does not truncate the split number, so if we have more than 100000 tasks,
     // the file name is fine and won't overflow.
     val split = taskContext.getTaskAttemptID.getTaskID.getId
-    f"${spec.prefix}part-$split%05d-$jobId${spec.suffix}"
+    f"part-$split%05d-$jobId$ext"
   }
 
   override def setupJob(jobContext: JobContext): Unit = {

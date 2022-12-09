@@ -39,7 +39,6 @@ import org.apache.spark.scheduler.HighlyCompressedMapStatus
 import org.apache.spark.serializer.KryoTest._
 import org.apache.spark.storage.BlockManagerId
 import org.apache.spark.util.ThreadUtils
-import org.apache.spark.util.collection.OpenHashMap
 
 class KryoSerializerSuite extends SparkFunSuite with SharedSparkContext {
   conf.set(SERIALIZER, "org.apache.spark.serializer.KryoSerializer")
@@ -526,16 +525,6 @@ class KryoSerializerSuite extends SparkFunSuite with SharedSparkContext {
     val ser = new KryoSerializer(conf).newInstance()
     val actual: RoaringBitmap = ser.deserialize(ser.serialize(expected))
     assert(actual === expected)
-  }
-
-  test("SPARK-37071: OpenHashMap serialize with reference tracking turned off") {
-    val conf = new SparkConf(false)
-    conf.set(KRYO_REFERENCE_TRACKING, false)
-
-    val ser = new KryoSerializer(conf).newInstance()
-
-    val set = new OpenHashMap[Double, Double](10)
-    ser.serialize(set)
   }
 }
 

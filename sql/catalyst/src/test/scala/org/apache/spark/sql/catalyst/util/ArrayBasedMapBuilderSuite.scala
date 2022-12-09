@@ -18,7 +18,6 @@
 package org.apache.spark.sql.catalyst.util
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.SparkRuntimeException
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{UnsafeArrayData, UnsafeRow}
 import org.apache.spark.sql.catalyst.plans.SQLHelper
@@ -41,11 +40,8 @@ class ArrayBasedMapBuilderSuite extends SparkFunSuite with SQLHelper {
   test("fail with null key") {
     val builder = new ArrayBasedMapBuilder(IntegerType, IntegerType)
     builder.put(1, null) // null value is OK
-    checkError(
-      exception = intercept[SparkRuntimeException](builder.put(null, 1)),
-      errorClass = "NULL_MAP_KEY",
-      parameters = Map.empty
-    )
+    val e = intercept[RuntimeException](builder.put(null, 1))
+    assert(e.getMessage.contains("Cannot use null as map key"))
   }
 
   test("fail while duplicated keys detected") {

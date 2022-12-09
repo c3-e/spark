@@ -37,12 +37,12 @@ package org.apache.spark.ml.source.image
  *   // Scala
  *   val df = spark.read.format("image")
  *     .option("dropInvalid", true)
- *     .load("/path/to/images")
+ *     .load("data/mllib/images/partitioned")
  *
  *   // Java
  *   Dataset<Row> df = spark.read().format("image")
  *     .option("dropInvalid", true)
- *     .load("/path/to/images");
+ *     .load("data/mllib/images/partitioned");
  * }}}
  *
  * Image data source supports the following options:

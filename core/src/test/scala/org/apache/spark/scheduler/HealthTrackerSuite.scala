@@ -20,13 +20,15 @@ package org.apache.spark.scheduler
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.{never, verify, when}
 import org.mockito.invocation.InvocationOnMock
+import org.scalatest.BeforeAndAfterEach
 import org.scalatestplus.mockito.MockitoSugar
 
 import org.apache.spark._
 import org.apache.spark.internal.config
 import org.apache.spark.util.ManualClock
 
-class HealthTrackerSuite extends SparkFunSuite with MockitoSugar with LocalSparkContext {
+class HealthTrackerSuite extends SparkFunSuite with BeforeAndAfterEach with MockitoSugar
+    with LocalSparkContext {
 
   private val clock = new ManualClock(0)
 
@@ -60,11 +62,11 @@ class HealthTrackerSuite extends SparkFunSuite with MockitoSugar with LocalSpark
   // All executors and hosts used in tests should be in this set, so that [[assertEquivalentToSet]]
   // works.  Its OK if its got extraneous entries
   val allExecutorAndHostIds = {
-    ('A' to 'Z')
-      .flatMap { suffix =>
+    (('A' to 'Z')++ (1 to 100).map(_.toString))
+      .flatMap{ suffix =>
         Seq(s"host$suffix", s"host-$suffix")
       }
-  }.toSet ++ (1 to 100).map(_.toString)
+  }.toSet
 
   /**
    * Its easier to write our tests as if we could directly look at the sets of nodes & executors in

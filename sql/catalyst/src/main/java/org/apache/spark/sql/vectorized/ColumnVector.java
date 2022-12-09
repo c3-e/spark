@@ -19,7 +19,6 @@ package org.apache.spark.sql.vectorized;
 import org.apache.spark.annotation.Evolving;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.Decimal;
-import org.apache.spark.sql.types.UserDefinedType;
 import org.apache.spark.unsafe.types.CalendarInterval;
 import org.apache.spark.unsafe.types.UTF8String;
 
@@ -311,10 +310,6 @@ public abstract class ColumnVector implements AutoCloseable {
    * Sets up the data type of this column vector.
    */
   protected ColumnVector(DataType type) {
-    if (type instanceof UserDefinedType) {
-      this.type = ((UserDefinedType) type).sqlType();
-    } else {
-      this.type = type;
-    }
+    this.type = type;
   }
 }

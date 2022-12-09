@@ -24,7 +24,7 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
 import org.apache.spark.executor.TaskMetrics
-import org.apache.spark.internal.{config, Logging}
+import org.apache.spark.internal.Logging
 import org.apache.spark.memory.TaskMemoryManager
 import org.apache.spark.metrics.MetricsSystem
 import org.apache.spark.metrics.source.Source
@@ -49,13 +49,11 @@ private[spark] class TaskContextImpl(
     override val partitionId: Int,
     override val taskAttemptId: Long,
     override val attemptNumber: Int,
-    override val numPartitions: Int,
     override val taskMemoryManager: TaskMemoryManager,
     localProperties: Properties,
     @transient private val metricsSystem: MetricsSystem,
     // The default value is only used in tests.
     override val taskMetrics: TaskMetrics = TaskMetrics.empty,
-    override val cpus: Int = SparkEnv.get.conf.get(config.CPUS_PER_TASK),
     override val resources: Map[String, ResourceInformation] = Map.empty)
   extends TaskContext
   with Logging {
@@ -76,7 +74,7 @@ private[spark] class TaskContextImpl(
    *
    * `invokeListeners()` uses this to ensure listeners are called sequentially.
    */
-  @transient @volatile private var listenerInvocationThread: Option[Thread] = None
+  @transient private var listenerInvocationThread: Option[Thread] = None
 
   // If defined, the corresponding task has been killed and this option contains the reason.
   @volatile private var reasonIfKilled: Option[String] = None
@@ -191,7 +189,7 @@ private[spark] class TaskContextImpl(
       }
     }
 
-    val listenerExceptions = new ArrayBuffer[Throwable](2)
+    val errorMsgs = new ArrayBuffer[String](2)
     var listenerOption: Option[T] = None
     while ({listenerOption = getNextListenerOrDeregisterThread(); listenerOption.nonEmpty}) {
       val listener = listenerOption.get
@@ -199,61 +197,12 @@ private[spark] class TaskContextImpl(
         callback(listener)
       } catch {
         case e: Throwable =>
-          // A listener failed. Temporarily clear the listenerInvocationThread and markTaskFailed.
-          //
-          // One of the following cases applies (#3 being the interesting one):
-          //
-          // 1. [[Task.doRunTask]] is currently calling [[markTaskFailed]] because the task body
-          //    failed, and now a failure listener has failed here (not necessarily the first to
-          //    fail). Then calling [[markTaskFailed]] again here is a no-op, and we simply resume
-          //    running the remaining failure listeners. [[Task.doRunTask]] will then call
-          //    [[markTaskCompleted]] after this method returns.
-          //
-          // 2. The task body failed, [[Task.doRunTask]] already called [[markTaskFailed]],
-          //    [[Task.doRunTask]] is currently calling [[markTaskCompleted]], and now a completion
-          //    listener has failed here (not necessarily the first one to fail). Then calling
-          //    [[markTaskFailed]] it again here is a no-op, and we simply resume running the
-          //    remaining completion listeners.
-          //
-          // 3. [[Task.doRunTask]] is currently calling [[markTaskCompleted]] because the task body
-          //    succeeded, and now a completion listener has failed here (the first one to
-          //    fail). Then our call to [[markTaskFailed]] here will run all failure listeners
-          //    before returning, after which we will resume running the remaining completion
-          //    listeners.
-          //
-          // 4. [[Task.doRunTask]] is currently calling [[markTaskCompleted]] because the task body
-          //    succeeded, but [[markTaskFailed]] is currently running because a completion listener
-          //    has failed, and now a failure listener has failed (not necessarily the first one to
-          //    fail). Then calling [[markTaskFailed]] again here will have no effect, and we simply
-          //    resume running the remaining failure listeners; we will resume running the remaining
-          //    completion listeners after this call returns.
-          //
-          // 5. [[Task.doRunTask]] is currently calling [[markTaskCompleted]] because the task body
-          //    succeeded, [[markTaskFailed]] already ran because a completion listener previously
-          //    failed, and now another completion listener has failed. Then our call to
-          //    [[markTaskFailed]] here will have no effect and we simply resume running the
-          //    remaining completion handlers.
-          try {
-            listenerInvocationThread = None
-            markTaskFailed(e)
-          } catch {
-            case t: Throwable => e.addSuppressed(t)
-          } finally {
-            synchronized {
-              if (listenerInvocationThread.isEmpty) {
-                listenerInvocationThread = Some(Thread.currentThread())
-              }
-            }
-          }
-          listenerExceptions += e
+          errorMsgs += e.getMessage
           logError(s"Error in $name", e)
       }
     }
-    if (listenerExceptions.nonEmpty) {
-      val exception = new TaskCompletionListenerException(
-        listenerExceptions.map(_.getMessage).toSeq, error)
-      listenerExceptions.foreach(exception.addSuppressed)
-      throw exception
+    if (errorMsgs.nonEmpty) {
+      throw new TaskCompletionListenerException(errorMsgs.toSeq, error)
     }
   }
 

@@ -37,6 +37,7 @@ public class JavaPowerIterationClusteringExample {
     SparkConf sparkConf = new SparkConf().setAppName("JavaPowerIterationClusteringExample");
     JavaSparkContext sc = new JavaSparkContext(sparkConf);
 
+    @SuppressWarnings("unchecked")
     // $example on$
     JavaRDD<Tuple3<Long, Long, Double>> similarities = sc.parallelize(Arrays.asList(
       new Tuple3<>(0L, 1L, 0.9),

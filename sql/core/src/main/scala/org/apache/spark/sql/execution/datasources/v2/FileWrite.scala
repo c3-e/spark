@@ -89,7 +89,8 @@ trait FileWrite extends Write {
         s"got: ${paths.mkString(", ")}")
     }
     val pathName = paths.head
-    SchemaUtils.checkColumnNameDuplication(schema.fields.map(_.name), caseSensitiveAnalysis)
+    SchemaUtils.checkColumnNameDuplication(schema.fields.map(_.name),
+      s"when inserting into $pathName", caseSensitiveAnalysis)
     DataSource.validateSchema(schema)
 
     // TODO: [SPARK-36340] Unify check schema filed of DataSource V2 Insert.
@@ -132,7 +133,7 @@ trait FileWrite extends Write {
       allColumns = allColumns,
       dataColumns = allColumns,
       partitionColumns = Seq.empty,
-      bucketSpec = None,
+      bucketIdExpression = None,
       path = pathName,
       customPartitionLocations = Map.empty,
       maxRecordsPerFile = caseInsensitiveOptions.get("maxRecordsPerFile").map(_.toLong)

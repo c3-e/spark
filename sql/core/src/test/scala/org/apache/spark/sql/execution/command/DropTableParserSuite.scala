@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.execution.command
 
-import org.apache.spark.sql.catalyst.analysis.{AnalysisTest, UnresolvedIdentifier}
+import org.apache.spark.sql.catalyst.analysis.{AnalysisTest, UnresolvedTableOrView}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
 import org.apache.spark.sql.catalyst.plans.logical.{DropTable, LogicalPlan}
 import org.apache.spark.sql.test.SharedSparkSession
@@ -29,26 +29,31 @@ class DropTableParserSuite extends AnalysisTest with SharedSparkSession {
 
   test("drop table") {
     parseCompare("DROP TABLE testcat.ns1.ns2.tbl",
-      DropTable(UnresolvedIdentifier(Seq("testcat", "ns1", "ns2", "tbl"), true),
+      DropTable(
+        UnresolvedTableOrView(Seq("testcat", "ns1", "ns2", "tbl"), "DROP TABLE", true),
         ifExists = false,
         purge = false))
     parseCompare(s"DROP TABLE db.tab",
       DropTable(
-        UnresolvedIdentifier(Seq("db", "tab"), true),
+        UnresolvedTableOrView(Seq("db", "tab"), "DROP TABLE", true),
         ifExists = false,
         purge = false))
     parseCompare(s"DROP TABLE IF EXISTS db.tab",
       DropTable(
-        UnresolvedIdentifier(Seq("db", "tab"), true),
+        UnresolvedTableOrView(Seq("db", "tab"), "DROP TABLE", true),
         ifExists = true,
         purge = false))
     parseCompare(s"DROP TABLE tab",
-      DropTable(UnresolvedIdentifier(Seq("tab"), true), ifExists = false, purge = false))
+      DropTable(
+        UnresolvedTableOrView(Seq("tab"), "DROP TABLE", true), ifExists = false, purge = false))
     parseCompare(s"DROP TABLE IF EXISTS tab",
-      DropTable(UnresolvedIdentifier(Seq("tab"), true), ifExists = true, purge = false))
+      DropTable(
+        UnresolvedTableOrView(Seq("tab"), "DROP TABLE", true), ifExists = true, purge = false))
     parseCompare(s"DROP TABLE tab PURGE",
-      DropTable(UnresolvedIdentifier(Seq("tab"), true), ifExists = false, purge = true))
+      DropTable(
+        UnresolvedTableOrView(Seq("tab"), "DROP TABLE", true), ifExists = false, purge = true))
     parseCompare(s"DROP TABLE IF EXISTS tab PURGE",
-      DropTable(UnresolvedIdentifier(Seq("tab"), true), ifExists = true, purge = true))
+      DropTable(
+        UnresolvedTableOrView(Seq("tab"), "DROP TABLE", true), ifExists = true, purge = true))
   }
 }

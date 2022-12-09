@@ -37,11 +37,10 @@ import org.apache.spark.sql.execution.command
  */
 trait AlterTableRecoverPartitionsSuiteBase extends command.AlterTableRecoverPartitionsSuiteBase {
   test("table does not exist") {
-    val e = intercept[AnalysisException] {
+    val errMsg = intercept[AnalysisException] {
       sql("ALTER TABLE does_not_exist RECOVER PARTITIONS")
-    }
-    checkErrorTableNotFound(e, "`does_not_exist`",
-      ExpectedContext("does_not_exist", 12, 11 + "does_not_exist".length))
+    }.getMessage
+    assert(errMsg.contains("Table not found"))
   }
 
   test("valid locations") {

@@ -19,8 +19,6 @@ package org.apache.spark.sql.execution.command
 
 import org.apache.spark.sql.{AnalysisException, QueryTest, Row}
 import org.apache.spark.sql.catalyst.analysis.NoSuchPartitionException
-import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.catalyst.util.quoteIdentifier
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -38,12 +36,10 @@ trait TruncateTableSuiteBase extends QueryTest with DDLCommandTestUtils {
 
   test("table does not exist") {
     withNamespaceAndTable("ns", "does_not_exist") { t =>
-      val parsed = CatalystSqlParser.parseMultipartIdentifier(t)
-        .map(part => quoteIdentifier(part)).mkString(".")
-      val e = intercept[AnalysisException] {
+      val errMsg = intercept[AnalysisException] {
         sql(s"TRUNCATE TABLE $t")
-      }
-      checkErrorTableNotFound(e, parsed, ExpectedContext(t, 15, 14 + t.length))
+      }.getMessage
+      assert(errMsg.contains("Table not found"))
     }
   }
 

@@ -20,7 +20,6 @@ package org.apache.spark.sql.internal
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-import org.apache.spark.sql.connector.catalog.CatalogManager.SESSION_CATALOG_NAME
 import org.apache.spark.util.Utils
 
 
@@ -37,13 +36,6 @@ object StaticSQLConf {
     .version("2.0.0")
     .stringConf
     .createWithDefault(Utils.resolveURI("spark-warehouse").toString)
-
-  val CATALOG_DEFAULT_DATABASE =
-    buildStaticConf(s"spark.sql.catalog.$SESSION_CATALOG_NAME.defaultDatabase")
-    .doc("The default database for session catalog.")
-    .version("3.4.0")
-    .stringConf
-    .createWithDefault("default")
 
   val CATALOG_IMPLEMENTATION = buildStaticConf("spark.sql.catalogImplementation")
     .internal()
@@ -270,12 +262,4 @@ object StaticSQLConf {
       .stringConf
       .toSequence
       .createWithDefault(Nil)
-
-  val DISABLED_JDBC_CONN_PROVIDER_LIST =
-    buildStaticConf("spark.sql.sources.disabledJdbcConnProviderList")
-      .doc("Configures a list of JDBC connection providers, which are disabled. " +
-        "The list contains the name of the JDBC connection providers separated by comma.")
-      .version("3.1.0")
-      .stringConf
-      .createWithDefault("")
 }

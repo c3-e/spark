@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution.datasources.v2
 import java.util.UUID
 
 import scala.collection.JavaConverters._
+import scala.util.control.NonFatal
 
 import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.internal.Logging
@@ -27,9 +28,9 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.NoSuchTableException
 import org.apache.spark.sql.catalyst.expressions.Attribute
-import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, TableSpec, UnaryNode}
+import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.util.CharVarcharUtils
-import org.apache.spark.sql.connector.catalog.{CatalogV2Util, Identifier, StagedTable, StagingTableCatalog, SupportsWrite, Table, TableCatalog}
+import org.apache.spark.sql.connector.catalog.{Identifier, StagedTable, StagingTableCatalog, SupportsWrite, Table, TableCatalog}
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.metric.CustomMetric
 import org.apache.spark.sql.connector.write.{BatchWrite, DataWriterFactory, LogicalWriteInfoImpl, PhysicalWriteInfoImpl, V1Write, Write, WriterCommitMessage}
@@ -70,11 +71,9 @@ case class CreateTableAsSelectExec(
     partitioning: Seq[Transform],
     plan: LogicalPlan,
     query: SparkPlan,
-    tableSpec: TableSpec,
+    properties: Map[String, String],
     writeOptions: CaseInsensitiveStringMap,
     ifNotExists: Boolean) extends TableWriteExecHelper {
-
-  val properties = CatalogV2Util.convertTableProperties(tableSpec)
 
   override protected def run(): Seq[InternalRow] = {
     if (catalog.tableExists(ident)) {
@@ -85,7 +84,7 @@ case class CreateTableAsSelectExec(
       throw QueryCompilationErrors.tableAlreadyExistsError(ident)
     }
 
-    val schema = CharVarcharUtils.getRawSchema(query.schema, conf).asNullable
+    val schema = CharVarcharUtils.getRawSchema(query.schema).asNullable
     val table = catalog.createTable(ident, schema,
       partitioning.toArray, properties.asJava)
     writeToTable(catalog, table, writeOptions, ident)
@@ -110,11 +109,9 @@ case class AtomicCreateTableAsSelectExec(
     partitioning: Seq[Transform],
     plan: LogicalPlan,
     query: SparkPlan,
-    tableSpec: TableSpec,
+    properties: Map[String, String],
     writeOptions: CaseInsensitiveStringMap,
     ifNotExists: Boolean) extends TableWriteExecHelper {
-
-  val properties = CatalogV2Util.convertTableProperties(tableSpec)
 
   override protected def run(): Seq[InternalRow] = {
     if (catalog.tableExists(ident)) {
@@ -124,7 +121,7 @@ case class AtomicCreateTableAsSelectExec(
 
       throw QueryCompilationErrors.tableAlreadyExistsError(ident)
     }
-    val schema = CharVarcharUtils.getRawSchema(query.schema, conf).asNullable
+    val schema = CharVarcharUtils.getRawSchema(query.schema).asNullable
     val stagedTable = catalog.stageCreate(
       ident, schema, partitioning.toArray, properties.asJava)
     writeToTable(catalog, stagedTable, writeOptions, ident)
@@ -150,12 +147,10 @@ case class ReplaceTableAsSelectExec(
     partitioning: Seq[Transform],
     plan: LogicalPlan,
     query: SparkPlan,
-    tableSpec: TableSpec,
+    properties: Map[String, String],
     writeOptions: CaseInsensitiveStringMap,
     orCreate: Boolean,
     invalidateCache: (TableCatalog, Table, Identifier) => Unit) extends TableWriteExecHelper {
-
-  val properties = CatalogV2Util.convertTableProperties(tableSpec)
 
   override protected def run(): Seq[InternalRow] = {
     // Note that this operation is potentially unsafe, but these are the strict semantics of
@@ -173,7 +168,7 @@ case class ReplaceTableAsSelectExec(
     } else if (!orCreate) {
       throw QueryCompilationErrors.cannotReplaceMissingTableError(ident)
     }
-    val schema = CharVarcharUtils.getRawSchema(query.schema, conf).asNullable
+    val schema = CharVarcharUtils.getRawSchema(query.schema).asNullable
     val table = catalog.createTable(
       ident, schema, partitioning.toArray, properties.asJava)
     writeToTable(catalog, table, writeOptions, ident)
@@ -201,15 +196,13 @@ case class AtomicReplaceTableAsSelectExec(
     partitioning: Seq[Transform],
     plan: LogicalPlan,
     query: SparkPlan,
-    tableSpec: TableSpec,
+    properties: Map[String, String],
     writeOptions: CaseInsensitiveStringMap,
     orCreate: Boolean,
     invalidateCache: (TableCatalog, Table, Identifier) => Unit) extends TableWriteExecHelper {
 
-  val properties = CatalogV2Util.convertTableProperties(tableSpec)
-
   override protected def run(): Seq[InternalRow] = {
-    val schema = CharVarcharUtils.getRawSchema(query.schema, conf).asNullable
+    val schema = CharVarcharUtils.getRawSchema(query.schema).asNullable
     if (catalog.tableExists(ident)) {
       val table = catalog.loadTable(ident)
       invalidateCache(catalog, table, ident)
@@ -281,21 +274,6 @@ case class OverwritePartitionsDynamicExec(
     write: Write) extends V2ExistingTableWriteExec {
   override protected def withNewChildInternal(newChild: SparkPlan): OverwritePartitionsDynamicExec =
     copy(query = newChild)
-}
-
-/**
- * Physical plan node to replace data in existing tables.
- */
-case class ReplaceDataExec(
-    query: SparkPlan,
-    refreshCache: () => Unit,
-    write: Write) extends V2ExistingTableWriteExec {
-
-  override val stringArgs: Iterator[Any] = Iterator(query, write)
-
-  override protected def withNewChildInternal(newChild: SparkPlan): ReplaceDataExec = {
-    copy(query = newChild)
-  }
 }
 
 case class WriteToDataSourceV2Exec(
@@ -403,7 +381,11 @@ trait V2TableWriteExec extends V2CommandExec with UnaryExecNode {
             throw QueryExecutionErrors.writingJobFailedError(cause)
         }
         logError(s"Data source write support $batchWrite aborted.")
-        throw cause
+        cause match {
+          // Only wrap non fatal exceptions.
+          case NonFatal(e) => throw QueryExecutionErrors.writingJobAbortedError(e)
+          case _ => throw cause
+        }
     }
 
     Nil

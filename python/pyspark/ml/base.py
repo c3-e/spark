@@ -15,50 +15,20 @@
 # limitations under the License.
 #
 
-from abc import ABCMeta, abstractmethod
+from abc import ABCMeta, abstractmethod, abstractproperty
 
 import copy
 import threading
 
-from typing import (
-    Any,
-    Callable,
-    Generic,
-    Iterator,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    TypeVar,
-    Union,
-    cast,
-    overload,
-    TYPE_CHECKING,
-)
-
 from pyspark import since
-from pyspark.ml.param import P
 from pyspark.ml.common import inherit_doc
-from pyspark.ml.param.shared import (
-    HasInputCol,
-    HasOutputCol,
-    HasLabelCol,
-    HasFeaturesCol,
-    HasPredictionCol,
-    Params,
-)
-from pyspark.sql.dataframe import DataFrame
+from pyspark.ml.param.shared import HasInputCol, HasOutputCol, HasLabelCol, HasFeaturesCol, \
+    HasPredictionCol, Params
 from pyspark.sql.functions import udf
-from pyspark.sql.types import DataType, StructField, StructType
-
-if TYPE_CHECKING:
-    from pyspark.ml._typing import ParamMap
-
-T = TypeVar("T")
-M = TypeVar("M", bound="Transformer")
+from pyspark.sql.types import StructField, StructType
 
 
-class _FitMultipleIterator(Generic[M]):
+class _FitMultipleIterator(object):
     """
     Used by default implementation of Estimator.fitMultiple to produce models in a thread safe
     iterator. This class handles the simple case of fitMultiple where each param map should be
@@ -78,18 +48,19 @@ class _FitMultipleIterator(Generic[M]):
     -----
     See :py:meth:`Estimator.fitMultiple` for more info.
     """
+    def __init__(self, fitSingleModel, numModels):
+        """
 
-    def __init__(self, fitSingleModel: Callable[[int], M], numModels: int):
-        """ """
+        """
         self.fitSingleModel = fitSingleModel
         self.numModel = numModels
         self.counter = 0
         self.lock = threading.Lock()
 
-    def __iter__(self) -> Iterator[Tuple[int, M]]:
+    def __iter__(self):
         return self
 
-    def __next__(self) -> Tuple[int, M]:
+    def __next__(self):
         with self.lock:
             index = self.counter
             if index >= self.numModel:
@@ -97,21 +68,22 @@ class _FitMultipleIterator(Generic[M]):
             self.counter += 1
         return index, self.fitSingleModel(index)
 
-    def next(self) -> Tuple[int, M]:
+    def next(self):
         """For python2 compatibility."""
         return self.__next__()
 
 
 @inherit_doc
-class Estimator(Params, Generic[M], metaclass=ABCMeta):
+class Estimator(Params, metaclass=ABCMeta):
     """
     Abstract class for estimators that fit models to data.
 
     .. versionadded:: 1.3.0
     """
+    pass
 
     @abstractmethod
-    def _fit(self, dataset: DataFrame) -> M:
+    def _fit(self, dataset):
         """
         Fits a model to the input dataset. This is called by the default implementation of fit.
 
@@ -128,9 +100,7 @@ class Estimator(Params, Generic[M], metaclass=ABCMeta):
         """
         raise NotImplementedError()
 
-    def fitMultiple(
-        self, dataset: DataFrame, paramMaps: Sequence["ParamMap"]
-    ) -> Iterator[Tuple[int, M]]:
+    def fitMultiple(self, dataset, paramMaps):
         """
         Fits a model to the input dataset for each param map in `paramMaps`.
 
@@ -152,26 +122,12 @@ class Estimator(Params, Generic[M], metaclass=ABCMeta):
         """
         estimator = self.copy()
 
-        def fitSingleModel(index: int) -> M:
+        def fitSingleModel(index):
             return estimator.fit(dataset, paramMaps[index])
 
         return _FitMultipleIterator(fitSingleModel, len(paramMaps))
 
-    @overload
-    def fit(self, dataset: DataFrame, params: Optional["ParamMap"] = ...) -> M:
-        ...
-
-    @overload
-    def fit(
-        self, dataset: DataFrame, params: Union[List["ParamMap"], Tuple["ParamMap"]]
-    ) -> List[M]:
-        ...
-
-    def fit(
-        self,
-        dataset: DataFrame,
-        params: Optional[Union["ParamMap", List["ParamMap"], Tuple["ParamMap"]]] = None,
-    ) -> Union[M, List[M]]:
+    def fit(self, dataset, params=None):
         """
         Fits a model to the input dataset with optional parameters.
 
@@ -194,20 +150,18 @@ class Estimator(Params, Generic[M], metaclass=ABCMeta):
         if params is None:
             params = dict()
         if isinstance(params, (list, tuple)):
-            models: List[Optional[M]] = [None] * len(params)
+            models = [None] * len(params)
             for index, model in self.fitMultiple(dataset, params):
                 models[index] = model
-            return cast(List[M], models)
+            return models
         elif isinstance(params, dict):
             if params:
                 return self.copy(params)._fit(dataset)
             else:
                 return self._fit(dataset)
         else:
-            raise TypeError(
-                "Params must be either a param map or a list/tuple of param maps, "
-                "but got %s." % type(params)
-            )
+            raise TypeError("Params must be either a param map or a list/tuple of param maps, "
+                            "but got %s." % type(params))
 
 
 @inherit_doc
@@ -217,9 +171,10 @@ class Transformer(Params, metaclass=ABCMeta):
 
     .. versionadded:: 1.3.0
     """
+    pass
 
     @abstractmethod
-    def _transform(self, dataset: DataFrame) -> DataFrame:
+    def _transform(self, dataset):
         """
         Transforms the input dataset.
 
@@ -235,7 +190,7 @@ class Transformer(Params, metaclass=ABCMeta):
         """
         raise NotImplementedError()
 
-    def transform(self, dataset: DataFrame, params: Optional["ParamMap"] = None) -> DataFrame:
+    def transform(self, dataset, params=None):
         """
         Transforms the input dataset with optional parameters.
 
@@ -271,7 +226,6 @@ class Model(Transformer, metaclass=ABCMeta):
 
     .. versionadded:: 1.4.0
     """
-
     pass
 
 
@@ -284,20 +238,20 @@ class UnaryTransformer(HasInputCol, HasOutputCol, Transformer):
     .. versionadded:: 2.3.0
     """
 
-    def setInputCol(self: P, value: str) -> P:
+    def setInputCol(self, value):
         """
         Sets the value of :py:attr:`inputCol`.
         """
         return self._set(inputCol=value)
 
-    def setOutputCol(self: P, value: str) -> P:
+    def setOutputCol(self, value):
         """
         Sets the value of :py:attr:`outputCol`.
         """
         return self._set(outputCol=value)
 
     @abstractmethod
-    def createTransformFunc(self) -> Callable[..., Any]:
+    def createTransformFunc(self):
         """
         Creates the transform function using the given param map. The input param map already takes
         account of the embedded param map. So the param values should be determined
@@ -306,34 +260,35 @@ class UnaryTransformer(HasInputCol, HasOutputCol, Transformer):
         raise NotImplementedError()
 
     @abstractmethod
-    def outputDataType(self) -> DataType:
+    def outputDataType(self):
         """
         Returns the data type of the output column.
         """
         raise NotImplementedError()
 
     @abstractmethod
-    def validateInputType(self, inputType: DataType) -> None:
+    def validateInputType(self, inputType):
         """
         Validates the input type. Throw an exception if it is invalid.
         """
         raise NotImplementedError()
 
-    def transformSchema(self, schema: StructType) -> StructType:
+    def transformSchema(self, schema):
         inputType = schema[self.getInputCol()].dataType
         self.validateInputType(inputType)
         if self.getOutputCol() in schema.names:
             raise ValueError("Output column %s already exists." % self.getOutputCol())
         outputFields = copy.copy(schema.fields)
-        outputFields.append(StructField(self.getOutputCol(), self.outputDataType(), nullable=False))
+        outputFields.append(StructField(self.getOutputCol(),
+                                        self.outputDataType(),
+                                        nullable=False))
         return StructType(outputFields)
 
-    def _transform(self, dataset: DataFrame) -> DataFrame:
+    def _transform(self, dataset):
         self.transformSchema(dataset.schema)
         transformUDF = udf(self.createTransformFunc(), self.outputDataType())
-        transformedDataset = dataset.withColumn(
-            self.getOutputCol(), transformUDF(dataset[self.getInputCol()])
-        )
+        transformedDataset = dataset.withColumn(self.getOutputCol(),
+                                                transformUDF(dataset[self.getInputCol()]))
         return transformedDataset
 
 
@@ -344,32 +299,31 @@ class _PredictorParams(HasLabelCol, HasFeaturesCol, HasPredictionCol):
 
     .. versionadded:: 3.0.0
     """
-
     pass
 
 
 @inherit_doc
-class Predictor(Estimator[M], _PredictorParams, metaclass=ABCMeta):
+class Predictor(Estimator, _PredictorParams, metaclass=ABCMeta):
     """
     Estimator for prediction tasks (regression and classification).
     """
 
     @since("3.0.0")
-    def setLabelCol(self: P, value: str) -> P:
+    def setLabelCol(self, value):
         """
         Sets the value of :py:attr:`labelCol`.
         """
         return self._set(labelCol=value)
 
     @since("3.0.0")
-    def setFeaturesCol(self: P, value: str) -> P:
+    def setFeaturesCol(self, value):
         """
         Sets the value of :py:attr:`featuresCol`.
         """
         return self._set(featuresCol=value)
 
     @since("3.0.0")
-    def setPredictionCol(self: P, value: str) -> P:
+    def setPredictionCol(self, value):
         """
         Sets the value of :py:attr:`predictionCol`.
         """
@@ -377,29 +331,28 @@ class Predictor(Estimator[M], _PredictorParams, metaclass=ABCMeta):
 
 
 @inherit_doc
-class PredictionModel(Model, _PredictorParams, Generic[T], metaclass=ABCMeta):
+class PredictionModel(Model, _PredictorParams, metaclass=ABCMeta):
     """
     Model for prediction tasks (regression and classification).
     """
 
     @since("3.0.0")
-    def setFeaturesCol(self: P, value: str) -> P:
+    def setFeaturesCol(self, value):
         """
         Sets the value of :py:attr:`featuresCol`.
         """
         return self._set(featuresCol=value)
 
     @since("3.0.0")
-    def setPredictionCol(self: P, value: str) -> P:
+    def setPredictionCol(self, value):
         """
         Sets the value of :py:attr:`predictionCol`.
         """
         return self._set(predictionCol=value)
 
-    @property  # type: ignore[misc]
-    @abstractmethod
+    @abstractproperty
     @since("2.1.0")
-    def numFeatures(self) -> int:
+    def numFeatures(self):
         """
         Returns the number of features the model was trained on. If unknown, returns -1
         """
@@ -407,7 +360,7 @@ class PredictionModel(Model, _PredictorParams, Generic[T], metaclass=ABCMeta):
 
     @abstractmethod
     @since("3.0.0")
-    def predict(self, value: T) -> float:
+    def predict(self, value):
         """
         Predict label for the given features.
         """

@@ -18,10 +18,10 @@
 package org.apache.spark.deploy.yarn
 
 import java.io.{FileSystem => _, _}
-import java.net.{InetAddress, UnknownHostException, URI, URL}
+import java.net.{InetAddress, UnknownHostException, URI}
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
-import java.nio.file.{Files, Paths}
+import java.nio.file.Files
 import java.util.{Locale, Properties, UUID}
 import java.util.zip.{ZipEntry, ZipOutputStream}
 
@@ -34,11 +34,10 @@ import com.google.common.base.Objects
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs._
 import org.apache.hadoop.fs.permission.FsPermission
-import org.apache.hadoop.io.{DataOutputBuffer, Text}
+import org.apache.hadoop.io.Text
 import org.apache.hadoop.mapreduce.MRJobConfig
 import org.apache.hadoop.security.UserGroupInformation
 import org.apache.hadoop.util.StringUtils
-import org.apache.hadoop.util.VersionInfo
 import org.apache.hadoop.yarn.api._
 import org.apache.hadoop.yarn.api.ApplicationConstants.Environment
 import org.apache.hadoop.yarn.api.protocolrecords._
@@ -54,15 +53,14 @@ import org.apache.spark.api.python.PythonUtils
 import org.apache.spark.deploy.{SparkApplication, SparkHadoopUtil}
 import org.apache.spark.deploy.security.HadoopDelegationTokenManager
 import org.apache.spark.deploy.yarn.ResourceRequestHelper._
-import org.apache.spark.deploy.yarn.YarnSparkHadoopUtil._
 import org.apache.spark.deploy.yarn.config._
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config._
 import org.apache.spark.internal.config.Python._
-import org.apache.spark.launcher.{JavaModuleOptions, LauncherBackend, SparkAppHandle, YarnCommandBuilderUtils}
+import org.apache.spark.launcher.{LauncherBackend, SparkAppHandle, YarnCommandBuilderUtils}
 import org.apache.spark.resource.ResourceProfile
 import org.apache.spark.rpc.RpcEnv
-import org.apache.spark.util.{CallerContext, Utils, VersionUtils, YarnContainerInfoHelper}
+import org.apache.spark.util.{CallerContext, Utils, YarnContainerInfoHelper}
 
 private[spark] class Client(
     val args: ClientArguments,
@@ -71,25 +69,16 @@ private[spark] class Client(
   extends Logging {
 
   import Client._
+  import YarnSparkHadoopUtil._
 
   private val yarnClient = YarnClient.createYarnClient
   private val hadoopConf = new YarnConfiguration(SparkHadoopUtil.newConfiguration(sparkConf))
 
   private val isClusterMode = sparkConf.get(SUBMIT_DEPLOY_MODE) == "cluster"
 
-  // ContainerLaunchContext.setTokensConf is only available in Hadoop 2.9+ and 3.x, so here we use
-  // reflection to avoid compilation for Hadoop 2.7 profile.
-  private val SET_TOKENS_CONF_METHOD = "setTokensConf"
-
   private val isClientUnmanagedAMEnabled = sparkConf.get(YARN_UNMANAGED_AM) && !isClusterMode
   private var appMaster: ApplicationMaster = _
   private var stagingDirPath: Path = _
-
-  private val amMemoryOverheadFactor = if (isClusterMode) {
-    sparkConf.get(DRIVER_MEMORY_OVERHEAD_FACTOR)
-  } else {
-    AM_MEMORY_OVERHEAD_FACTOR
-  }
 
   // AM related configurations
   private val amMemory = if (isClusterMode) {
@@ -100,7 +89,7 @@ private[spark] class Client(
   private val amMemoryOverhead = {
     val amMemoryOverheadEntry = if (isClusterMode) DRIVER_MEMORY_OVERHEAD else AM_MEMORY_OVERHEAD
     sparkConf.get(amMemoryOverheadEntry).getOrElse(
-      math.max((amMemoryOverheadFactor * amMemory).toLong,
+      math.max((MEMORY_OVERHEAD_FACTOR * amMemory).toLong,
         ResourceProfile.MEMORY_OVERHEAD_MIN_MIB)).toInt
   }
   private val amCores = if (isClusterMode) {
@@ -113,10 +102,8 @@ private[spark] class Client(
   private val executorMemory = sparkConf.get(EXECUTOR_MEMORY)
   // Executor offHeap memory in MiB.
   protected val executorOffHeapMemory = Utils.executorOffHeapMemorySizeAsMb(sparkConf)
-
-  private val executorMemoryOvereadFactor = sparkConf.get(EXECUTOR_MEMORY_OVERHEAD_FACTOR)
   private val executorMemoryOverhead = sparkConf.get(EXECUTOR_MEMORY_OVERHEAD).getOrElse(
-    math.max((executorMemoryOvereadFactor * executorMemory).toLong,
+    math.max((MEMORY_OVERHEAD_FACTOR * executorMemory).toLong,
       ResourceProfile.MEMORY_OVERHEAD_MIN_MIB)).toInt
 
   private val isPython = sparkConf.get(IS_PYTHON_APP)
@@ -160,10 +147,6 @@ private[spark] class Client(
 
   private var appId: ApplicationId = null
 
-  def getApplicationId(): ApplicationId = {
-    appId
-  }
-
   def reportLauncherState(state: SparkAppHandle.State): Unit = {
     launcherBackend.setState(state)
   }
@@ -183,23 +166,22 @@ private[spark] class Client(
    * creating applications and setting up the application submission context. This was not
    * available in the alpha API.
    */
-  def submitApplication(): Unit = {
+  def submitApplication(): ApplicationId = {
     ResourceRequestHelper.validateResources(sparkConf)
 
+    var appId: ApplicationId = null
     try {
       launcherBackend.connect()
       yarnClient.init(hadoopConf)
       yarnClient.start()
 
-      if (log.isDebugEnabled) {
-        logDebug("Requesting a new application from cluster with %d NodeManagers"
-          .format(yarnClient.getYarnClusterMetrics.getNumNodeManagers))
-      }
+      logInfo("Requesting a new application from cluster with %d NodeManagers"
+        .format(yarnClient.getYarnClusterMetrics.getNumNodeManagers))
 
       // Get a new application from our RM
       val newApp = yarnClient.createApplication()
       val newAppResponse = newApp.getNewApplicationResponse()
-      this.appId = newAppResponse.getApplicationId()
+      appId = newAppResponse.getApplicationId()
 
       // The app staging dir based on the STAGING_DIR configuration if configured
       // otherwise based on the users home directory.
@@ -217,7 +199,7 @@ private[spark] class Client(
       verifyClusterResources(newAppResponse)
 
       // Set up the appropriate contexts to launch our AM
-      val containerContext = createContainerLaunchContext()
+      val containerContext = createContainerLaunchContext(newAppResponse)
       val appContext = createApplicationSubmissionContext(newApp, containerContext)
 
       // Finally, submit and monitor the application
@@ -225,6 +207,8 @@ private[spark] class Client(
       yarnClient.submitApplication(appContext)
       launcherBackend.setAppId(appId.toString)
       reportLauncherState(SparkAppHandle.State.SUBMITTED)
+
+      appId
     } catch {
       case e: Throwable =>
         if (stagingDirPath != null) {
@@ -356,47 +340,8 @@ private[spark] class Client(
     amContainer.setTokens(ByteBuffer.wrap(serializedCreds))
   }
 
-  /**
-   * Set configurations sent from AM to RM for renewing delegation tokens.
-   */
-  private def setTokenConf(amContainer: ContainerLaunchContext): Unit = {
-    // SPARK-37205: this regex is used to grep a list of configurations and send them to YARN RM
-    // for fetching delegation tokens. See YARN-5910 for more details.
-    val regex = sparkConf.get(config.AM_TOKEN_CONF_REGEX)
-    // The feature is only supported in Hadoop 2.9+ and 3.x, hence the check below.
-    val isSupported = VersionUtils.majorMinorVersion(VersionInfo.getVersion) match {
-      case (2, n) if n >= 9 => true
-      case (3, _) => true
-      case _ => false
-    }
-    if (regex.nonEmpty && isSupported) {
-      logInfo(s"Processing token conf (spark.yarn.am.tokenConfRegex) with regex $regex")
-      val dob = new DataOutputBuffer();
-      val copy = new Configuration(false);
-      copy.clear();
-      hadoopConf.asScala.foreach { entry =>
-        if (entry.getKey.matches(regex.get)) {
-          copy.set(entry.getKey, entry.getValue)
-          logInfo(s"Captured key: ${entry.getKey} -> value: ${entry.getValue}")
-        }
-      }
-      copy.write(dob);
-
-      // since this method was added in Hadoop 2.9 and 3.0, we use reflection here to avoid
-      // compilation error for Hadoop 2.7 profile.
-      val setTokensConfMethod = try {
-        amContainer.getClass.getMethod(SET_TOKENS_CONF_METHOD, classOf[ByteBuffer])
-      } catch {
-        case _: NoSuchMethodException =>
-          throw new SparkException(s"Cannot find setTokensConf method in ${amContainer.getClass}." +
-              s" Please check YARN version and make sure it is 2.9+ or 3.x")
-      }
-      setTokensConfMethod.invoke(amContainer, ByteBuffer.wrap(dob.getData))
-    }
-  }
-
   /** Get the application report from the ResourceManager for an application we have submitted. */
-  def getApplicationReport(): ApplicationReport =
+  def getApplicationReport(appId: ApplicationId): ApplicationReport =
     yarnClient.getApplicationReport(appId)
 
   /**
@@ -446,7 +391,7 @@ private[spark] class Client(
   private[yarn] def copyFileToRemote(
       destDir: Path,
       srcPath: Path,
-      replication: Option[Short],
+      replication: Short,
       symlinkCache: Map[URI, Path],
       force: Boolean = false,
       destName: Option[String] = None): Path = {
@@ -463,7 +408,7 @@ private[spark] class Client(
         case e: PathOperationException
             if srcFs.makeQualified(srcPath).equals(destFs.makeQualified(destPath)) =>
       }
-      replication.foreach(repl => destFs.setReplication(destPath, repl))
+      destFs.setReplication(destPath, replication)
       destFs.setPermission(destPath, new FsPermission(APP_FILE_PERMISSION))
     } else {
       logInfo(s"Source and destination file systems are the same. Not copying $srcPath")
@@ -503,6 +448,7 @@ private[spark] class Client(
     val distributedNames = new HashSet[String]
 
     val replication = sparkConf.get(STAGING_FILE_REPLICATION).map(_.toShort)
+      .getOrElse(fs.getDefaultReplication(destDir))
     val localResources = HashMap[String, LocalResource]()
     FileSystem.mkdirs(fs, destDir, new FsPermission(STAGING_DIR_PERMISSION))
 
@@ -849,18 +795,16 @@ private[spark] class Client(
     try {
       confStream.setLevel(0)
 
-      // Upload $SPARK_CONF_DIR/log4j2 configuration file to the distributed cache to make sure that
+      // Upload $SPARK_CONF_DIR/log4j.properties file to the distributed cache to make sure that
       // the executors will use the latest configurations instead of the default values. This is
-      // required when user changes log4j2 configuration directly to set the log configurations. If
+      // required when user changes log4j.properties directly to set the log configurations. If
       // configuration file is provided through --files then executors will be taking configurations
-      // from --files instead of $SPARK_CONF_DIR/log4j2 configuration file.
+      // from --files instead of $SPARK_CONF_DIR/log4j.properties.
 
       // Also upload metrics.properties to distributed cache if exists in classpath.
       // If user specify this file using --files then executors will use the one
       // from --files instead.
-      val log4j2ConfigFiles = Seq("log4j2.yaml", "log4j2.yml", "log4j2.json", "log4j2.jsn",
-        "log4j2.xml", "log4j2.properties")
-      for { prop <- log4j2ConfigFiles ++ Seq("metrics.properties")
+      for { prop <- Seq("log4j.properties", "metrics.properties")
             url <- Option(Utils.getContextOrSparkClassLoader.getResource(prop))
             if url.getProtocol == "file" } {
         val file = new File(url.getPath())
@@ -912,7 +856,6 @@ private[spark] class Client(
     populateClasspath(args, hadoopConf, sparkConf, env, sparkConf.get(DRIVER_CLASS_PATH))
     env("SPARK_YARN_STAGING_DIR") = stagingDirPath.toString
     env("SPARK_USER") = UserGroupInformation.getCurrentUser().getShortUserName()
-    env("SPARK_PREFER_IPV6") = Utils.preferIPv6.toString
 
     // Pick up any environment variables for the AM provided through spark.yarn.appMasterEnv.*
     val amEnvPrefix = "spark.yarn.appMasterEnv."
@@ -970,8 +913,10 @@ private[spark] class Client(
    * Set up a ContainerLaunchContext to launch our ApplicationMaster container.
    * This sets up the launch environment, java options, and the command for launching the AM.
    */
-  private def createContainerLaunchContext(): ContainerLaunchContext = {
+  private def createContainerLaunchContext(newAppResponse: GetNewApplicationResponse)
+    : ContainerLaunchContext = {
     logInfo("Setting up container launch context for our AM")
+    val appId = newAppResponse.getApplicationId
     val pySparkArchives =
       if (sparkConf.get(IS_PYTHON_APP)) {
         findPySparkArchives()
@@ -987,13 +932,6 @@ private[spark] class Client(
     amContainer.setEnvironment(launchEnv.asJava)
 
     val javaOpts = ListBuffer[String]()
-
-    javaOpts += s"-Djava.net.preferIPv6Addresses=${Utils.preferIPv6}"
-
-    // SPARK-37106: To start AM with Java 17, `JavaModuleOptions.defaultModuleOptions`
-    // is added by default. It will not affect Java 8 and Java 11 due to existence of
-    // `-XX:+IgnoreUnrecognizedVMOptions`.
-    javaOpts += JavaModuleOptions.defaultModuleOptions()
 
     // Set the environment variable through a command prefix
     // to append to the existing value of the variable
@@ -1029,7 +967,7 @@ private[spark] class Client(
     if (isClusterMode) {
       sparkConf.get(DRIVER_JAVA_OPTIONS).foreach { opts =>
         javaOpts ++= Utils.splitCommandString(opts)
-          .map(Utils.substituteAppId(_, this.appId.toString))
+          .map(Utils.substituteAppId(_, appId.toString))
           .map(YarnSparkHadoopUtil.escapeForShell)
       }
       val libraryPaths = Seq(sparkConf.get(DRIVER_LIBRARY_PATH),
@@ -1054,7 +992,7 @@ private[spark] class Client(
           throw new SparkException(msg)
         }
         javaOpts ++= Utils.splitCommandString(opts)
-          .map(Utils.substituteAppId(_, this.appId.toString))
+          .map(Utils.substituteAppId(_, appId.toString))
           .map(YarnSparkHadoopUtil.escapeForShell)
       }
       sparkConf.get(AM_LIBRARY_PATH).foreach { paths =>
@@ -1062,7 +1000,7 @@ private[spark] class Client(
       }
     }
 
-    // For log4j2 configuration to reference
+    // For log4j configuration to reference
     javaOpts += ("-Dspark.yarn.app.container.log.dir=" + ApplicationConstants.LOG_DIR_EXPANSION_VAR)
 
     val userClass =
@@ -1141,7 +1079,6 @@ private[spark] class Client(
     amContainer.setApplicationACLs(
       YarnSparkHadoopUtil.getApplicationAclsForYarn(securityManager).asJava)
     setupSecurityToken(amContainer)
-    setTokenConf(amContainer)
     amContainer
   }
 
@@ -1158,6 +1095,7 @@ private[spark] class Client(
    * @return A pair of the yarn application state and the final application state.
    */
   def monitorApplication(
+      appId: ApplicationId,
       returnOnRunning: Boolean = false,
       logApplicationReport: Boolean = true,
       interval: Long = sparkConf.get(REPORT_INTERVAL)): YarnAppReport = {
@@ -1166,7 +1104,7 @@ private[spark] class Client(
       Thread.sleep(interval)
       val report: ApplicationReport =
         try {
-          getApplicationReport
+          getApplicationReport(appId)
         } catch {
           case e: ApplicationNotFoundException =>
             logError(s"Application $appId not found.")
@@ -1327,9 +1265,9 @@ private[spark] class Client(
    * throw an appropriate SparkException.
    */
   def run(): Unit = {
-    submitApplication()
+    this.appId = submitApplication()
     if (!launcherBackend.isConnected() && fireAndForget) {
-      val report = getApplicationReport
+      val report = getApplicationReport(appId)
       val state = report.getYarnApplicationState
       logInfo(s"Application report for $appId (state: $state)")
       logInfo(formatReportDetails(report, getDriverLogsLink(report)))
@@ -1337,7 +1275,7 @@ private[spark] class Client(
         throw new SparkException(s"Application $appId finished with status: $state")
       }
     } else {
-      val YarnAppReport(appState, finalState, diags) = monitorApplication()
+      val YarnAppReport(appState, finalState, diags) = monitorApplication(appId)
       if (appState == YarnApplicationState.FAILED || finalState == FinalApplicationStatus.FAILED) {
         diags.foreach { err =>
           logError(s"Application diagnostics message: $err")
@@ -1370,7 +1308,7 @@ private[spark] class Client(
 
 }
 
-private[spark] object Client extends Logging {
+private object Client extends Logging {
 
   // Alias for the user jar
   val APP_JAR_NAME: String = "__app__.jar"
@@ -1470,11 +1408,6 @@ private[spark] object Client extends Logging {
       addClasspathEntry(getClusterPath(sparkConf, cp), env)
     }
 
-    val cpSet = extraClassPath match {
-      case Some(classPath) if Utils.isTesting => classPath.split(File.pathSeparator).toSet
-      case _ => Set.empty[String]
-    }
-
     addClasspathEntry(Environment.PWD.$$(), env)
 
     addClasspathEntry(Environment.PWD.$$() + Path.SEPARATOR + LOCALIZED_CONF_DIR, env)
@@ -1518,13 +1451,7 @@ private[spark] object Client extends Logging {
     }
 
     sys.env.get(ENV_DIST_CLASSPATH).foreach { cp =>
-      // SPARK-40635: during the test, add a jar de-duplication process to avoid
-      // that the startup command can't be executed due to the too long classpath.
-      val newCp = if (Utils.isTesting) {
-        cp.split(File.pathSeparator)
-          .filterNot(cpSet.contains).mkString(File.pathSeparator)
-      } else cp
-      addClasspathEntry(getClusterPath(sparkConf, newCp), env)
+      addClasspathEntry(getClusterPath(sparkConf, cp), env)
     }
 
     // Add the localized Hadoop config at the end of the classpath, in case it contains other
@@ -1543,34 +1470,6 @@ private[spark] object Client extends Logging {
     val mainUri = getMainJarUri(conf.get(APP_JAR))
     val secondaryUris = getSecondaryJarUris(conf.get(SECONDARY_JARS))
     (mainUri ++ secondaryUris).toArray
-  }
-
-  /**
-   * Returns a list of local, absolute file URLs representing the user classpath. Note that this
-   * must be executed on the same host which will access the URLs, as it will resolve relative
-   * paths based on the current working directory, as well as environment variables.
-   * See SPARK-35672 for discussion of why it is necessary to do environment variable substitution.
-   *
-   * @param conf Spark configuration.
-   * @param useClusterPath Whether to use the 'cluster' path when resolving paths with the
-   *                       `local` scheme. This should be used when running on the cluster, but
-   *                       not when running on the gateway (i.e. for the driver in `client` mode).
-   * @return Array of local URLs ready to be passed to a [[java.net.URLClassLoader]].
-   */
-  def getUserClasspathUrls(conf: SparkConf, useClusterPath: Boolean): Array[URL] = {
-    Client.getUserClasspath(conf).map { uri =>
-      val inputPath = uri.getPath
-      val replacedFilePath = if (Utils.isLocalUri(uri.toString) && useClusterPath) {
-        Client.getClusterPath(conf, inputPath)
-      } else {
-        // Any other URI schemes should have been resolved by this point
-        assert(uri.getScheme == null || uri.getScheme == "file" || Utils.isLocalUri(uri.toString),
-          "getUserClasspath should only return 'file' or 'local' URIs but found: " + uri)
-        inputPath
-      }
-      val envVarResolvedFilePath = YarnSparkHadoopUtil.replaceEnvVars(replacedFilePath, sys.env)
-      Paths.get(envVarResolvedFilePath).toAbsolutePath.toUri.toURL
-    }
   }
 
   private def getMainJarUri(mainJar: Option[String]): Option[URI] = {

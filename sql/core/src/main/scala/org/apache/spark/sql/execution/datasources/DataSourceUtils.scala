@@ -28,7 +28,6 @@ import org.json4s.jackson.Serialization
 import org.apache.spark.SparkUpgradeException
 import org.apache.spark.sql.{SPARK_LEGACY_DATETIME_METADATA_KEY, SPARK_LEGACY_INT96_METADATA_KEY, SPARK_TIMEZONE_METADATA_KEY, SPARK_VERSION_METADATA_KEY}
 import org.apache.spark.sql.catalyst.catalog.{CatalogTable, CatalogUtils}
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, AttributeSet, Expression, ExpressionSet, PredicateHelper}
 import org.apache.spark.sql.catalyst.util.RebaseDateTime
 import org.apache.spark.sql.catalyst.util.RebaseDateTime.RebaseSpec
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
@@ -41,17 +40,11 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.util.Utils
 
 
-object DataSourceUtils extends PredicateHelper {
+object DataSourceUtils {
   /**
    * The key to use for storing partitionBy columns as options.
    */
   val PARTITIONING_COLUMNS_KEY = "__partition_columns"
-
-  /**
-   * The key to use for specifying partition overwrite mode when
-   * INSERT OVERWRITE a partitioned data source table.
-   */
-  val PARTITION_OVERWRITE_MODE = "partitionOverwriteMode"
 
   /**
    * Utility methods for converting partitionBy columns to options and back.
@@ -92,6 +85,7 @@ object DataSourceUtils extends PredicateHelper {
         throw QueryCompilationErrors.dataTypeUnsupportedByDataSourceError(format.toString, field)
       }
     }
+    checkFieldNames(format, schema)
   }
 
   // SPARK-24626: Metadata files and temporary files should not be
@@ -172,7 +166,7 @@ object DataSourceUtils extends PredicateHelper {
         (SQLConf.PARQUET_REBASE_MODE_IN_READ.key, ParquetOptions.DATETIME_REBASE_MODE)
       case "Avro" =>
         (SQLConf.AVRO_REBASE_MODE_IN_READ.key, "datetimeRebaseMode")
-      case _ => throw new IllegalStateException(s"Unrecognized format $format.")
+      case _ => throw QueryExecutionErrors.unrecognizedFileFormatError(format)
     }
     QueryExecutionErrors.sparkUpgradeInReadingDatesError(format, config, option)
   }
@@ -182,7 +176,7 @@ object DataSourceUtils extends PredicateHelper {
       case "Parquet INT96" => SQLConf.PARQUET_INT96_REBASE_MODE_IN_WRITE.key
       case "Parquet" => SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key
       case "Avro" => SQLConf.AVRO_REBASE_MODE_IN_WRITE.key
-      case _ => throw new IllegalStateException(s"Unrecognized format $format.")
+      case _ => throw QueryExecutionErrors.unrecognizedFileFormatError(format)
     }
     QueryExecutionErrors.sparkUpgradeInWritingDatesError(format, config)
   }
@@ -260,23 +254,5 @@ object DataSourceUtils extends PredicateHelper {
     } else {
       options
     }
-  }
-
-  def getPartitionFiltersAndDataFilters(
-      partitionSchema: StructType,
-      normalizedFilters: Seq[Expression]): (Seq[Expression], Seq[Expression]) = {
-    val partitionColumns = normalizedFilters.flatMap { expr =>
-      expr.collect {
-        case attr: AttributeReference if partitionSchema.names.contains(attr.name) =>
-          attr
-      }
-    }
-    val partitionSet = AttributeSet(partitionColumns)
-    val (partitionFilters, dataFilters) = normalizedFilters.partition(f =>
-      f.references.subsetOf(partitionSet)
-    )
-    val extraPartitionFilter =
-      dataFilters.flatMap(extractPredicatesWithinOutputSet(_, partitionSet))
-    (ExpressionSet(partitionFilters ++ extraPartitionFilter).toSeq, dataFilters)
   }
 }

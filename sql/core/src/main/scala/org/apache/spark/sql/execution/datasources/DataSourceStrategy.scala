@@ -34,23 +34,21 @@ import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.expressions
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
-import org.apache.spark.sql.catalyst.planning.PhysicalOperation
+import org.apache.spark.sql.catalyst.planning.ScanOperation
 import org.apache.spark.sql.catalyst.plans.logical.{InsertIntoDir, InsertIntoStatement, LogicalPlan, Project}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.streaming.StreamingRelationV2
-import org.apache.spark.sql.catalyst.util.{ResolveDefaultColumns, V2ExpressionBuilder}
 import org.apache.spark.sql.connector.catalog.SupportsRead
 import org.apache.spark.sql.connector.catalog.TableCapability._
-import org.apache.spark.sql.connector.expressions.{Expression => V2Expression, NullOrdering, SortDirection, SortOrder => V2SortOrder, SortValue}
-import org.apache.spark.sql.connector.expressions.aggregate.{AggregateFunc, Aggregation}
+import org.apache.spark.sql.connector.expressions.FieldReference
+import org.apache.spark.sql.connector.expressions.aggregate.{AggregateFunc, Count, CountStar, Max, Min, Sum}
 import org.apache.spark.sql.errors.QueryCompilationErrors
-import org.apache.spark.sql.execution.{RowDataSourceScanExec, SparkPlan}
+import org.apache.spark.sql.execution.{InSubqueryExec, RowDataSourceScanExec, SparkPlan}
 import org.apache.spark.sql.execution.command._
-import org.apache.spark.sql.execution.datasources.v2.PushedDownOperators
 import org.apache.spark.sql.execution.streaming.StreamingRelation
+import org.apache.spark.sql.internal.SQLConf.StoreAssignmentPolicy
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.util.{PartitioningUtils => CatalystPartitioningUtils}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -61,7 +59,7 @@ import org.apache.spark.unsafe.types.UTF8String
  * Note that, this rule must be run after `PreprocessTableCreation` and
  * `PreprocessTableInsertion`.
  */
-case class DataSourceAnalysis(analyzer: Analyzer) extends Rule[LogicalPlan] {
+object DataSourceAnalysis extends Rule[LogicalPlan] with CastSupport {
 
   def resolver: Resolver = conf.resolver
 
@@ -106,8 +104,17 @@ case class DataSourceAnalysis(analyzer: Analyzer) extends Rule[LogicalPlan] {
         None
       } else if (potentialSpecs.size == 1) {
         val partValue = potentialSpecs.head._2
-        Some(Alias(CatalystPartitioningUtils.castPartitionSpec(
-          partValue, field.dataType, conf), field.name)())
+        conf.storeAssignmentPolicy match {
+          // SPARK-30844: try our best to follow StoreAssignmentPolicy for static partition
+          // values but not completely follow because we can't do static type checking due to
+          // the reason that the parser has erased the type info of static partition values
+          // and converted them to string.
+          case StoreAssignmentPolicy.ANSI | StoreAssignmentPolicy.STRICT =>
+            Some(Alias(AnsiCast(Literal(partValue), field.dataType,
+              Option(conf.sessionLocalTimeZone)), field.name)())
+          case _ =>
+            Some(Alias(cast(Literal(partValue), field.dataType), field.name)())
+        }
       } else {
         throw QueryCompilationErrors.multiplePartitionColumnValuesSpecifiedError(
           field, potentialSpecs)
@@ -133,11 +140,7 @@ case class DataSourceAnalysis(analyzer: Analyzer) extends Rule[LogicalPlan] {
 
   override def apply(plan: LogicalPlan): LogicalPlan = plan resolveOperators {
     case CreateTable(tableDesc, mode, None) if DDLUtils.isDatasourceTable(tableDesc) =>
-      val newSchema: StructType =
-        ResolveDefaultColumns.constantFoldCurrentDefaultsToExistDefaults(
-          tableDesc.schema, tableDesc.provider, "CREATE TABLE", false)
-      val newTableDesc = tableDesc.copy(schema = newSchema)
-      CreateDataSourceTableCommand(newTableDesc, ignoreIfExists = mode == SaveMode.Ignore)
+      CreateDataSourceTableCommand(tableDesc, ignoreIfExists = mode == SaveMode.Ignore)
 
     case CreateTable(tableDesc, mode, Some(query))
         if query.resolved && DDLUtils.isDatasourceTable(tableDesc) =>
@@ -258,8 +261,7 @@ class FindDataSourceTable(sparkSession: SparkSession) extends Rule[LogicalPlan] 
       SparkSession.active,
       className = table.provider.get,
       userSpecifiedSchema = Some(table.schema),
-      options = dsOptions,
-      catalogTable = Some(table))
+      options = dsOptions)
     StreamingRelation(dataSource)
   }
 
@@ -304,7 +306,7 @@ object DataSourceStrategy
   extends Strategy with Logging with CastSupport with PredicateHelper with SQLConfHelper {
 
   def apply(plan: LogicalPlan): Seq[execution.SparkPlan] = plan match {
-    case PhysicalOperation(projects, filters, l @ LogicalRelation(t: CatalystScan, _, _, _)) =>
+    case ScanOperation(projects, filters, l @ LogicalRelation(t: CatalystScan, _, _, _)) =>
       pruneFilterProjectRaw(
         l,
         projects,
@@ -312,7 +314,7 @@ object DataSourceStrategy
         (requestedColumns, allPredicates, _) =>
           toCatalystRDD(l, requestedColumns, t.buildScan(requestedColumns, allPredicates))) :: Nil
 
-    case PhysicalOperation(projects, filters,
+    case ScanOperation(projects, filters,
                            l @ LogicalRelation(t: PrunedFilteredScan, _, _, _)) =>
       pruneFilterProject(
         l,
@@ -320,7 +322,7 @@ object DataSourceStrategy
         filters,
         (a, f) => toCatalystRDD(l, a, t.buildScan(a.map(_.name).toArray, f))) :: Nil
 
-    case PhysicalOperation(projects, filters, l @ LogicalRelation(t: PrunedScan, _, _, _)) =>
+    case ScanOperation(projects, filters, l @ LogicalRelation(t: PrunedScan, _, _, _)) =>
       pruneFilterProject(
         l,
         projects,
@@ -333,7 +335,7 @@ object DataSourceStrategy
         l.output.toStructType,
         Set.empty,
         Set.empty,
-        PushedDownOperators(None, None, None, None, Seq.empty, Seq.empty),
+        None,
         toCatalystRDD(l, baseRelation.buildScan()),
         baseRelation,
         None) :: Nil
@@ -407,7 +409,7 @@ object DataSourceStrategy
         requestedColumns.toStructType,
         pushedFilters.toSet,
         handledFilters,
-        PushedDownOperators(None, None, None, None, Seq.empty, Seq.empty),
+        None,
         scanBuilder(requestedColumns, candidatePredicates, pushedFilters),
         relation.relation,
         relation.catalogTable.map(_.identifier))
@@ -430,7 +432,7 @@ object DataSourceStrategy
         requestedColumns.toStructType,
         pushedFilters.toSet,
         handledFilters,
-        PushedDownOperators(None, None, None, None, Seq.empty, Seq.empty),
+        None,
         scanBuilder(requestedColumns, candidatePredicates, pushedFilters),
         relation.relation,
         relation.catalogTable.map(_.identifier))
@@ -550,9 +552,6 @@ object DataSourceStrategy
     case expressions.Literal(false, BooleanType) =>
       Some(sources.AlwaysFalse)
 
-    case e @ pushableColumn(name) if e.dataType.isInstanceOf[BooleanType] =>
-      Some(sources.EqualTo(name, true))
-
     case _ => None
   }
 
@@ -639,6 +638,25 @@ object DataSourceStrategy
   }
 
   /**
+   * Translates a runtime filter into a data source filter.
+   *
+   * Runtime filters usually contain a subquery that must be evaluated before the translation.
+   * If the underlying subquery hasn't completed yet, this method will throw an exception.
+   */
+  protected[sql] def translateRuntimeFilter(expr: Expression): Option[Filter] = expr match {
+    case in @ InSubqueryExec(e @ PushableColumnAndNestedColumn(name), _, _, _) =>
+      val values = in.values().getOrElse {
+        throw new IllegalStateException(s"Can't translate $in to source filter, no subquery result")
+      }
+      val toScala = CatalystTypeConverters.createToScalaConverter(e.dataType)
+      Some(sources.In(name, values.map(toScala)))
+
+    case other =>
+      logWarning(s"Can't translate $other to source filter, unsupported expression")
+      None
+  }
+
+  /**
    * Selects Catalyst predicate [[Expression]]s which are convertible into data source [[Filter]]s
    * and can be handled by `relation`.
    *
@@ -680,46 +698,28 @@ object DataSourceStrategy
     (nonconvertiblePredicates ++ unhandledPredicates, pushedFilters, handledFilters)
   }
 
-  /**
-   * Translate aggregate expressions and group by expressions.
-   *
-   * @return translated aggregation.
-   */
-  protected[sql] def translateAggregation(
-      aggregates: Seq[AggregateExpression], groupBy: Seq[Expression]): Option[Aggregation] = {
-
-    def translate(e: Expression): Option[V2Expression] = e match {
-      case PushableExpression(expr) => Some(expr)
-      case _ => None
+  protected[sql] def translateAggregate(aggregates: AggregateExpression): Option[AggregateFunc] = {
+    if (aggregates.filter.isEmpty) {
+      aggregates.aggregateFunction match {
+        case aggregate.Min(PushableColumnNoLegacy(name)) =>
+          Some(new Min(FieldReference.column(name)))
+        case aggregate.Max(PushableColumnNoLegacy(name)) =>
+          Some(new Max(FieldReference.column(name)))
+        case count: aggregate.Count if count.children.length == 1 =>
+          count.children.head match {
+            // SELECT COUNT(*) FROM table is translated to SELECT 1 FROM table
+            case Literal(_, _) => Some(new CountStar())
+            case PushableColumnNoLegacy(name) =>
+              Some(new Count(FieldReference.column(name), aggregates.isDistinct))
+            case _ => None
+          }
+        case aggregate.Sum(PushableColumnNoLegacy(name), _) =>
+          Some(new Sum(FieldReference.column(name), aggregates.isDistinct))
+        case _ => None
+      }
+    } else {
+      None
     }
-
-    val translatedAggregates = aggregates.flatMap(translate).asInstanceOf[Seq[AggregateFunc]]
-    val translatedGroupBys = groupBy.flatMap(translate)
-
-    if (translatedAggregates.length != aggregates.length ||
-      translatedGroupBys.length != groupBy.length) {
-      return None
-    }
-
-    Some(new Aggregation(translatedAggregates.toArray, translatedGroupBys.toArray))
-  }
-
-  protected[sql] def translateSortOrders(sortOrders: Seq[SortOrder]): Seq[V2SortOrder] = {
-    def translateSortOrder(sortOrder: SortOrder): Option[V2SortOrder] = sortOrder match {
-      case SortOrder(PushableExpression(expr), directionV1, nullOrderingV1, _) =>
-        val directionV2 = directionV1 match {
-          case Ascending => SortDirection.ASCENDING
-          case Descending => SortDirection.DESCENDING
-        }
-        val nullOrderingV2 = nullOrderingV1 match {
-          case NullsFirst => NullOrdering.NULLS_FIRST
-          case NullsLast => NullOrdering.NULLS_LAST
-        }
-        Some(SortValue(expr, directionV2, nullOrderingV2))
-      case _ => None
-    }
-
-    sortOrders.flatMap(translateSortOrder)
   }
 
   /**
@@ -730,7 +730,7 @@ object DataSourceStrategy
       output: Seq[Attribute],
       rdd: RDD[Row]): RDD[InternalRow] = {
     if (relation.needConversion) {
-      val toRow = RowEncoder(StructType.fromAttributes(output), lenient = true).createSerializer()
+      val toRow = RowEncoder(StructType.fromAttributes(output)).createSerializer()
       rdd.mapPartitions { iterator =>
         iterator.map(toRow)
       }
@@ -745,6 +745,7 @@ object DataSourceStrategy
  */
 abstract class PushableColumnBase {
   val nestedPredicatePushdownEnabled: Boolean
+  val allowDotInAttrName: Boolean
 
   def unapply(e: Expression): Option[String] = {
     import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.MultipartIdentifierHelper
@@ -756,9 +757,9 @@ abstract class PushableColumnBase {
   }
 
   private def extractTopLevelCol(e: Expression): Option[String] = e match {
-    // Attribute that contains dot "." in name is supported only when nested predicate pushdown
-    // is enabled.
-    case a: Attribute if !a.name.contains(".") => Some(a.name)
+    // To keep backward compatibility, we can't push down filters with column name containing dot,
+    // as the underlying data source may mistakenly think it's a nested column.
+    case a: Attribute if !a.name.contains(".") || allowDotInAttrName => Some(a.name)
     case _ => None
   }
 
@@ -782,15 +783,15 @@ object PushableColumn {
 
 object PushableColumnAndNestedColumn extends PushableColumnBase {
   override val nestedPredicatePushdownEnabled = true
+  override val allowDotInAttrName = true
 }
 
 object PushableColumnWithoutNestedColumn extends PushableColumnBase {
   override val nestedPredicatePushdownEnabled = false
+  override val allowDotInAttrName = false
 }
 
-/**
- * Get the expression of DS V2 to represent catalyst expression that can be pushed down.
- */
-object PushableExpression {
-  def unapply(e: Expression): Option[V2Expression] = new V2ExpressionBuilder(e).build()
+object PushableColumnNoLegacy extends PushableColumnBase {
+  override val nestedPredicatePushdownEnabled = false
+  override val allowDotInAttrName = true
 }

@@ -38,8 +38,6 @@ import org.apache.spark.util.Utils
 
 class UISuite extends SparkFunSuite {
 
-  val localhost = Utils.localHostNameForURI()
-
   /**
    * Create a test SparkContext with the SparkUI enabled.
    * It is safe to `get` the SparkUI directly from the SparkContext returned here.
@@ -93,7 +91,7 @@ class UISuite extends SparkFunSuite {
     withSpark(newSparkContext()) { sc =>
       // test if visible from http://localhost:4040
       eventually(timeout(10.seconds), interval(50.milliseconds)) {
-        val html = Utils.tryWithResource(Source.fromURL(s"http://$localhost:4040"))(_.mkString)
+        val html = Utils.tryWithResource(Source.fromURL("http://localhost:4040"))(_.mkString)
         assert(html.toLowerCase(Locale.ROOT).contains("stages"))
       }
     }
@@ -197,47 +195,47 @@ class UISuite extends SparkFunSuite {
       val ui = sc.ui.get
       val splitUIAddress = ui.webUrl.split(':')
       val boundPort = ui.boundPort
-      assert(splitUIAddress(splitUIAddress.length - 1).toInt == boundPort)
+      assert(splitUIAddress(2).toInt == boundPort)
     }
   }
 
   test("verify proxy rewrittenURI") {
     val prefix = "/worker-id"
-    val target = s"http://$localhost:8081"
+    val target = "http://localhost:8081"
     val path = "/worker-id/json"
     var rewrittenURI = JettyUtils.createProxyURI(prefix, target, path, null)
-    assert(rewrittenURI.toString() === s"http://$localhost:8081/json")
+    assert(rewrittenURI.toString() === "http://localhost:8081/json")
     rewrittenURI = JettyUtils.createProxyURI(prefix, target, path, "test=done")
-    assert(rewrittenURI.toString() === s"http://$localhost:8081/json?test=done")
+    assert(rewrittenURI.toString() === "http://localhost:8081/json?test=done")
     rewrittenURI = JettyUtils.createProxyURI(prefix, target, "/worker-id", null)
-    assert(rewrittenURI.toString() === s"http://$localhost:8081")
+    assert(rewrittenURI.toString() === "http://localhost:8081")
     rewrittenURI = JettyUtils.createProxyURI(prefix, target, "/worker-id/test%2F", null)
-    assert(rewrittenURI.toString() === s"http://$localhost:8081/test%2F")
+    assert(rewrittenURI.toString() === "http://localhost:8081/test%2F")
     rewrittenURI = JettyUtils.createProxyURI(prefix, target, "/worker-id/%F0%9F%98%84", null)
-    assert(rewrittenURI.toString() === s"http://$localhost:8081/%F0%9F%98%84")
+    assert(rewrittenURI.toString() === "http://localhost:8081/%F0%9F%98%84")
     rewrittenURI = JettyUtils.createProxyURI(prefix, target, "/worker-noid/json", null)
     assert(rewrittenURI === null)
   }
 
   test("SPARK-33611: Avoid encoding twice on the query parameter of proxy rewrittenURI") {
     val prefix = "/worker-id"
-    val target = s"http://$localhost:8081"
+    val target = "http://localhost:8081"
     val path = "/worker-id/json"
     val rewrittenURI =
       JettyUtils.createProxyURI(prefix, target, path, "order%5B0%5D%5Bcolumn%5D=0")
-    assert(rewrittenURI.toString === s"http://$localhost:8081/json?order%5B0%5D%5Bcolumn%5D=0")
+    assert(rewrittenURI.toString === "http://localhost:8081/json?order%5B0%5D%5Bcolumn%5D=0")
   }
 
   test("verify rewriting location header for reverse proxy") {
     val clientRequest = mock(classOf[HttpServletRequest])
-    var headerValue = s"http://$localhost:4040/jobs"
-    val targetUri = URI.create(s"http://$localhost:4040")
+    var headerValue = "http://localhost:4040/jobs"
+    val targetUri = URI.create("http://localhost:4040")
     when(clientRequest.getScheme()).thenReturn("http")
-    when(clientRequest.getHeader("host")).thenReturn(s"$localhost:8080")
+    when(clientRequest.getHeader("host")).thenReturn("localhost:8080")
     when(clientRequest.getPathInfo()).thenReturn("/proxy/worker-id/jobs")
     var newHeader = JettyUtils.createProxyLocationHeader(headerValue, clientRequest, targetUri)
-    assert(newHeader.toString() === s"http://$localhost:8080/proxy/worker-id/jobs")
-    headerValue = s"http://$localhost:4041/jobs"
+    assert(newHeader.toString() === "http://localhost:8080/proxy/worker-id/jobs")
+    headerValue = "http://localhost:4041/jobs"
     newHeader = JettyUtils.createProxyLocationHeader(headerValue, clientRequest, targetUri)
     assert(newHeader === null)
   }
@@ -251,7 +249,7 @@ class UISuite extends SparkFunSuite {
     val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
     try {
       val path = "/test"
-      val url = new URL(s"http://$localhost:${serverInfo.boundPort}$path/root")
+      val url = new URL(s"http://localhost:${serverInfo.boundPort}$path/root")
 
       assert(TestUtils.httpResponseCode(url) === HttpServletResponse.SC_NOT_FOUND)
 
@@ -262,7 +260,7 @@ class UISuite extends SparkFunSuite {
       // Try a request with bad content in a parameter to make sure the security filter
       // is being added to new handlers.
       val badRequest = new URL(
-        s"http://$localhost:${serverInfo.boundPort}$path/root?bypass&invalid<=foo")
+        s"http://localhost:${serverInfo.boundPort}$path/root?bypass&invalid<=foo")
       assert(TestUtils.httpResponseCode(badRequest) === HttpServletResponse.SC_OK)
       assert(servlet.lastRequest.getParameter("invalid<") === null)
       assert(servlet.lastRequest.getParameter("invalid&lt;") !== null)
@@ -278,7 +276,7 @@ class UISuite extends SparkFunSuite {
     val (conf, securityMgr, sslOptions) = sslEnabledConf()
     val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
     try {
-      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+      val serverAddr = s"http://localhost:${serverInfo.boundPort}"
 
       val (_, ctx) = newContext("/ctx1")
       serverInfo.addHandler(ctx, securityMgr)
@@ -287,7 +285,7 @@ class UISuite extends SparkFunSuite {
         assert(conn.getResponseCode() === HttpServletResponse.SC_FOUND)
         val location = Option(conn.getHeaderFields().get("Location"))
           .map(_.get(0)).orNull
-        val expectedLocation = s"https://$localhost:${serverInfo.securePort.get}/ctx(1)?a[0]=b"
+        val expectedLocation = s"https://localhost:${serverInfo.securePort.get}/ctx(1)?a[0]=b"
         assert(location == expectedLocation)
       }
     } finally {
@@ -315,9 +313,9 @@ class UISuite extends SparkFunSuite {
 
       tests.foreach { case (scheme, port, expected) =>
         val urls = Seq(
-          s"$scheme://$localhost:$port/root",
-          s"$scheme://$localhost:$port/test1/root",
-          s"$scheme://$localhost:$port/test2/root")
+          s"$scheme://localhost:$port/root",
+          s"$scheme://localhost:$port/test1/root",
+          s"$scheme://localhost:$port/test2/root")
         urls.foreach { url =>
           val rc = TestUtils.httpResponseCode(new URL(url))
           assert(rc === expected, s"Unexpected status $rc for $url")
@@ -357,7 +355,7 @@ class UISuite extends SparkFunSuite {
 
     val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
     try {
-      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+      val serverAddr = s"http://localhost:${serverInfo.boundPort}"
 
       val redirect = JettyUtils.createRedirectHandler("/src", "/dst")
       serverInfo.addHandler(redirect, securityMgr)
@@ -397,7 +395,7 @@ class UISuite extends SparkFunSuite {
     try {
       val (_, ctx) = newContext("/ctx")
       serverInfo.addHandler(ctx, securityMgr)
-      val urlStr = s"http://$localhost:${serverInfo.boundPort}/ctx"
+      val urlStr = s"http://localhost:${serverInfo.boundPort}/ctx"
 
       assert(TestUtils.httpResponseCode(new URL(urlStr + "/")) === HttpServletResponse.SC_OK)
 
@@ -423,28 +421,6 @@ class UISuite extends SparkFunSuite {
       } finally {
         stopServer(serverInfo)
       }
-    }
-  }
-
-  test("SPARK-36237: Attach and start handler after application started in UI ") {
-    def newSparkContextWithoutUI(): SparkContext = {
-      val conf = new SparkConf()
-        .setMaster("local")
-        .setAppName("test")
-        .set(UI.UI_ENABLED, false)
-      new SparkContext(conf)
-    }
-
-    withSpark(newSparkContextWithoutUI()) { sc =>
-      assert(sc.ui.isEmpty)
-      val sparkUI = SparkUI.create(Some(sc), sc.statusStore, sc.conf, sc.env.securityManager,
-        sc.appName, "", sc.startTime)
-      sparkUI.bind()
-      assert(TestUtils.httpResponseMessage(new URL(sparkUI.webUrl + "/jobs"))
-        === "Spark is starting up. Please wait a while until it's ready.")
-      sparkUI.attachAllHandler()
-      assert(TestUtils.httpResponseMessage(new URL(sparkUI.webUrl + "/jobs")).contains(sc.appName))
-      sparkUI.stop()
     }
   }
 

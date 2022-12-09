@@ -25,6 +25,7 @@ import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito._
 import org.mockito.invocation.InvocationOnMock
 import org.roaringbitmap.RoaringBitmap
+import org.scalatest.BeforeAndAfterEach
 
 import org.apache.spark.{SparkConf, SparkFunSuite}
 import org.apache.spark.internal.config
@@ -32,7 +33,7 @@ import org.apache.spark.shuffle.{IndexShuffleBlockResolver, ShuffleBlockInfo}
 import org.apache.spark.storage._
 import org.apache.spark.util.Utils
 
-class IndexShuffleBlockResolverSuite extends SparkFunSuite {
+class IndexShuffleBlockResolverSuite extends SparkFunSuite with BeforeAndAfterEach {
 
   @Mock(answer = RETURNS_SMART_NULLS) private var blockManager: BlockManager = _
   @Mock(answer = RETURNS_SMART_NULLS) private var diskBlockManager: DiskBlockManager = _
@@ -55,11 +56,6 @@ class IndexShuffleBlockResolverSuite extends SparkFunSuite {
       any[BlockId], any[Option[Array[String]]])).thenAnswer(
       (invocation: InvocationOnMock) => new File(tempDir, invocation.getArguments.head.toString))
     when(diskBlockManager.localDirs).thenReturn(Array(tempDir))
-    when(diskBlockManager.createTempFileWith(any(classOf[File])))
-      .thenAnswer { invocationOnMock =>
-        val file = invocationOnMock.getArguments()(0).asInstanceOf[File]
-        Utils.tempFileWith(file)
-      }
     conf.set("spark.app.id", appId)
   }
 

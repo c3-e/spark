@@ -28,7 +28,6 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.connector.expressions.{FieldReference, RewritableTransform}
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.execution.command.DDLUtils
-import org.apache.spark.sql.execution.datasources.{CreateTable => CreateTableV1}
 import org.apache.spark.sql.execution.datasources.v2.FileDataSourceV2
 import org.apache.spark.sql.sources.InsertableRelation
 import org.apache.spark.sql.types.{AtomicType, StructType}
@@ -43,44 +42,29 @@ class ResolveSQLOnFile(sparkSession: SparkSession) extends Rule[LogicalPlan] {
     conf.runSQLonFile && u.multipartIdentifier.size == 2
   }
 
-  private def resolveDataSource(ident: Seq[String]): DataSource = {
-    val dataSource = DataSource(sparkSession, paths = Seq(ident.last), className = ident.head)
-    // `dataSource.providingClass` may throw ClassNotFoundException, the caller side will try-catch
-    // it and return the original plan, so that the analyzer can report table not found later.
-    val isFileFormat = classOf[FileFormat].isAssignableFrom(dataSource.providingClass)
-    if (!isFileFormat ||
-      dataSource.className.toLowerCase(Locale.ROOT) == DDLUtils.HIVE_PROVIDER) {
-      throw QueryCompilationErrors.unsupportedDataSourceTypeForDirectQueryOnFilesError(
-        dataSource.className)
-    }
-    dataSource
-  }
-
   def apply(plan: LogicalPlan): LogicalPlan = plan resolveOperators {
-    case r @ RelationTimeTravel(u: UnresolvedRelation, timestamp, _)
-        if maybeSQLFile(u) && timestamp.forall(_.resolved) =>
-      // If we successfully look up the data source, then this is a path-based table, so we should
-      // fail to time travel. Otherwise, this is some other catalog table that isn't resolved yet,
-      // so we should leave it be for now.
-      try {
-        resolveDataSource(u.multipartIdentifier)
-        throw QueryCompilationErrors.timeTravelUnsupportedError("path-based tables")
-      } catch {
-        case _: ClassNotFoundException => r
-      }
-
     case u: UnresolvedRelation if maybeSQLFile(u) =>
       try {
-        val ds = resolveDataSource(u.multipartIdentifier)
-        LogicalRelation(ds.resolveRelation())
+        val dataSource = DataSource(
+          sparkSession,
+          paths = u.multipartIdentifier.last :: Nil,
+          className = u.multipartIdentifier.head)
+
+        // `dataSource.providingClass` may throw ClassNotFoundException, then the outer try-catch
+        // will catch it and return the original plan, so that the analyzer can report table not
+        // found later.
+        val isFileFormat = classOf[FileFormat].isAssignableFrom(dataSource.providingClass)
+        if (!isFileFormat ||
+            dataSource.className.toLowerCase(Locale.ROOT) == DDLUtils.HIVE_PROVIDER) {
+          throw QueryCompilationErrors.unsupportedDataSourceTypeForDirectQueryOnFilesError(
+            dataSource.className)
+        }
+        LogicalRelation(dataSource.resolveRelation())
       } catch {
         case _: ClassNotFoundException => u
         case e: Exception =>
           // the provider is valid, but failed to create a logical plan
-          u.failAnalysis(
-            errorClass = "_LEGACY_ERROR_TEMP_2332",
-            messageParameters = Map("msg" -> e.getMessage),
-            cause = e)
+          u.failAnalysis(e.getMessage, e)
       }
   }
 }
@@ -97,7 +81,7 @@ case class PreprocessTableCreation(sparkSession: SparkSession) extends Rule[Logi
     // bucketing information is specified, as we can't infer bucketing from data files currently.
     // Since the runtime inferred partition columns could be different from what user specified,
     // we fail the query if the partitioning information is specified.
-    case c @ CreateTableV1(tableDesc, _, None) if tableDesc.schema.isEmpty =>
+    case c @ CreateTable(tableDesc, _, None) if tableDesc.schema.isEmpty =>
       if (tableDesc.bucketSpec.isDefined) {
         failAnalysis("Cannot specify bucketing information if the table schema is not specified " +
           "when creating and will be inferred at runtime")
@@ -112,7 +96,7 @@ case class PreprocessTableCreation(sparkSession: SparkSession) extends Rule[Logi
     // When we append data to an existing table, check if the given provider, partition columns,
     // bucket spec, etc. match the existing table, and adjust the columns order of the given query
     // if necessary.
-    case c @ CreateTableV1(tableDesc, SaveMode.Append, Some(query))
+    case c @ CreateTable(tableDesc, SaveMode.Append, Some(query))
         if query.resolved && catalog.tableExists(tableDesc.identifier) =>
       // This is guaranteed by the parser and `DataFrameWriter`
       assert(tableDesc.provider.isDefined)
@@ -205,7 +189,7 @@ case class PreprocessTableCreation(sparkSession: SparkSession) extends Rule[Logi
     //   * partition columns' type must be AtomicType.
     //   * sort columns' type must be orderable.
     //   * reorder table schema or output of query plan, to put partition columns at the end.
-    case c @ CreateTableV1(tableDesc, _, query) if query.forall(_.resolved) =>
+    case c @ CreateTable(tableDesc, _, query) if query.forall(_.resolved) =>
       if (query.isDefined) {
         assert(tableDesc.schema.isEmpty,
           "Schema may not be specified in a Create Table As Select (CTAS) statement")
@@ -213,7 +197,7 @@ case class PreprocessTableCreation(sparkSession: SparkSession) extends Rule[Logi
         val analyzedQuery = query.get
         val normalizedTable = normalizeCatalogTable(analyzedQuery.schema, tableDesc)
 
-        DDLUtils.checkTableColumns(tableDesc.copy(schema = analyzedQuery.schema))
+        DDLUtils.checkDataColNames(tableDesc.copy(schema = analyzedQuery.schema))
 
         val output = analyzedQuery.output
         val partitionAttrs = normalizedTable.partitionColumnNames.map { partCol =>
@@ -228,7 +212,7 @@ case class PreprocessTableCreation(sparkSession: SparkSession) extends Rule[Logi
 
         c.copy(tableDesc = normalizedTable, query = Some(reorderedQuery))
       } else {
-        DDLUtils.checkTableColumns(tableDesc)
+        DDLUtils.checkDataColNames(tableDesc)
         val normalizedTable = normalizeCatalogTable(tableDesc.schema, tableDesc)
 
         val partitionSchema = normalizedTable.partitionColumnNames.map { partCol =>
@@ -250,6 +234,7 @@ case class PreprocessTableCreation(sparkSession: SparkSession) extends Rule[Logi
       val flattenedSchema = SchemaUtils.explodeNestedFieldNames(schema)
       SchemaUtils.checkColumnNameDuplication(
         flattenedSchema,
+        s"in the table definition of $identifier",
         isCaseSensitive)
 
       // Check that columns are not duplicated in the partitioning statement
@@ -288,6 +273,7 @@ case class PreprocessTableCreation(sparkSession: SparkSession) extends Rule[Logi
   private def normalizeCatalogTable(schema: StructType, table: CatalogTable): CatalogTable = {
     SchemaUtils.checkSchemaColumnNameDuplication(
       schema,
+      "in the table definition of " + table.identifier,
       conf.caseSensitiveAnalysis)
 
     val normalizedPartCols = normalizePartitionColumns(schema, table)
@@ -314,10 +300,21 @@ case class PreprocessTableCreation(sparkSession: SparkSession) extends Rule[Logi
       partCols = table.partitionColumnNames,
       resolver = conf.resolver)
 
-    SchemaUtils.checkColumnNameDuplication(normalizedPartitionCols, conf.resolver)
+    SchemaUtils.checkColumnNameDuplication(
+      normalizedPartitionCols,
+      "in the partition schema",
+      conf.resolver)
 
     if (schema.nonEmpty && normalizedPartitionCols.length == schema.length) {
-      failAnalysis("Cannot use all columns for partition columns")
+      if (DDLUtils.isHiveTable(table)) {
+        // When we hit this branch, it means users didn't specify schema for the table to be
+        // created, as we always include partition columns in table schema for hive serde tables.
+        // The real schema will be inferred at hive metastore by hive serde, plus the given
+        // partition columns, so we should not fail the analysis here.
+      } else {
+        failAnalysis("Cannot use all columns for partition columns")
+      }
+
     }
 
     schema.filter(f => normalizedPartitionCols.contains(f.name)).map(_.dataType).foreach {
@@ -339,9 +336,11 @@ case class PreprocessTableCreation(sparkSession: SparkSession) extends Rule[Logi
 
         SchemaUtils.checkColumnNameDuplication(
           normalizedBucketSpec.bucketColumnNames,
+          "in the bucket definition",
           conf.resolver)
         SchemaUtils.checkColumnNameDuplication(
           normalizedBucketSpec.sortColumnNames,
+          "in the sort definition",
           conf.resolver)
 
         normalizedBucketSpec.sortColumnNames.map(schema(_)).map(_.dataType).foreach {
@@ -434,7 +433,7 @@ object PreprocessTableInsertion extends Rule[LogicalPlan] {
 object HiveOnlyCheck extends (LogicalPlan => Unit) {
   def apply(plan: LogicalPlan): Unit = {
     plan.foreach {
-      case CreateTableV1(tableDesc, _, _) if DDLUtils.isHiveTable(tableDesc) =>
+      case CreateTable(tableDesc, _, _) if DDLUtils.isHiveTable(tableDesc) =>
         throw QueryCompilationErrors.ddlWithoutHiveSupportEnabledError(
           "CREATE Hive TABLE (AS SELECT)")
       case i: InsertIntoDir if DDLUtils.isHiveTable(i.provider) =>
@@ -472,9 +471,7 @@ object PreReadCheck extends (LogicalPlan => Unit) {
       case o =>
         val numInputFileBlockSources = o.children.map(checkNumInputFileBlockSources(e, _)).sum
         if (numInputFileBlockSources > 1) {
-          e.failAnalysis(
-            errorClass = "_LEGACY_ERROR_TEMP_2302",
-            messageParameters = Map("name" -> e.prettyName))
+          e.failAnalysis(s"'${e.prettyName}' does not support more than one sources")
         } else {
           numInputFileBlockSources
         }

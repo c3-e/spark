@@ -42,7 +42,7 @@ class BloomFilterImpl extends BloomFilter implements Serializable {
       return true;
     }
 
-    if (!(other instanceof BloomFilterImpl)) {
+    if (other == null || !(other instanceof BloomFilterImpl)) {
       return false;
     }
 
@@ -205,11 +205,6 @@ class BloomFilterImpl extends BloomFilter implements Serializable {
 
     this.bits.and(otherImplInstance.bits);
     return this;
-  }
-
-  @Override
-  public long cardinality() {
-    return this.bits.cardinality();
   }
 
   private BloomFilterImpl checkCompatibilityForMerge(BloomFilter other)

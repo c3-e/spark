@@ -53,7 +53,7 @@ private[spark] class ActiveJob(
    */
   val numPartitions = finalStage match {
     case r: ResultStage => r.partitions.length
-    case m: ShuffleMapStage => m.numPartitions
+    case m: ShuffleMapStage => m.rdd.partitions.length
   }
 
   /** Which partitions of the stage have finished */

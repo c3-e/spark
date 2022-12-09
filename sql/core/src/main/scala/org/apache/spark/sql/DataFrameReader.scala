@@ -21,6 +21,8 @@ import java.util.{Locale, Properties}
 
 import scala.collection.JavaConverters._
 
+import com.fasterxml.jackson.databind.ObjectMapper
+
 import org.apache.spark.Partition
 import org.apache.spark.annotation.Stable
 import org.apache.spark.api.java.JavaRDD
@@ -31,15 +33,15 @@ import org.apache.spark.sql.catalyst.csv.{CSVHeaderChecker, CSVOptions, Univocit
 import org.apache.spark.sql.catalyst.expressions.ExprUtils
 import org.apache.spark.sql.catalyst.json.{CreateJacksonParser, JacksonParser, JSONOptions}
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, CharVarcharUtils, FailureSafeParser}
+import org.apache.spark.sql.connector.catalog.{CatalogV2Util, SupportsCatalogOptions, SupportsRead}
+import org.apache.spark.sql.connector.catalog.TableCapability._
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.DataSource
 import org.apache.spark.sql.execution.datasources.csv._
 import org.apache.spark.sql.execution.datasources.jdbc._
-import org.apache.spark.sql.execution.datasources.json.JsonUtils.checkJsonSchema
 import org.apache.spark.sql.execution.datasources.json.TextInputJsonDataSource
-import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Utils
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Relation, DataSourceV2Utils}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.unsafe.types.UTF8String
@@ -205,10 +207,53 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
       throw QueryCompilationErrors.pathOptionNotSetCorrectlyWhenReadingError()
     }
 
-    DataSource.lookupDataSourceV2(source, sparkSession.sessionState.conf).flatMap { provider =>
-      DataSourceV2Utils.loadV2Source(sparkSession, provider, userSpecifiedSchema, extraOptions,
-        source, paths: _*)
+    DataSource.lookupDataSourceV2(source, sparkSession.sessionState.conf).map { provider =>
+      val catalogManager = sparkSession.sessionState.catalogManager
+      val sessionOptions = DataSourceV2Utils.extractSessionConfigs(
+        source = provider, conf = sparkSession.sessionState.conf)
+
+      val optionsWithPath = getOptionsWithPaths(paths: _*)
+
+      val finalOptions = sessionOptions.filterKeys(!optionsWithPath.contains(_)).toMap ++
+        optionsWithPath.originalMap
+      val dsOptions = new CaseInsensitiveStringMap(finalOptions.asJava)
+      val (table, catalog, ident) = provider match {
+        case _: SupportsCatalogOptions if userSpecifiedSchema.nonEmpty =>
+          throw new IllegalArgumentException(
+            s"$source does not support user specified schema. Please don't specify the schema.")
+        case hasCatalog: SupportsCatalogOptions =>
+          val ident = hasCatalog.extractIdentifier(dsOptions)
+          val catalog = CatalogV2Util.getTableProviderCatalog(
+            hasCatalog,
+            catalogManager,
+            dsOptions)
+          (catalog.loadTable(ident), Some(catalog), Some(ident))
+        case _ =>
+          // TODO: Non-catalog paths for DSV2 are currently not well defined.
+          val tbl = DataSourceV2Utils.getTableFromProvider(provider, dsOptions, userSpecifiedSchema)
+          (tbl, None, None)
+      }
+      import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Implicits._
+      table match {
+        case _: SupportsRead if table.supports(BATCH_READ) =>
+          Dataset.ofRows(
+            sparkSession,
+            DataSourceV2Relation.create(table, catalog, ident, dsOptions))
+
+        case _ => loadV1Source(paths: _*)
+      }
     }.getOrElse(loadV1Source(paths: _*))
+  }
+
+  private def getOptionsWithPaths(paths: String*): CaseInsensitiveMap[String] = {
+    if (paths.isEmpty) {
+      extraOptions
+    } else if (paths.length == 1) {
+      extraOptions + ("path" -> paths.head)
+    } else {
+      val objectMapper = new ObjectMapper()
+      extraOptions + ("paths" -> objectMapper.writeValueAsString(paths.toArray))
+    }
   }
 
   private def loadV1Source(paths: String*) = {
@@ -357,10 +402,7 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
    * @since 2.0.0
    */
   @scala.annotation.varargs
-  def json(paths: String*): DataFrame = {
-    userSpecifiedSchema.foreach(checkJsonSchema)
-    format("json").load(paths : _*)
-  }
+  def json(paths: String*): DataFrame = format("json").load(paths : _*)
 
   /**
    * Loads a `JavaRDD[String]` storing JSON objects (<a href="http://jsonlines.org/">JSON
@@ -407,12 +449,7 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
       sparkSession.sessionState.conf.sessionLocalTimeZone,
       sparkSession.sessionState.conf.columnNameOfCorruptRecord)
 
-    userSpecifiedSchema.foreach(checkJsonSchema)
-    val schema = userSpecifiedSchema.map {
-      case s if !SQLConf.get.getConf(
-        SQLConf.LEGACY_RESPECT_NULLABILITY_IN_TEXT_DATASET_CONVERSION) => s.asNullable
-      case other => other
-    }.getOrElse {
+    val schema = userSpecifiedSchema.getOrElse {
       TextInputJsonDataSource.inferFromDataset(jsonDataset, parsedOptions)
     }
 
@@ -484,11 +521,7 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
         None
       }
 
-    val schema = userSpecifiedSchema.map {
-      case s if !SQLConf.get.getConf(
-        SQLConf.LEGACY_RESPECT_NULLABILITY_IN_TEXT_DATASET_CONVERSION) => s.asNullable
-      case other => other
-    }.getOrElse {
+    val schema = userSpecifiedSchema.getOrElse {
       TextInputCSVDataSource.inferFromDataset(
         sparkSession,
         csvDataset,

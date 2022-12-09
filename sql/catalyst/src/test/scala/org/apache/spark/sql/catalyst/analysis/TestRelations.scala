@@ -46,8 +46,6 @@ object TestRelations {
 
   val testRelation5 = LocalRelation(AttributeReference("i", StringType)())
 
-  val testRelation6 = LocalRelation(AttributeReference("the.id", LongType)())
-
   val nestedRelation = LocalRelation(
     AttributeReference("top", StructType(
       StructField("duplicateField", StringType) ::

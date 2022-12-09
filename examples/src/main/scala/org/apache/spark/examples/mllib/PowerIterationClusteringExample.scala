@@ -18,8 +18,7 @@
 // scalastyle:off println
 package org.apache.spark.examples.mllib
 
-import org.apache.logging.log4j.Level
-import org.apache.logging.log4j.core.config.Configurator
+import org.apache.log4j.{Level, Logger}
 import scopt.OptionParser
 
 import org.apache.spark.{SparkConf, SparkContext}
@@ -91,7 +90,7 @@ object PowerIterationClusteringExample {
       .setAppName(s"PowerIterationClustering with $params")
     val sc = new SparkContext(conf)
 
-    Configurator.setRootLevel(Level.WARN)
+    Logger.getRootLogger.setLevel(Level.WARN)
 
     // $example on$
     val circlesRdd = generateCirclesRdd(sc, params.k, params.numPoints)

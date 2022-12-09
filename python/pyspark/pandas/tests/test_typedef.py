@@ -19,7 +19,6 @@ import sys
 import unittest
 import datetime
 import decimal
-from distutils.version import LooseVersion
 from typing import List
 
 import pandas
@@ -56,27 +55,10 @@ from pyspark import pandas as ps
 
 
 class TypeHintTests(unittest.TestCase):
-    def test_infer_schema_with_no_return(self):
-        def try_infer_return_type():
-            def f():
-                pass
-
-            infer_return_type(f)
-
-        self.assertRaisesRegex(
-            ValueError, "A return value is required for the input function", try_infer_return_type
-        )
-
-        def try_infer_return_type():
-            def f() -> None:
-                pass
-
-            infer_return_type(f)
-
-        self.assertRaisesRegex(
-            TypeError, "Type <class 'NoneType'> was not understood", try_infer_return_type
-        )
-
+    @unittest.skipIf(
+        sys.version_info < (3, 7),
+        "Type inference from pandas instances is supported with Python 3.7+",
+    )
     def test_infer_schema_from_pandas_instances(self):
         def func() -> pd.Series[int]:
             pass
@@ -133,7 +115,7 @@ class TypeHintTests(unittest.TestCase):
 
         pdf = pd.DataFrame({"a": [1, 2, 3], "b": [3, 4, 5]})
 
-        def func() -> pd.DataFrame[pdf.dtypes]:  # type: ignore[name-defined]
+        def func() -> pd.DataFrame[pdf.dtypes]:  # type: ignore
             pass
 
         expected = StructType([StructField("c0", LongType()), StructField("c1", LongType())])
@@ -143,14 +125,14 @@ class TypeHintTests(unittest.TestCase):
 
         pdf = pd.DataFrame({"a": [1, 2, 3], "b": pd.Categorical(["a", "b", "c"])})
 
-        def func() -> pd.Series[pdf.b.dtype]:  # type: ignore[name-defined]
+        def func() -> pd.Series[pdf.b.dtype]:  # type: ignore
             pass
 
         inferred = infer_return_type(func)
         self.assertEqual(inferred.dtype, CategoricalDtype(categories=["a", "b", "c"]))
         self.assertEqual(inferred.spark_type, LongType())
 
-        def func() -> pd.DataFrame[pdf.dtypes]:  # type: ignore[name-defined]
+        def func() -> pd.DataFrame[pdf.dtypes]:  # type: ignore
             pass
 
         expected = StructType([StructField("c0", LongType()), StructField("c1", LongType())])
@@ -165,6 +147,10 @@ class TypeHintTests(unittest.TestCase):
         assert not ps._frame_has_class_getitem
         assert not ps._series_has_class_getitem
 
+    @unittest.skipIf(
+        sys.version_info < (3, 7),
+        "Type inference from pandas instances is supported with Python 3.7+",
+    )
     def test_infer_schema_with_names_pandas_instances(self):
         def func() -> 'pd.DataFrame["a" : np.float_, "b":str]':  # noqa: F405
             pass
@@ -214,6 +200,10 @@ class TypeHintTests(unittest.TestCase):
         self.assertEqual(inferred.dtypes, [np.int64, CategoricalDtype(categories=["a", "b", "c"])])
         self.assertEqual(inferred.spark_type, expected)
 
+    @unittest.skipIf(
+        sys.version_info < (3, 7),
+        "Type inference from pandas instances is supported with Python 3.7+",
+    )
     def test_infer_schema_with_names_pandas_instances_negative(self):
         def try_infer_return_type():
             def f() -> 'pd.DataFrame["a" : np.float_ : 1, "b":str:2]':  # noqa: F405
@@ -246,7 +236,7 @@ class TypeHintTests(unittest.TestCase):
         pdf = pd.DataFrame({"a": ["a", 2, None]})
 
         def try_infer_return_type():
-            def f() -> pd.DataFrame[pdf.dtypes]:  # type: ignore[name-defined]
+            def f() -> pd.DataFrame[pdf.dtypes]:  # type: ignore
                 pass
 
             infer_return_type(f)
@@ -254,7 +244,7 @@ class TypeHintTests(unittest.TestCase):
         self.assertRaisesRegex(TypeError, "object.*not understood", try_infer_return_type)
 
         def try_infer_return_type():
-            def f() -> pd.Series[pdf.a.dtype]:  # type: ignore[name-defined]
+            def f() -> pd.Series[pdf.a.dtype]:  # type: ignore
                 pass
 
             infer_return_type(f)
@@ -293,7 +283,7 @@ class TypeHintTests(unittest.TestCase):
         pdf = pd.DataFrame({"a": ["a", 2, None]})
 
         def try_infer_return_type():
-            def f() -> ps.DataFrame[pdf.dtypes]:  # type: ignore[name-defined]
+            def f() -> ps.DataFrame[pdf.dtypes]:  # type: ignore
                 pass
 
             infer_return_type(f)
@@ -301,7 +291,7 @@ class TypeHintTests(unittest.TestCase):
         self.assertRaisesRegex(TypeError, "object.*not understood", try_infer_return_type)
 
         def try_infer_return_type():
-            def f() -> ps.Series[pdf.a.dtype]:  # type: ignore[name-defined]
+            def f() -> ps.Series[pdf.a.dtype]:  # type: ignore
                 pass
 
             infer_return_type(f)
@@ -344,6 +334,29 @@ class TypeHintTests(unittest.TestCase):
             decimal.Decimal: (np.dtype("object"), DecimalType(38, 18)),
             # ArrayType
             np.ndarray: (np.dtype("object"), ArrayType(StringType())),
+            List[bytes]: (np.dtype("object"), ArrayType(BinaryType())),
+            List[np.character]: (np.dtype("object"), ArrayType(BinaryType())),
+            List[np.bytes_]: (np.dtype("object"), ArrayType(BinaryType())),
+            List[np.string_]: (np.dtype("object"), ArrayType(BinaryType())),
+            List[bool]: (np.dtype("object"), ArrayType(BooleanType())),
+            List[np.bool]: (np.dtype("object"), ArrayType(BooleanType())),
+            List[datetime.date]: (np.dtype("object"), ArrayType(DateType())),
+            List[np.int8]: (np.dtype("object"), ArrayType(ByteType())),
+            List[np.byte]: (np.dtype("object"), ArrayType(ByteType())),
+            List[decimal.Decimal]: (np.dtype("object"), ArrayType(DecimalType(38, 18))),
+            List[float]: (np.dtype("object"), ArrayType(DoubleType())),
+            List[np.float]: (np.dtype("object"), ArrayType(DoubleType())),
+            List[np.float64]: (np.dtype("object"), ArrayType(DoubleType())),
+            List[np.float32]: (np.dtype("object"), ArrayType(FloatType())),
+            List[np.int32]: (np.dtype("object"), ArrayType(IntegerType())),
+            List[int]: (np.dtype("object"), ArrayType(LongType())),
+            List[np.int]: (np.dtype("object"), ArrayType(LongType())),
+            List[np.int64]: (np.dtype("object"), ArrayType(LongType())),
+            List[np.int16]: (np.dtype("object"), ArrayType(ShortType())),
+            List[str]: (np.dtype("object"), ArrayType(StringType())),
+            List[np.unicode_]: (np.dtype("object"), ArrayType(StringType())),
+            List[datetime.datetime]: (np.dtype("object"), ArrayType(TimestampType())),
+            List[np.datetime64]: (np.dtype("object"), ArrayType(TimestampType())),
             # CategoricalDtype
             CategoricalDtype(categories=["a", "b", "c"]): (
                 CategoricalDtype(categories=["a", "b", "c"]),
@@ -354,28 +367,6 @@ class TypeHintTests(unittest.TestCase):
         for numpy_or_python_type, (dtype, spark_type) in type_mapper.items():
             self.assertEqual(as_spark_type(numpy_or_python_type), spark_type)
             self.assertEqual(pandas_on_spark_type(numpy_or_python_type), (dtype, spark_type))
-
-            if isinstance(numpy_or_python_type, CategoricalDtype):
-                # Nested CategoricalDtype is not yet supported.
-                continue
-
-            self.assertEqual(as_spark_type(List[numpy_or_python_type]), ArrayType(spark_type))
-            self.assertEqual(
-                pandas_on_spark_type(List[numpy_or_python_type]),
-                (np.dtype("object"), ArrayType(spark_type)),
-            )
-
-            # For NumPy typing, NumPy version should be 1.21+ and Python version should be 3.8+
-            if sys.version_info >= (3, 8) and LooseVersion(np.__version__) >= LooseVersion("1.21"):
-                import numpy.typing as ntp
-
-                self.assertEqual(
-                    as_spark_type(ntp.NDArray[numpy_or_python_type]), ArrayType(spark_type)
-                )
-                self.assertEqual(
-                    pandas_on_spark_type(ntp.NDArray[numpy_or_python_type]),
-                    (np.dtype("object"), ArrayType(spark_type)),
-                )
 
         with self.assertRaisesRegex(TypeError, "Type uint64 was not understood."):
             as_spark_type(np.dtype("uint64"))

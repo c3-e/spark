@@ -17,19 +17,17 @@
 
 package org.apache.spark.sql.streaming;
 
-import org.junit.Assert;
-import org.junit.Test;
-
 import org.apache.spark.sql.catalyst.plans.logical.EventTimeTimeout$;
 import org.apache.spark.sql.catalyst.plans.logical.NoTimeout$;
 import org.apache.spark.sql.catalyst.plans.logical.ProcessingTimeTimeout$;
+import org.junit.Test;
 
 public class JavaGroupStateTimeoutSuite {
 
   @Test
   public void testTimeouts() {
-    Assert.assertSame(GroupStateTimeout.ProcessingTimeTimeout(), ProcessingTimeTimeout$.MODULE$);
-    Assert.assertSame(GroupStateTimeout.EventTimeTimeout(), EventTimeTimeout$.MODULE$);
-    Assert.assertSame(GroupStateTimeout.NoTimeout(), NoTimeout$.MODULE$);
+    assert (GroupStateTimeout.ProcessingTimeTimeout() == ProcessingTimeTimeout$.MODULE$);
+    assert (GroupStateTimeout.EventTimeTimeout() == EventTimeTimeout$.MODULE$);
+    assert (GroupStateTimeout.NoTimeout() == NoTimeout$.MODULE$);
   }
 }

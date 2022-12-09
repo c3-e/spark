@@ -21,14 +21,17 @@ import java.io.{DataOutputStream, File, FileOutputStream}
 
 import scala.collection.immutable.IndexedSeq
 
+import org.scalatest.BeforeAndAfterAll
+
 import org.apache.spark.{SparkConf, SparkContext, SparkFunSuite}
+import org.apache.spark.internal.Logging
 
 /**
  * Tests the correctness of
  * [[org.apache.spark.input.WholeTextFileInputFormat WholeTextFileInputFormat]]. A temporary
  * directory containing files is created as fake input which is deleted in the end.
  */
-class WholeTextFileInputFormatSuite extends SparkFunSuite {
+class WholeTextFileInputFormatSuite extends SparkFunSuite with BeforeAndAfterAll with Logging {
   private var sc: SparkContext = _
 
   override def beforeAll(): Unit = {

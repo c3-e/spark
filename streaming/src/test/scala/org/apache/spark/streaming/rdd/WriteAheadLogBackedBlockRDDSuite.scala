@@ -21,6 +21,7 @@ import java.io.File
 import scala.util.Random
 
 import org.apache.hadoop.conf.Configuration
+import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach}
 
 import org.apache.spark.{SparkConf, SparkContext, SparkException, SparkFunSuite}
 import org.apache.spark.internal.config._
@@ -29,7 +30,8 @@ import org.apache.spark.storage.{BlockId, BlockManager, StorageLevel, StreamBloc
 import org.apache.spark.streaming.util.{FileBasedWriteAheadLogSegment, FileBasedWriteAheadLogWriter}
 import org.apache.spark.util.Utils
 
-class WriteAheadLogBackedBlockRDDSuite extends SparkFunSuite {
+class WriteAheadLogBackedBlockRDDSuite
+  extends SparkFunSuite with BeforeAndAfterAll with BeforeAndAfterEach {
 
   val conf = new SparkConf()
     .setMaster("local[2]")

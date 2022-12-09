@@ -19,10 +19,6 @@ SELECT nt1.*, nt2.* FROM nt1 left outer join nt2 using (k);
 
 SELECT nt1.k, nt2.k FROM nt1 left outer join nt2 using (k);
 
-SELECT k FROM (SELECT nt2.k FROM nt1 left outer join nt2 using (k));
-
-SELECT nt1.k, nt2.k FROM nt1 left outer join nt2 using (k) ORDER BY nt2.k;
-
 SELECT k, nt1.k FROM nt1 left outer join nt2 using (k);
 
 SELECT k, nt2.k FROM nt1 left outer join nt2 using (k);
@@ -45,8 +41,6 @@ SELECT nt1.*, nt2.* FROM nt1 right outer join nt2 using (k);
 
 SELECT nt1.k, nt2.k FROM nt1 right outer join nt2 using (k);
 
-SELECT k FROM (SELECT nt1.k FROM nt1 right outer join nt2 using (k));
-
 SELECT k, nt1.k FROM nt1 right outer join nt2 using (k);
 
 SELECT k, nt2.k FROM nt1 right outer join nt2 using (k);
@@ -59,8 +53,6 @@ SELECT nt1.*, nt2.* FROM nt1 full outer join nt2 using (k);
 
 SELECT nt1.k, nt2.k FROM nt1 full outer join nt2 using (k);
 
-SELECT k FROM (SELECT nt2.k FROM nt1 full outer join nt2 using (k));
-
 SELECT k, nt1.k FROM nt1 full outer join nt2 using (k);
 
 SELECT k, nt2.k FROM nt1 full outer join nt2 using (k);
@@ -72,8 +64,6 @@ SELECT k FROM nt1 inner join nt2 using (k);
 SELECT nt1.*, nt2.* FROM nt1 inner join nt2 using (k);
 
 SELECT nt1.k, nt2.k FROM nt1 inner join nt2 using (k);
-
-SELECT k FROM (SELECT nt2.k FROM nt1 inner join nt2 using (k));
 
 SELECT k, nt1.k FROM nt1 inner join nt2 using (k);
 

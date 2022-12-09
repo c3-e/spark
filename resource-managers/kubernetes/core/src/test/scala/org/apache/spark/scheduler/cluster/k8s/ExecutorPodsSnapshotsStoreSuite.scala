@@ -24,7 +24,7 @@ import org.jmock.lib.concurrent.DeterministicScheduler
 import org.scalatest.BeforeAndAfter
 import scala.collection.mutable
 
-import org.apache.spark.{SparkConf, SparkFunSuite}
+import org.apache.spark.SparkFunSuite
 import org.apache.spark.deploy.k8s.Constants._
 import org.apache.spark.util.ManualClock
 
@@ -37,8 +37,7 @@ class ExecutorPodsSnapshotsStoreSuite extends SparkFunSuite with BeforeAndAfter 
   before {
     eventBufferScheduler = new DeterministicScheduler()
     clock = new ManualClock()
-    val conf = new SparkConf()
-    eventQueueUnderTest = new ExecutorPodsSnapshotsStoreImpl(eventBufferScheduler, clock, conf)
+    eventQueueUnderTest = new ExecutorPodsSnapshotsStoreImpl(eventBufferScheduler, clock)
     ExecutorPodsSnapshot.setShouldCheckAllContainers(false)
   }
 

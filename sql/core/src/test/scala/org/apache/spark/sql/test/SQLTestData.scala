@@ -450,7 +450,4 @@ private[sql] object SQLTestData {
   case class CourseSales(course: String, year: Int, earnings: Double)
   case class TrainingSales(training: String, sales: CourseSales)
   case class IntervalData(data: CalendarInterval)
-  case class StringWrapper(s: String) extends AnyVal
-  case class ArrayStringWrapper(wrappers: Seq[StringWrapper])
-  case class ContainerStringWrapper(wrapper: StringWrapper)
 }

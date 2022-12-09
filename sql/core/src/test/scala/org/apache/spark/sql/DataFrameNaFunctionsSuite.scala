@@ -279,16 +279,10 @@ class DataFrameNaFunctionsSuite extends QueryTest with SharedSparkSession {
     val (df1, df2) = createDFsWithSameFieldsName()
     val joined_df = df1.join(df2, Seq("f1"), joinType = "left_outer")
 
-    checkError(
-      exception = intercept[AnalysisException] {
-        joined_df.na.fill("", cols = Seq("f2"))
-      },
-      errorClass = "AMBIGUOUS_REFERENCE",
-      parameters = Map(
-        "name" -> "`f2`",
-        "referenceNames" -> "[`f2`, `f2`]"
-      )
-    )
+    val message = intercept[AnalysisException] {
+      joined_df.na.fill("", cols = Seq("f2"))
+    }.getMessage
+    assert(message.contains("Reference 'f2' is ambiguous"))
   }
 
   test("fill with col(*)") {
@@ -403,16 +397,10 @@ class DataFrameNaFunctionsSuite extends QueryTest with SharedSparkSession {
     val df = left.join(right, Seq("col1"))
 
     // If column names are specified, the following fails due to ambiguity.
-    checkError(
-      exception = intercept[AnalysisException] {
-        df.na.fill("hello", Seq("col2"))
-      },
-      errorClass = "AMBIGUOUS_REFERENCE",
-      parameters = Map(
-        "name" -> "`col2`",
-        "referenceNames" -> "[`col2`, `col2`]"
-      )
-    )
+    val exception = intercept[AnalysisException] {
+      df.na.fill("hello", Seq("col2"))
+    }
+    assert(exception.getMessage.contains("Reference 'col2' is ambiguous"))
 
     // If column names are not specified, fill() is applied to all the eligible columns.
     checkAnswer(
@@ -426,16 +414,10 @@ class DataFrameNaFunctionsSuite extends QueryTest with SharedSparkSession {
     val df = left.join(right, Seq("col1"))
 
     // If column names are specified, the following fails due to ambiguity.
-    checkError(
-      exception = intercept[AnalysisException] {
-        df.na.drop("any", Seq("col2"))
-      },
-      errorClass = "AMBIGUOUS_REFERENCE",
-      parameters = Map(
-        "name" -> "`col2`",
-        "referenceNames" -> "[`col2`, `col2`]"
-      )
-    )
+    val exception = intercept[AnalysisException] {
+      df.na.drop("any", Seq("col2"))
+    }
+    assert(exception.getMessage.contains("Reference 'col2' is ambiguous"))
 
     // If column names are not specified, drop() is applied to all the eligible rows.
     checkAnswer(
@@ -462,25 +444,21 @@ class DataFrameNaFunctionsSuite extends QueryTest with SharedSparkSession {
   }
 
   test("replace float with nan") {
-    if (!conf.ansiEnabled) {
-      checkAnswer(
-        createNaNDF().na.replace("*", Map(
-          1.0f -> Float.NaN
-        )),
-        Row(0, 0L, 0.toShort, 0.toByte, Float.NaN, Double.NaN) ::
-          Row(0, 0L, 0.toShort, 0.toByte, Float.NaN, Double.NaN) :: Nil)
-    }
+    checkAnswer(
+      createNaNDF().na.replace("*", Map(
+        1.0f -> Float.NaN
+      )),
+      Row(0, 0L, 0.toShort, 0.toByte, Float.NaN, Double.NaN) ::
+      Row(0, 0L, 0.toShort, 0.toByte, Float.NaN, Double.NaN) :: Nil)
   }
 
   test("replace double with nan") {
-    if (!conf.ansiEnabled) {
-      checkAnswer(
-        createNaNDF().na.replace("*", Map(
-          1.0 -> Double.NaN
-        )),
-        Row(0, 0L, 0.toShort, 0.toByte, Float.NaN, Double.NaN) ::
-          Row(0, 0L, 0.toShort, 0.toByte, Float.NaN, Double.NaN) :: Nil)
-    }
+    checkAnswer(
+      createNaNDF().na.replace("*", Map(
+        1.0 -> Double.NaN
+      )),
+      Row(0, 0L, 0.toShort, 0.toByte, Float.NaN, Double.NaN) ::
+      Row(0, 0L, 0.toShort, 0.toByte, Float.NaN, Double.NaN) :: Nil)
   }
 
   test("SPARK-34417: test fillMap() for column with a dot in the name") {

@@ -18,22 +18,23 @@
 package test.org.apache.spark.sql.connector;
 
 import java.io.IOException;
+import java.util.Arrays;
 
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.connector.TestingV2Source;
-import org.apache.spark.sql.connector.catalog.Table;
-import org.apache.spark.sql.connector.expressions.Expression;
 import org.apache.spark.sql.connector.expressions.Expressions;
 import org.apache.spark.sql.connector.expressions.Transform;
+import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.read.*;
+import org.apache.spark.sql.connector.read.partitioning.ClusteredDistribution;
+import org.apache.spark.sql.connector.read.partitioning.Distribution;
 import org.apache.spark.sql.connector.read.partitioning.Partitioning;
-import org.apache.spark.sql.connector.read.partitioning.KeyGroupedPartitioning;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 public class JavaPartitionAwareDataSource implements TestingV2Source {
 
-  static class MyScanBuilder extends JavaSimpleScanBuilder implements SupportsReportPartitioning {
+  class MyScanBuilder extends JavaSimpleScanBuilder implements SupportsReportPartitioning {
 
     @Override
     public InputPartition[] planInputPartitions() {
@@ -50,8 +51,7 @@ public class JavaPartitionAwareDataSource implements TestingV2Source {
 
     @Override
     public Partitioning outputPartitioning() {
-      Expression[] clustering = new Transform[] { Expressions.identity("i") };
-      return new KeyGroupedPartitioning(clustering, 2);
+      return new MyPartitioning();
     }
   }
 
@@ -70,7 +70,25 @@ public class JavaPartitionAwareDataSource implements TestingV2Source {
     };
   }
 
-  static class SpecificInputPartition implements InputPartition, HasPartitionKey {
+  static class MyPartitioning implements Partitioning {
+
+    @Override
+    public int numPartitions() {
+      return 2;
+    }
+
+    @Override
+    public boolean satisfy(Distribution distribution) {
+      if (distribution instanceof ClusteredDistribution) {
+        String[] clusteredCols = ((ClusteredDistribution) distribution).clusteredColumns;
+        return Arrays.asList(clusteredCols).contains("i");
+      }
+
+      return false;
+    }
+  }
+
+  static class SpecificInputPartition implements InputPartition {
     int[] i;
     int[] j;
 
@@ -78,11 +96,6 @@ public class JavaPartitionAwareDataSource implements TestingV2Source {
       assert i.length == j.length;
       this.i = i;
       this.j = j;
-    }
-
-    @Override
-    public InternalRow partitionKey() {
-      return new GenericInternalRow(new Object[] {i[0]});
     }
   }
 

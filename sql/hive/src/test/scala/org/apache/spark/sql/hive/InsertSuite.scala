@@ -18,7 +18,6 @@
 package org.apache.spark.sql.hive
 
 import java.io.File
-import java.util.Locale
 
 import com.google.common.io.Files
 import org.apache.hadoop.fs.Path
@@ -515,15 +514,31 @@ class InsertSuite extends QueryTest with TestHiveSingleton with BeforeAndAfter
     }
   }
 
-  Seq("true", "false").foreach { enableHiveEnforce =>
-    withSQLConf("hive.enforce.bucketing" -> enableHiveEnforce,
-        "hive.enforce.sorting" -> enableHiveEnforce) {
-      testBucketedTable(s"INSERT should NOT fail if strict bucketing is $enableHiveEnforce") {
-        tableName =>
-          sql(s"INSERT INTO TABLE $tableName SELECT 1, 4, 2 AS c, 3 AS b")
-          checkAnswer(sql(s"SELECT a, b, c, d FROM $tableName"), Row(1, 2, 3, 4))
+  testBucketedTable("INSERT should NOT fail if strict bucketing is NOT enforced") {
+    tableName =>
+      withSQLConf("hive.enforce.bucketing" -> "false", "hive.enforce.sorting" -> "false") {
+        sql(s"INSERT INTO TABLE $tableName SELECT 1, 4, 2 AS c, 3 AS b")
+        checkAnswer(sql(s"SELECT a, b, c, d FROM $tableName"), Row(1, 2, 3, 4))
       }
-    }
+  }
+
+  testBucketedTable("INSERT should fail if strict bucketing / sorting is enforced") {
+    tableName =>
+      withSQLConf("hive.enforce.bucketing" -> "true", "hive.enforce.sorting" -> "false") {
+        intercept[AnalysisException] {
+          sql(s"INSERT INTO TABLE $tableName SELECT 1, 2, 3, 4")
+        }
+      }
+      withSQLConf("hive.enforce.bucketing" -> "false", "hive.enforce.sorting" -> "true") {
+        intercept[AnalysisException] {
+          sql(s"INSERT INTO TABLE $tableName SELECT 1, 2, 3, 4")
+        }
+      }
+      withSQLConf("hive.enforce.bucketing" -> "true", "hive.enforce.sorting" -> "true") {
+        intercept[AnalysisException] {
+          sql(s"INSERT INTO TABLE $tableName SELECT 1, 2, 3, 4")
+        }
+      }
   }
 
   test("SPARK-20594: hive.exec.stagingdir was deleted by Hive") {
@@ -706,35 +721,40 @@ class InsertSuite extends QueryTest with TestHiveSingleton with BeforeAndAfter
   test("insert overwrite to dir with mixed syntax") {
     withTempView("test_insert_table") {
       spark.range(10).selectExpr("id", "id AS str").createOrReplaceTempView("test_insert_table")
-      checkError(
-        exception = intercept[ParseException] { sql(
-          s"""INSERT OVERWRITE DIRECTORY 'file://tmp'
+
+      val e = intercept[ParseException] {
+        sql(
+          s"""
+             |INSERT OVERWRITE DIRECTORY 'file://tmp'
              |USING json
              |ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
-             |SELECT * FROM test_insert_table""".stripMargin)
-        },
-        errorClass = "PARSE_SYNTAX_ERROR",
-        parameters = Map("error" -> "'ROW'", "hint" -> ""))
+             |SELECT * FROM test_insert_table
+           """.stripMargin)
+      }.getMessage
+
+      assert(e.contains("mismatched input 'ROW'"))
     }
   }
 
   test("insert overwrite to dir with multi inserts") {
     withTempView("test_insert_table") {
       spark.range(10).selectExpr("id", "id AS str").createOrReplaceTempView("test_insert_table")
-      checkError(
-        exception = intercept[ParseException] {
-          sql(
-            s"""INSERT OVERWRITE DIRECTORY 'file://tmp2'
-               |USING json
-               |ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
-               |SELECT * FROM test_insert_table
-               |INSERT OVERWRITE DIRECTORY 'file://tmp2'
-               |USING json
-               |ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
-               |SELECT * FROM test_insert_table""".stripMargin)
-        },
-        errorClass = "PARSE_SYNTAX_ERROR",
-        parameters = Map("error" -> "'ROW'", "hint" -> ""))
+
+      val e = intercept[ParseException] {
+        sql(
+          s"""
+             |INSERT OVERWRITE DIRECTORY 'file://tmp2'
+             |USING json
+             |ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+             |SELECT * FROM test_insert_table
+             |INSERT OVERWRITE DIRECTORY 'file://tmp2'
+             |USING json
+             |ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+             |SELECT * FROM test_insert_table
+           """.stripMargin)
+      }.getMessage
+
+      assert(e.contains("mismatched input 'ROW'"))
     }
   }
 
@@ -742,13 +762,11 @@ class InsertSuite extends QueryTest with TestHiveSingleton with BeforeAndAfter
   test("insert overwrite to dir from non-existent table") {
     withTempDir { dir =>
       val path = dir.toURI.getPath
-      val stmt = s"INSERT OVERWRITE LOCAL DIRECTORY '${path}' TABLE nonexistent"
+
       val e = intercept[AnalysisException] {
-        sql(stmt)
-      }
-      checkErrorTableNotFound(e, "`nonexistent`",
-        ExpectedContext("TABLE nonexistent", stmt.length - "TABLE nonexistent".length,
-          stmt.length - 1))
+        sql(s"INSERT OVERWRITE LOCAL DIRECTORY '${path}' TABLE nonexistent")
+      }.getMessage
+      assert(e.contains("Table or view not found"))
     }
   }
 
@@ -792,18 +810,15 @@ class InsertSuite extends QueryTest with TestHiveSingleton with BeforeAndAfter
           s"(caseSensitivity=$caseSensitivity, format=$format)") {
           withTempDir { dir =>
             withSQLConf(SQLConf.CASE_SENSITIVE.key -> s"$caseSensitivity") {
-              val e = intercept[AnalysisException] {
+              val m = intercept[AnalysisException] {
                 sql(
                   s"""
                      |INSERT OVERWRITE $local DIRECTORY '${dir.toURI}'
                      |STORED AS $format
                      |SELECT 'id', 'id2' ${if (caseSensitivity) "id" else "ID"}
                    """.stripMargin)
-              }
-              checkError(
-                exception = e,
-                errorClass = "COLUMN_ALREADY_EXISTS",
-                parameters = Map("columnName" -> "`id`"))
+              }.getMessage
+              assert(m.contains("Found duplicate column(s) when inserting into"))
             }
           }
         }
@@ -853,69 +868,6 @@ class InsertSuite extends QueryTest with TestHiveSingleton with BeforeAndAfter
 
       assert(!e.contains("get partition: Value for key d is null or empty"))
       assert(e.contains("Partition spec is invalid"))
-    }
-  }
-
-  test("SPARK-35531: Insert data with different cases of bucket column") {
-    def testDefaultColumn: Unit = {
-      withTable("test1") {
-        Seq(true, false).foreach { isHiveTable =>
-          val createSpark = if (isHiveTable) {
-            """
-              |CREATE TABLE TEST1(
-              |v1 BIGINT,
-              |s1 INT)
-              |PARTITIONED BY (pk BIGINT)
-              |CLUSTERED BY (v1)
-              |SORTED BY (s1)
-              |INTO 200 BUCKETS
-              |STORED AS PARQUET
-          """.stripMargin
-          } else {
-            """
-              |CREATE TABLE test1(
-              |v1 BIGINT,
-              |s1 INT)
-              |USING PARQUET
-              |PARTITIONED BY (pk BIGINT)
-              |CLUSTERED BY (v1)
-              |SORTED BY (s1)
-              |INTO 200 BUCKETS
-          """.stripMargin
-          }
-
-          val insertString =
-            """
-              |INSERT INTO test1
-              |SELECT * FROM VALUES(1,1,1)
-          """.stripMargin
-
-          val dropString = "DROP TABLE IF EXISTS test1"
-
-          sql(dropString)
-          sql(createSpark.toLowerCase(Locale.ROOT))
-
-          sql(insertString.toLowerCase(Locale.ROOT))
-          sql(insertString.toUpperCase(Locale.ROOT))
-
-          sql(dropString)
-          sql(createSpark.toUpperCase(Locale.ROOT))
-
-          sql(insertString.toLowerCase(Locale.ROOT))
-          sql(insertString.toUpperCase(Locale.ROOT))
-        }
-      }
-    }
-    withSQLConf(SQLConf.ENABLE_DEFAULT_COLUMNS.key -> "false") {
-      testDefaultColumn
-    }
-    withSQLConf(SQLConf.ENABLE_DEFAULT_COLUMNS.key -> "true",
-      SQLConf.USE_NULLS_FOR_MISSING_DEFAULT_COLUMN_VALUES.key -> "false") {
-      testDefaultColumn
-    }
-    withSQLConf(SQLConf.ENABLE_DEFAULT_COLUMNS.key -> "true",
-      SQLConf.USE_NULLS_FOR_MISSING_DEFAULT_COLUMN_VALUES.key -> "true") {
-      testDefaultColumn
     }
   }
 }

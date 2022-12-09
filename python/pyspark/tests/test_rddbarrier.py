@@ -33,7 +33,6 @@ class RDDBarrierTests(ReusedPySparkTestCase):
 
         def f(index, iterator):
             yield index
-
         rdd1 = rdd.barrier().mapPartitionsWithIndex(f)
         self.assertTrue(rdd1._is_barrier())
         self.assertEqual(rdd1.collect(), [0, 1, 2, 3])
@@ -45,8 +44,7 @@ if __name__ == "__main__":
 
     try:
         import xmlrunner  # type: ignore[import]
-
-        testRunner = xmlrunner.XMLTestRunner(output="target/test-reports", verbosity=2)
+        testRunner = xmlrunner.XMLTestRunner(output='target/test-reports', verbosity=2)
     except ImportError:
         testRunner = None
     unittest.main(testRunner=testRunner, verbosity=2)

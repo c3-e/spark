@@ -49,8 +49,7 @@ private[spark] abstract class SocketAuthServer[T](
 
   private def startServer(): (Int, String) = {
     logTrace("Creating listening socket")
-    val address = InetAddress.getLoopbackAddress()
-    val serverSocket = new ServerSocket(0, 1, address)
+    val serverSocket = new ServerSocket(0, 1, InetAddress.getByAddress(Array(127, 0, 0, 1)))
     // Close the socket if no connection in the configured seconds
     val timeout = authHelper.conf.get(PYTHON_AUTH_SOCKET_TIMEOUT).toInt
     logTrace(s"Setting timeout to $timeout sec")
@@ -61,7 +60,7 @@ private[spark] abstract class SocketAuthServer[T](
       override def run(): Unit = {
         var sock: Socket = null
         try {
-          logTrace(s"Waiting for connection on $address with port ${serverSocket.getLocalPort}")
+          logTrace(s"Waiting for connection on port ${serverSocket.getLocalPort}")
           sock = serverSocket.accept()
           logTrace(s"Connection accepted from address ${sock.getRemoteSocketAddress}")
           authHelper.authClient(sock)

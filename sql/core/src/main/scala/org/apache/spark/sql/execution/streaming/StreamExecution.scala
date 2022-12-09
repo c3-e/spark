@@ -37,8 +37,10 @@ import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.streaming.InternalOutputModes._
 import org.apache.spark.sql.connector.catalog.{SupportsWrite, Table}
+import org.apache.spark.sql.connector.metric.CustomMetric
 import org.apache.spark.sql.connector.read.streaming.{Offset => OffsetV2, ReadLimit, SparkDataStream}
-import org.apache.spark.sql.connector.write.{LogicalWriteInfoImpl, SupportsTruncate, Write}
+import org.apache.spark.sql.connector.write.{LogicalWriteInfoImpl, SupportsTruncate}
+import org.apache.spark.sql.connector.write.streaming.StreamingWrite
 import org.apache.spark.sql.execution.command.StreamingExplainCommand
 import org.apache.spark.sql.execution.datasources.v2.StreamWriterCommitProgress
 import org.apache.spark.sql.internal.SQLConf
@@ -287,11 +289,6 @@ abstract class StreamExecution(
         // Disable cost-based join optimization as we do not want stateful operations
         // to be rearranged
         sparkSessionForStream.conf.set(SQLConf.CBO_ENABLED.key, "false")
-        // Disable any config affecting the required child distribution of stateful operators.
-        // Please read through the NOTE on the classdoc of StatefulOpClusteredDistribution for
-        // details.
-        sparkSessionForStream.conf.set(SQLConf.REQUIRE_ALL_CLUSTER_KEYS_FOR_DISTRIBUTION.key,
-          "false")
 
         updateStatusMessage("Initializing sources")
         // force initialization of the logical plan so that the sources can be created
@@ -320,19 +317,14 @@ abstract class StreamExecution(
         // to `new IOException(ie.toString())` before Hadoop 2.8.
         updateStatusMessage("Stopped")
       case e: Throwable =>
-        val message = if (e.getMessage == null) "" else e.getMessage
         streamDeathCause = new StreamingQueryException(
           toDebugString(includeLogicalPlan = isInitialized),
-          cause = e,
+          s"Query $prettyIdString terminated with exception: ${e.getMessage}",
+          e,
           committedOffsets.toOffsetSeq(sources, offsetSeqMetadata).toString,
-          availableOffsets.toOffsetSeq(sources, offsetSeqMetadata).toString,
-          errorClass = "STREAM_FAILED",
-          messageParameters = Map(
-            "id" -> id.toString,
-            "runId" -> runId.toString,
-            "message" -> message))
+          availableOffsets.toOffsetSeq(sources, offsetSeqMetadata).toString)
         logError(s"Query $prettyIdString terminated with error", e)
-        updateStatusMessage(s"Terminated with exception: $message")
+        updateStatusMessage(s"Terminated with exception: ${e.getMessage}")
         // Rethrow the fatal errors to allow the user using `Thread.UncaughtExceptionHandler` to
         // handle them
         if (!NonFatal(e)) {
@@ -350,7 +342,6 @@ abstract class StreamExecution(
 
       try {
         stopSources()
-        cleanup()
         state.set(TERMINATED)
         currentStatus = status.copy(isTriggerActive = false, isDataAvailable = false)
 
@@ -414,12 +405,6 @@ abstract class StreamExecution(
     }
   }
 
-
-  /**
-   * Any clean up that needs to happen when the query is stopped or exits
-   */
-  protected def cleanup(): Unit = {}
-
   /**
    * Interrupts the query execution thread and awaits its termination until until it exceeds the
    * timeout. The timeout can be set on "spark.sql.streaming.stopTimeout".
@@ -429,7 +414,7 @@ abstract class StreamExecution(
   @throws[TimeoutException]
   protected def interruptAndAwaitExecutionThreadTermination(): Unit = {
     val timeout = math.max(
-      sparkSession.conf.get(SQLConf.STREAMING_STOP_TIMEOUT), 0)
+      sparkSession.sessionState.conf.getConf(SQLConf.STREAMING_STOP_TIMEOUT), 0)
     queryExecutionThread.interrupt()
     queryExecutionThread.join(timeout)
     if (queryExecutionThread.isAlive) {
@@ -457,15 +442,7 @@ abstract class StreamExecution(
         false
       } else {
         val source = sources(sourceIndex)
-        // SPARK-39242 For numeric increasing offsets, we could have called awaitOffset
-        // after the stream has moved past the expected newOffset or if committedOffsets
-        // changed after notify. In this case, its safe to exit, since at-least the given
-        // Offset has been reached and the equality condition might never be met.
-        (localCommittedOffsets.get(source), newOffset) match {
-          case (Some(LongOffset(localOffVal)), LongOffset(newOffVal)) => localOffVal < newOffVal
-          case (Some(localOff), newOff) => localOff != newOff
-          case (None, newOff) => true
-        }
+        !localCommittedOffsets.contains(source) || localCommittedOffsets(source) != newOffset
       }
     }
 
@@ -602,16 +579,16 @@ abstract class StreamExecution(
         |batch = $batchDescription""".stripMargin
   }
 
-  protected def createWrite(
+  protected def createStreamingWrite(
       table: SupportsWrite,
       options: Map[String, String],
-      inputPlan: LogicalPlan): Write = {
+      inputPlan: LogicalPlan): (StreamingWrite, Seq[CustomMetric]) = {
     val info = LogicalWriteInfoImpl(
       queryId = id.toString,
       inputPlan.schema,
       new CaseInsensitiveStringMap(options.asJava))
     val writeBuilder = table.newWriteBuilder(info)
-    outputMode match {
+    val write = outputMode match {
       case Append =>
         writeBuilder.build()
 
@@ -626,6 +603,8 @@ abstract class StreamExecution(
           table.name + " does not support Update mode.")
         writeBuilder.asInstanceOf[SupportsStreamingUpdateAsAppend].build()
     }
+
+    (write.toStreaming, write.supportedCustomMetrics().toSeq)
   }
 
   protected def purge(threshold: Long): Unit = {
@@ -638,15 +617,7 @@ abstract class StreamExecution(
 object StreamExecution {
   val QUERY_ID_KEY = "sql.streaming.queryId"
   val IS_CONTINUOUS_PROCESSING = "__is_continuous_processing"
-  val IO_EXCEPTION_NAMES = Seq(
-    classOf[InterruptedException].getName,
-    classOf[InterruptedIOException].getName,
-    classOf[ClosedByInterruptException].getName)
-  val PROXY_ERROR = (
-    "py4j.protocol.Py4JJavaError: An error occurred while calling" +
-    s".+(\\r\\n|\\r|\\n): (${IO_EXCEPTION_NAMES.mkString("|")})").r
 
-  @scala.annotation.tailrec
   def isInterruptionException(e: Throwable, sc: SparkContext): Boolean = e match {
     // InterruptedIOException - thrown when an I/O operation is interrupted
     // ClosedByInterruptException - thrown when an I/O operation upon a channel is interrupted
@@ -674,10 +645,6 @@ object StreamExecution {
       } else {
         false
       }
-    // py4j.Py4JException - with pinned thread mode on, the exception can be interrupted by Py4J
-    //                      access, for example, in `DataFrameWriter.foreachBatch`. See also
-    //                      SPARK-39218.
-    case e: py4j.Py4JException => PROXY_ERROR.findFirstIn(e.getMessage).isDefined
     case _ =>
       false
   }

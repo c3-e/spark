@@ -23,13 +23,10 @@ import java.util.concurrent.locks.ReentrantLock
 import javax.annotation.concurrent.GuardedBy
 
 import scala.collection.JavaConverters._
-import scala.concurrent.duration.FiniteDuration
 import scala.util.control.NonFatal
 
 import io.fabric8.kubernetes.api.model.Pod
 
-import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.deploy.k8s.Config.KUBERNETES_EXECUTOR_SNAPSHOTS_SUBSCRIBERS_GRACE_PERIOD
 import org.apache.spark.internal.Logging
 import org.apache.spark.util.Clock
 import org.apache.spark.util.SystemClock
@@ -61,8 +58,7 @@ import org.apache.spark.util.ThreadUtils
  */
 private[spark] class ExecutorPodsSnapshotsStoreImpl(
     subscribersExecutor: ScheduledExecutorService,
-    clock: Clock = new SystemClock,
-    conf: SparkConf = SparkContext.getActive.get.conf)
+    clock: Clock = new SystemClock)
   extends ExecutorPodsSnapshotsStore with Logging {
 
   private val SNAPSHOT_LOCK = new Object()
@@ -98,8 +94,7 @@ private[spark] class ExecutorPodsSnapshotsStoreImpl(
 
   override def stop(): Unit = {
     pollingTasks.asScala.foreach(_.cancel(false))
-    val awaitSeconds = conf.get(KUBERNETES_EXECUTOR_SNAPSHOTS_SUBSCRIBERS_GRACE_PERIOD)
-    ThreadUtils.shutdown(subscribersExecutor, FiniteDuration(awaitSeconds, TimeUnit.SECONDS))
+    ThreadUtils.shutdown(subscribersExecutor)
   }
 
   override def updatePod(updatedPod: Pod): Unit = SNAPSHOT_LOCK.synchronized {

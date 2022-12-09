@@ -18,11 +18,9 @@
 package org.apache.spark.sql.catalyst.expressions.aggregate
 
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.trees.TreePattern.{COUNT, TreePattern}
-import org.apache.spark.sql.errors.QueryErrorsBase
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -47,8 +45,7 @@ import org.apache.spark.sql.types._
   group = "agg_funcs",
   since = "1.0.0")
 // scalastyle:on line.size.limit
-case class Count(children: Seq[Expression]) extends DeclarativeAggregate
-  with QueryErrorsBase {
+case class Count(children: Seq[Expression]) extends DeclarativeAggregate {
 
   override def nullable: Boolean = false
 
@@ -59,17 +56,9 @@ case class Count(children: Seq[Expression]) extends DeclarativeAggregate
 
   override def checkInputDataTypes(): TypeCheckResult = {
     if (children.isEmpty && !SQLConf.get.getConf(SQLConf.ALLOW_PARAMETERLESS_COUNT)) {
-      DataTypeMismatch(
-        errorSubClass = "WRONG_NUM_ARGS_WITH_SUGGESTION",
-        messageParameters = Map(
-          "functionName" -> toSQLId(prettyName),
-          "expectedNum" -> " >= 1",
-          "actualNum" -> "0",
-          "legacyNum" -> "0",
-          "legacyConfKey" -> toSQLConf(SQLConf.ALLOW_PARAMETERLESS_COUNT.key),
-          "legacyConfValue" -> toSQLConfVal(true.toString)
-        )
-      )
+      TypeCheckResult.TypeCheckFailure(s"$prettyName requires at least one argument. " +
+        s"If you have to call the function $prettyName without arguments, set the legacy " +
+        s"configuration `${SQLConf.ALLOW_PARAMETERLESS_COUNT.key}` as true")
     } else {
       TypeCheckResult.TypeCheckSuccess
     }

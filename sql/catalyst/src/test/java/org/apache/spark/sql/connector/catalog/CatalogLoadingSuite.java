@@ -25,6 +25,8 @@ import org.apache.spark.util.Utils;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.concurrent.Callable;
+
 public class CatalogLoadingSuite {
   @Test
   public void testLoad() throws SparkException {
@@ -39,17 +41,6 @@ public class CatalogLoadingSuite {
     TestCatalogPlugin testPlugin = (TestCatalogPlugin) plugin;
     Assert.assertEquals("Options should contain no keys", 0, testPlugin.options.size());
     Assert.assertEquals("Catalog should have correct name", "test-name", testPlugin.name());
-  }
-
-  @Test
-  public void testIllegalCatalogName() {
-    SQLConf conf = new SQLConf();
-    conf.setConfString("spark.sql.catalog.test.name", TestCatalogPlugin.class.getCanonicalName());
-
-    SparkException exc = Assert.assertThrows(SparkException.class,
-            () -> Catalogs.load("test.name", conf));
-    Assert.assertTrue("Catalog name should not contain '.'", exc.getMessage().contains(
-            "Invalid catalog name: test.name"));
   }
 
   @Test
@@ -77,7 +68,7 @@ public class CatalogLoadingSuite {
   public void testLoadWithoutConfig() {
     SQLConf conf = new SQLConf();
 
-    SparkException exc = Assert.assertThrows(CatalogNotFoundException.class,
+    SparkException exc = intercept(CatalogNotFoundException.class,
         () -> Catalogs.load("missing", conf));
 
     Assert.assertTrue("Should complain that implementation is not configured",
@@ -92,8 +83,7 @@ public class CatalogLoadingSuite {
     SQLConf conf = new SQLConf();
     conf.setConfString("spark.sql.catalog.missing", "com.example.NoSuchCatalogPlugin");
 
-    SparkException exc =
-      Assert.assertThrows(SparkException.class, () -> Catalogs.load("missing", conf));
+    SparkException exc = intercept(SparkException.class, () -> Catalogs.load("missing", conf));
 
     Assert.assertTrue("Should complain that the class is not found",
         exc.getMessage().contains("Cannot find catalog plugin class"));
@@ -122,8 +112,7 @@ public class CatalogLoadingSuite {
     String invalidClassName = InvalidCatalogPlugin.class.getCanonicalName();
     conf.setConfString("spark.sql.catalog.invalid", invalidClassName);
 
-    SparkException exc =
-      Assert.assertThrows(SparkException.class, () -> Catalogs.load("invalid", conf));
+    SparkException exc = intercept(SparkException.class, () -> Catalogs.load("invalid", conf));
 
     Assert.assertTrue("Should complain that class does not implement CatalogPlugin",
         exc.getMessage().contains("does not implement CatalogPlugin"));
@@ -139,8 +128,7 @@ public class CatalogLoadingSuite {
     String invalidClassName = ConstructorFailureCatalogPlugin.class.getCanonicalName();
     conf.setConfString("spark.sql.catalog.invalid", invalidClassName);
 
-    SparkException exc =
-      Assert.assertThrows(SparkException.class, () -> Catalogs.load("invalid", conf));
+    SparkException exc = intercept(SparkException.class, () -> Catalogs.load("invalid", conf));
 
     Assert.assertTrue("Should identify the constructor error",
         exc.getMessage().contains("Failed during instantiating constructor for catalog"));
@@ -154,8 +142,7 @@ public class CatalogLoadingSuite {
     String invalidClassName = AccessErrorCatalogPlugin.class.getCanonicalName();
     conf.setConfString("spark.sql.catalog.invalid", invalidClassName);
 
-    SparkException exc =
-      Assert.assertThrows(SparkException.class, () -> Catalogs.load("invalid", conf));
+    SparkException exc = intercept(SparkException.class, () -> Catalogs.load("invalid", conf));
 
     Assert.assertTrue("Should complain that no public constructor is provided",
         exc.getMessage().contains("Failed to call public no-arg constructor for catalog"));
@@ -163,6 +150,25 @@ public class CatalogLoadingSuite {
         exc.getMessage().contains("invalid"));
     Assert.assertTrue("Should identify the class",
         exc.getMessage().contains(invalidClassName));
+  }
+
+  @SuppressWarnings("unchecked")
+  public static <E extends Exception> E intercept(Class<E> expected, Callable<?> callable) {
+    try {
+      callable.call();
+      Assert.fail("No exception was thrown, expected: " +
+          expected.getName());
+    } catch (Exception actual) {
+      try {
+        Assert.assertEquals(expected, actual.getClass());
+        return (E) actual;
+      } catch (AssertionError e) {
+        e.addSuppressed(actual);
+        throw e;
+      }
+    }
+    // Compiler doesn't catch that Assert.fail will always throw an exception.
+    throw new UnsupportedOperationException("[BUG] Should not reach this statement");
   }
 }
 

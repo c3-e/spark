@@ -230,14 +230,16 @@ public class LauncherServerSuite extends BaseSuite {
   private void waitForError(TestClient client, String secret) throws Exception {
     final AtomicBoolean helloSent = new AtomicBoolean();
     eventually(Duration.ofSeconds(1), Duration.ofMillis(10), () -> {
-      if (!helloSent.get()) {
-        if (client.isOpen()) {
-          assertThrows(IOException.class, () -> client.send(new SetAppId("appId")));
-        } else {
-          assertThrows(IllegalStateException.class,
-            () -> client.send(new Hello(secret, "1.4.0")));
+      try {
+        if (!helloSent.get()) {
+          client.send(new Hello(secret, "1.4.0"));
           helloSent.set(true);
+        } else {
+          client.send(new SetAppId("appId"));
         }
+        fail("Expected error but message went through.");
+      } catch (IllegalStateException | IOException e) {
+        // Expected.
       }
     });
   }

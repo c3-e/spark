@@ -18,7 +18,6 @@ package org.apache.spark.sql
 
 import java.util.{Locale, UUID}
 
-import scala.collection.mutable.ListBuffer
 import scala.concurrent.Future
 
 import org.apache.spark.{MapOutputStatistics, SparkFunSuite, TaskContext}
@@ -28,13 +27,12 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.{FunctionIdentifier, InternalRow, TableIdentifier}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.parser.{CatalystSqlParser, ParserInterface}
-import org.apache.spark.sql.catalyst.plans.SQLHelper
-import org.apache.spark.sql.catalyst.plans.logical.{ColumnStat, Limit, LocalRelation, LogicalPlan, Statistics, UnresolvedHint}
+import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Statistics, UnresolvedHint}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, QueryStageExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, QueryStageExec}
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeExec, BroadcastExchangeLike, ShuffleExchangeExec, ShuffleExchangeLike, ShuffleOrigin}
 import org.apache.spark.sql.execution.vectorized.OnHeapColumnVector
 import org.apache.spark.sql.internal.SQLConf
@@ -47,7 +45,7 @@ import org.apache.spark.unsafe.types.UTF8String
 /**
  * Test cases for the [[SparkSessionExtensions]].
  */
-class SparkSessionExtensionSuite extends SparkFunSuite with SQLHelper {
+class SparkSessionExtensionSuite extends SparkFunSuite {
   private def create(
       builder: SparkSessionExtensionsProvider): Seq[SparkSessionExtensionsProvider] = Seq(builder)
 
@@ -172,9 +170,8 @@ class SparkSessionExtensionSuite extends SparkFunSuite with SQLHelper {
         MyColumnarRule(MyNewQueryStageRule(), MyNewQueryStageRule()))
     }
     withSession(extensions) { session =>
-      session.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED, true)
-      assert(session.sessionState.adaptiveRulesHolder.queryStagePrepRules
-        .contains(MyQueryStagePrepRule()))
+      session.sessionState.conf.setConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED, true)
+      assert(session.sessionState.queryStagePrepRules.contains(MyQueryStagePrepRule()))
       assert(session.sessionState.columnarRules.contains(
         MyColumnarRule(MyNewQueryStageRule(), MyNewQueryStageRule())))
       import session.sqlContext.implicits._
@@ -190,68 +187,6 @@ class SparkSessionExtensionSuite extends SparkFunSuite with SQLHelper {
 
   test("inject columnar AQE off") {
     testInjectColumnar(false)
-  }
-
-  test("inject plan normalization rules") {
-    val extensions = create { extensions =>
-      extensions.injectPlanNormalizationRule { session =>
-        org.apache.spark.sql.catalyst.optimizer.PushDownPredicates
-      }
-    }
-    withSession(extensions) { session =>
-      import session.implicits._
-      val df = Seq((1, "a"), (2, "b")).toDF("i", "s")
-      df.select("i").filter($"i" > 1).cache()
-      assert(df.filter($"i" > 1).select("i").queryExecution.executedPlan.find {
-        case _: org.apache.spark.sql.execution.columnar.InMemoryTableScanExec => true
-        case _ => false
-      }.isDefined)
-    }
-  }
-
-  test("SPARK-39991: AQE should retain column statistics from completed query stages") {
-    val extensions = create { extensions =>
-      extensions.injectColumnar(_ =>
-        MyColumnarRule(PreRuleReplaceAddWithBrokenVersion(), MyPostRule()))
-    }
-    withSession(extensions) { session =>
-      session.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED, true)
-      session.conf.set(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key, "-1")
-      assert(session.sessionState.columnarRules.contains(
-        MyColumnarRule(PreRuleReplaceAddWithBrokenVersion(), MyPostRule())))
-      import session.sqlContext.implicits._
-      // perform a join to inject a shuffle exchange
-      val left = Seq((1, 50L), (2, 100L), (3, 150L)).toDF("l1", "l2")
-      val right = Seq((1, 50L), (2, 100L), (3, 150L)).toDF("r1", "r2")
-      val data = left.join(right, $"l1" === $"r1")
-        // repartitioning avoids having the add operation pushed up into the LocalTableScan
-        .repartition(1)
-      val df = data.selectExpr("l2 + r2")
-      // execute the plan so that the final adaptive plan is available
-      df.collect()
-
-      // check that column stats exist
-      def findColumnStats(plan: SparkPlan,
-          columnStats: ListBuffer[AttributeMap[ColumnStat]]): Unit = {
-        plan match {
-          case a: AdaptiveSparkPlanExec =>
-            findColumnStats(a.executedPlan, columnStats)
-          case qs: ShuffleQueryStageExec =>
-            columnStats += qs.computeStats().get.attributeStats
-            findColumnStats(qs.plan, columnStats)
-          case _ =>
-            plan.children.foreach(findColumnStats(_, columnStats))
-        }
-      }
-
-      // check for expected column stats (hard-coded in MyShuffleExchangeExec)
-      val columnStats = ListBuffer[AttributeMap[ColumnStat]]()
-      findColumnStats(df.queryExecution.executedPlan, columnStats)
-      assert(columnStats.length == 3)
-      assert(columnStats.forall(s => s.forall {
-        case (_, columnStat) => columnStat.distinctCount.contains(BigInt(123))
-      }))
-    }
   }
 
   private def testInjectColumnar(enableAQE: Boolean): Unit = {
@@ -274,7 +209,7 @@ class SparkSessionExtensionSuite extends SparkFunSuite with SQLHelper {
         MyColumnarRule(PreRuleReplaceAddWithBrokenVersion(), MyPostRule()))
     }
     withSession(extensions) { session =>
-      session.conf.set(SQLConf.ADAPTIVE_EXECUTION_ENABLED, enableAQE)
+      session.sessionState.conf.setConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED, enableAQE)
       assert(session.sessionState.columnarRules.contains(
         MyColumnarRule(PreRuleReplaceAddWithBrokenVersion(), MyPostRule())))
       import session.sqlContext.implicits._
@@ -471,26 +406,6 @@ class SparkSessionExtensionSuite extends SparkFunSuite with SQLHelper {
       session.sql("SELECT * FROM v")
     }
   }
-
-  test("SPARK-38697: Extend SparkSessionExtensions to inject rules into AQE Optimizer") {
-    def executedPlan(df: Dataset[java.lang.Long]): SparkPlan = {
-      assert(df.queryExecution.executedPlan.isInstanceOf[AdaptiveSparkPlanExec])
-      df.queryExecution.executedPlan.asInstanceOf[AdaptiveSparkPlanExec].executedPlan
-    }
-    val extensions = create { extensions =>
-      extensions.injectRuntimeOptimizerRule(_ => AddLimit)
-    }
-    withSession(extensions) { session =>
-      assert(session.sessionState.adaptiveRulesHolder.runtimeOptimizerRules.contains(AddLimit))
-
-      withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true") {
-        val df = session.range(2).repartition()
-        assert(!executedPlan(df).isInstanceOf[CollectLimitExec])
-        df.collect()
-        assert(executedPlan(df).isInstanceOf[CollectLimitExec])
-      }
-    }
-  }
 }
 
 case class MyRule(spark: SparkSession) extends Rule[LogicalPlan] {
@@ -526,9 +441,6 @@ case class MyParser(spark: SparkSession, delegate: ParserInterface) extends Pars
 
   override def parseDataType(sqlText: String): DataType =
     delegate.parseDataType(sqlText)
-
-  override def parseQuery(sqlText: String): LogicalPlan =
-    delegate.parseQuery(sqlText)
 }
 
 object MyExtensions {
@@ -634,7 +546,7 @@ case class NoCloseColumnVector(wrapped: ColumnVector) extends ColumnVector(wrapp
 
   override def getBinary(rowId: Int): Array[Byte] = wrapped.getBinary(rowId)
 
-  override def getChild(ordinal: Int): ColumnVector = wrapped.getChild(ordinal)
+  override protected def getChild(ordinal: Int): ColumnVector = wrapped.getChild(ordinal)
 }
 
 trait ColumnarExpression extends Expression with Serializable {
@@ -665,7 +577,7 @@ trait ColumnarExpression extends Expression with Serializable {
     if (!super.equals(other)) {
       return false
     }
-    other.isInstanceOf[ColumnarExpression]
+    return other.isInstanceOf[ColumnarExpression]
   }
 
   override def hashCode(): Int = super.hashCode()
@@ -781,7 +693,7 @@ class ColumnarProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
     if (!super.equals(other)) {
       return false
     }
-    other.isInstanceOf[ColumnarProjectExec]
+    return other.isInstanceOf[ColumnarProjectExec]
   }
 
   override def hashCode(): Int = super.hashCode()
@@ -798,7 +710,7 @@ class BrokenColumnarAdd(
     left: ColumnarExpression,
     right: ColumnarExpression,
     failOnError: Boolean = false)
-  extends Add(left, right, EvalMode.fromBoolean(failOnError)) with ColumnarExpression {
+  extends Add(left, right, failOnError) with ColumnarExpression {
 
   override def supportsColumnar(): Boolean = left.supportsColumnar && right.supportsColumnar
 
@@ -810,32 +722,37 @@ class BrokenColumnarAdd(
       lhs = left.columnarEval(batch)
       rhs = right.columnarEval(batch)
 
-      (lhs, rhs) match {
-        case (null, null) =>
-          ret = null
-        case (l: ColumnVector, r: ColumnVector) =>
-          val result = new OnHeapColumnVector(batch.numRows(), dataType)
-          ret = result
+      if (lhs == null || rhs == null) {
+        ret = null
+      } else if (lhs.isInstanceOf[ColumnVector] && rhs.isInstanceOf[ColumnVector]) {
+        val l = lhs.asInstanceOf[ColumnVector]
+        val r = rhs.asInstanceOf[ColumnVector]
+        val result = new OnHeapColumnVector(batch.numRows(), dataType)
+        ret = result
 
-          for (i <- 0 until batch.numRows()) {
-            result.appendLong(l.getLong(i) + r.getLong(i) + 1) // BUG to show we replaced Add
-          }
-        case (l: Long, r: ColumnVector) =>
-          val result = new OnHeapColumnVector(batch.numRows(), dataType)
-          ret = result
+        for (i <- 0 until batch.numRows()) {
+          result.appendLong(l.getLong(i) + r.getLong(i) + 1) // BUG to show we replaced Add
+        }
+      } else if (rhs.isInstanceOf[ColumnVector]) {
+        val l = lhs.asInstanceOf[Long]
+        val r = rhs.asInstanceOf[ColumnVector]
+        val result = new OnHeapColumnVector(batch.numRows(), dataType)
+        ret = result
 
-          for (i <- 0 until batch.numRows()) {
-            result.appendLong(l + r.getLong(i) + 1) // BUG to show we replaced Add
-          }
-        case (l: ColumnVector, r: Long) =>
-          val result = new OnHeapColumnVector(batch.numRows(), dataType)
-          ret = result
+        for (i <- 0 until batch.numRows()) {
+          result.appendLong(l + r.getLong(i) + 1) // BUG to show we replaced Add
+        }
+      } else if (lhs.isInstanceOf[ColumnVector]) {
+        val l = lhs.asInstanceOf[ColumnVector]
+        val r = rhs.asInstanceOf[Long]
+        val result = new OnHeapColumnVector(batch.numRows(), dataType)
+        ret = result
 
-          for (i <- 0 until batch.numRows()) {
-            result.appendLong(l.getLong(i) + r + 1) // BUG to show we replaced Add
-          }
-        case  (l, r) =>
-          ret = nullSafeEval(l, r)
+        for (i <- 0 until batch.numRows()) {
+          result.appendLong(l.getLong(i) + r + 1) // BUG to show we replaced Add
+        }
+      } else {
+        ret = nullSafeEval(lhs, rhs)
       }
     } finally {
       if (lhs != null && lhs.isInstanceOf[ColumnVector]) {
@@ -925,13 +842,7 @@ case class MyShuffleExchangeExec(delegate: ShuffleExchangeExec) extends ShuffleE
     delegate.submitShuffleJob
   override def getShuffleRDD(partitionSpecs: Array[ShufflePartitionSpec]): RDD[_] =
     delegate.getShuffleRDD(partitionSpecs)
-  override def runtimeStatistics: Statistics = {
-    val stats = delegate.runtimeStatistics
-    // add some mock column stats so we can test that AQE retains them in SPARK-39991
-    val columnStats = ColumnStat(distinctCount = Some(BigInt(123)))
-    val attributeStats = AttributeMap(Seq((child.output.head, columnStats)))
-    Statistics(stats.sizeInBytes, stats.rowCount, attributeStats)
-  }
+  override def runtimeStatistics: Statistics = delegate.runtimeStatistics
   override def child: SparkPlan = delegate.child
   override protected def doExecute(): RDD[InternalRow] = delegate.execute()
   override def outputPartitioning: Partitioning = delegate.outputPartitioning
@@ -970,7 +881,7 @@ class ReplacedRowToColumnarExec(override val child: SparkPlan)
     if (!super.equals(other)) {
       return false
     }
-    other.isInstanceOf[ReplacedRowToColumnarExec]
+    return other.isInstanceOf[ReplacedRowToColumnarExec]
   }
 
   override def hashCode(): Int = super.hashCode()
@@ -1113,12 +1024,5 @@ class YourExtensions extends SparkSessionExtensionsProvider {
 
   override def apply(v1: SparkSessionExtensions): Unit = {
     v1.injectFunction(getAppName)
-  }
-}
-
-object AddLimit extends Rule[LogicalPlan] {
-  override def apply(plan: LogicalPlan): LogicalPlan = plan match {
-    case Limit(_, _) => plan
-    case _ => Limit(Literal(1), plan)
   }
 }

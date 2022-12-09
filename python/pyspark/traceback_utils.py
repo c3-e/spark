@@ -46,7 +46,7 @@ def first_spark_call():
     return CallSite(function=sfun, file=ufile, linenum=uline)
 
 
-class SCCallSiteSync:
+class SCCallSiteSync(object):
     """
     Helper for setting the spark context call site.
 
@@ -62,10 +62,7 @@ class SCCallSiteSync:
         call_site = first_spark_call()
         if call_site is not None:
             self._call_site = "%s at %s:%s" % (
-                call_site.function,
-                call_site.file,
-                call_site.linenum,
-            )
+                call_site.function, call_site.file, call_site.linenum)
         else:
             self._call_site = "Error! Could not extract traceback info"
         self._context = sc

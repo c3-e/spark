@@ -268,21 +268,17 @@ class MultiDatabaseSuite extends QueryTest with SQLTestUtils with TestHiveSingle
 
   test("invalid database name and table names") {
     {
-      val e = intercept[AnalysisException] {
+      val message = intercept[AnalysisException] {
         df.write.format("parquet").saveAsTable("`d:b`.`t:a`")
-      }
-      checkError(e,
-        errorClass = "SCHEMA_NOT_FOUND",
-        parameters = Map("schemaName" -> "`d:b`"))
+      }.getMessage
+      assert(message.contains("Database 'd:b' not found"))
     }
 
     {
-      val e = intercept[AnalysisException] {
+      val message = intercept[AnalysisException] {
         df.write.format("parquet").saveAsTable("`d:b`.`table`")
-      }
-      checkError(e,
-        errorClass = "SCHEMA_NOT_FOUND",
-        parameters = Map("schemaName" -> "`d:b`"))
+      }.getMessage
+      assert(message.contains("Database 'd:b' not found"))
     }
 
     withTempDir { dir =>
@@ -302,7 +298,7 @@ class MultiDatabaseSuite extends QueryTest with SQLTestUtils with TestHiveSingle
       }
 
       {
-        val e = intercept[AnalysisException] {
+        val message = intercept[AnalysisException] {
           sql(
             s"""
               |CREATE TABLE `d:b`.`table` (a int)
@@ -311,10 +307,8 @@ class MultiDatabaseSuite extends QueryTest with SQLTestUtils with TestHiveSingle
               |  path '${dir.toURI}'
               |)
               """.stripMargin)
-        }
-        checkError(e,
-          errorClass = "SCHEMA_NOT_FOUND",
-          parameters = Map("schemaName" -> "`d:b`"))
+        }.getMessage
+        assert(message.contains("Database 'd:b' not found"))
       }
     }
   }

@@ -21,7 +21,6 @@ import java.io.File
 
 import org.scalactic.Equality
 
-import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, QueryTest, Row}
 import org.apache.spark.sql.catalyst.SchemaPruningTest
 import org.apache.spark.sql.catalyst.expressions.Concat
@@ -57,9 +56,6 @@ abstract class SchemaPruningSuite
     depName: String,
     contactId: Int,
     employer: Employer)
-
-  override protected def sparkConf: SparkConf =
-    super.sparkConf.set(SQLConf.ANSI_ENABLED.key, "false")
 
   case class Employee(id: Int, name: FullName, employer: Company)
 
@@ -579,7 +575,7 @@ abstract class SchemaPruningSuite
         Seq(Concat(Seq($"name.first", $"name.last")),
           Concat(Seq($"name.last", $"name.first")))
       ),
-      Seq($"a".string, $"b".string),
+      Seq('a.string, 'b.string),
       sql("select * from contacts").logicalPlan
     ).toDF()
     checkScan(query1, "struct<name:struct<first:string,last:string>>")
@@ -596,7 +592,7 @@ abstract class SchemaPruningSuite
     val name = StructType.fromDDL("first string, middle string, last string")
     val query2 = Expand(
       Seq(Seq($"name", $"name.last")),
-      Seq($"a".struct(name), $"b".string),
+      Seq('a.struct(name), 'b.string),
       sql("select * from contacts").logicalPlan
     ).toDF()
     checkScan(query2, "struct<name:struct<first:string,middle:string,last:string>>")
@@ -930,36 +926,6 @@ abstract class SchemaPruningSuite
     }
   }
 
-  test("SPARK-37450: Prunes unnecessary fields from Explode for count aggregation") {
-    import testImplicits._
-
-    withTempView("table") {
-      withTempPath { dir =>
-        val path = dir.getCanonicalPath
-
-        val jsonStr =
-          """
-            |{
-            |  "items": [
-            |  {"itemId": 1, "itemData": "a"},
-            |  {"itemId": 2, "itemData": "b"}
-            |]}
-            |""".stripMargin
-        val df = spark.read.json(Seq(jsonStr).toDS)
-        makeDataSourceFile(df, new File(path))
-
-        spark.read.format(dataSourceName).load(path)
-          .createOrReplaceTempView("table")
-
-        val read = spark.table("table")
-        val query = read.select(explode($"items").as(Symbol("item"))).select(count($"*"))
-
-        checkScan(query, "struct<items:array<struct<itemId:long>>>")
-        checkAnswer(query, Row(2) :: Nil)
-      }
-    }
-  }
-
   test("SPARK-37577: Fix ClassCastException: ArrayType cannot be cast to StructType") {
     import testImplicits._
 
@@ -1079,36 +1045,5 @@ abstract class SchemaPruningSuite
 
       checkAnswer(query, Row(Row("Jane", "X.", "Doe")) :: Nil)
     }
-  }
-
-  testSchemaPruning("SPARK-40033: Schema pruning support through element_at") {
-    // nested struct fields inside array
-    val query1 =
-      sql("""
-            |SELECT
-            |element_at(friends, 1).first, element_at(friends, 1).last
-            |FROM contacts WHERE id = 0
-            |""".stripMargin)
-    checkScan(query1, "struct<id:int,friends:array<struct<first:string,last:string>>>")
-    checkAnswer(query1.orderBy("id"),
-      Row("Susan", "Smith"))
-
-    // nested struct fields inside map values
-    val query2 =
-      sql("""
-            |SELECT
-            |element_at(relatives, "brother").first, element_at(relatives, "brother").middle
-            |FROM contacts WHERE id = 0
-            |""".stripMargin)
-    checkScan(query2, "struct<id:int,relatives:map<string,struct<first:string,middle:string>>>")
-    checkAnswer(query2.orderBy("id"),
-      Row("John", "Y."))
-  }
-
-  testSchemaPruning("SPARK-41017: column pruning through 2 filters") {
-    import testImplicits._
-    val query = spark.table("contacts").filter(rand() > 0.5).filter(rand() < 0.8)
-      .select($"id", $"name.first")
-    checkScan(query, "struct<id:int, name:struct<first:string>>")
   }
 }

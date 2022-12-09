@@ -126,11 +126,8 @@ private[execution] object HashedRelation {
   /**
    * Create a HashedRelation from an Iterator of InternalRow.
    *
-   * @param allowsNullKey        Allow NULL keys in HashedRelation.
-   *                             This is used for full outer join in `ShuffledHashJoinExec` only.
-   * @param ignoresDuplicatedKey Ignore rows with duplicated keys in HashedRelation.
-   *                             This is only used for semi and anti join without join condition in
-   *                             `ShuffledHashJoinExec` only.
+   * @param allowsNullKey Allow NULL keys in HashedRelation.
+   *                      This is used for full outer join in `ShuffledHashJoinExec` only.
    */
   def apply(
       input: Iterator[InternalRow],
@@ -138,8 +135,7 @@ private[execution] object HashedRelation {
       sizeEstimate: Int = 64,
       taskMemoryManager: TaskMemoryManager = null,
       isNullAware: Boolean = false,
-      allowsNullKey: Boolean = false,
-      ignoresDuplicatedKey: Boolean = false): HashedRelation = {
+      allowsNullKey: Boolean = false): HashedRelation = {
     val mm = Option(taskMemoryManager).getOrElse {
       new TaskMemoryManager(
         new UnifiedMemoryManager(
@@ -156,8 +152,7 @@ private[execution] object HashedRelation {
       // NOTE: LongHashedRelation does not support NULL keys.
       LongHashedRelation(input, key, sizeEstimate, mm, isNullAware)
     } else {
-      UnsafeHashedRelation(input, key, sizeEstimate, mm, isNullAware, allowsNullKey,
-        ignoresDuplicatedKey)
+      UnsafeHashedRelation(input, key, sizeEstimate, mm, isNullAware, allowsNullKey)
     }
   }
 }
@@ -457,8 +452,7 @@ private[joins] object UnsafeHashedRelation {
       sizeEstimate: Int,
       taskMemoryManager: TaskMemoryManager,
       isNullAware: Boolean = false,
-      allowsNullKey: Boolean = false,
-      ignoresDuplicatedKey: Boolean = false): HashedRelation = {
+      allowsNullKey: Boolean = false): HashedRelation = {
     require(!(isNullAware && allowsNullKey),
       "isNullAware and allowsNullKey cannot be enabled at same time")
 
@@ -479,14 +473,12 @@ private[joins] object UnsafeHashedRelation {
       val key = keyGenerator(row)
       if (!key.anyNull || allowsNullKey) {
         val loc = binaryMap.lookup(key.getBaseObject, key.getBaseOffset, key.getSizeInBytes)
-        if (!(ignoresDuplicatedKey && loc.isDefined)) {
-          val success = loc.append(
-            key.getBaseObject, key.getBaseOffset, key.getSizeInBytes,
-            row.getBaseObject, row.getBaseOffset, row.getSizeInBytes)
-          if (!success) {
-            binaryMap.free()
-            throw QueryExecutionErrors.cannotAcquireMemoryToBuildUnsafeHashedRelationError()
-          }
+        val success = loc.append(
+          key.getBaseObject, key.getBaseOffset, key.getSizeInBytes,
+          row.getBaseObject, row.getBaseOffset, row.getSizeInBytes)
+        if (!success) {
+          binaryMap.free()
+          throw QueryExecutionErrors.cannotAcquireMemoryToBuildUnsafeHashedRelationError()
         }
       } else if (isNullAware) {
         binaryMap.free()

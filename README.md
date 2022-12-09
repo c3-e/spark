@@ -4,15 +4,15 @@ Spark is a unified analytics engine for large-scale data processing. It provides
 high-level APIs in Scala, Java, Python, and R, and an optimized engine that
 supports general computation graphs for data analysis. It also supports a
 rich set of higher-level tools including Spark SQL for SQL and DataFrames,
-pandas API on Spark for pandas workloads, MLlib for machine learning, GraphX for graph processing,
+MLlib for machine learning, GraphX for graph processing,
 and Structured Streaming for stream processing.
 
 <https://spark.apache.org/>
 
-[![GitHub Actions Build](https://github.com/apache/spark/actions/workflows/build_main.yml/badge.svg)](https://github.com/apache/spark/actions/workflows/build_main.yml)
+[![GitHub Action Build](https://github.com/apache/spark/actions/workflows/build_and_test.yml/badge.svg?branch=master)](https://github.com/apache/spark/actions/workflows/build_and_test.yml?query=branch%3Amaster)
+[![Jenkins Build](https://amplab.cs.berkeley.edu/jenkins/job/spark-master-test-sbt-hadoop-3.2/badge/icon)](https://amplab.cs.berkeley.edu/jenkins/job/spark-master-test-sbt-hadoop-3.2)
 [![AppVeyor Build](https://img.shields.io/appveyor/ci/ApacheSoftwareFoundation/spark/master.svg?style=plastic&logo=appveyor)](https://ci.appveyor.com/project/ApacheSoftwareFoundation/spark)
 [![PySpark Coverage](https://codecov.io/gh/apache/spark/branch/master/graph/badge.svg)](https://codecov.io/gh/apache/spark)
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/pyspark?period=month&units=international_system&left_color=black&right_color=orange&left_text=PyPI%20downloads)](https://pypi.org/project/pyspark/)
 
 
 ## Online Documentation
@@ -26,9 +26,7 @@ This README file only contains basic setup instructions.
 Spark is built using [Apache Maven](https://maven.apache.org/).
 To build Spark and its example programs, run:
 
-```bash
-./build/mvn -DskipTests clean package
-```
+    ./build/mvn -DskipTests clean package
 
 (You do not need to do this if you downloaded a pre-built package.)
 
@@ -41,38 +39,28 @@ For general development tips, including info on developing Spark using an IDE, s
 
 The easiest way to start using Spark is through the Scala shell:
 
-```bash
-./bin/spark-shell
-```
+    ./bin/spark-shell
 
 Try the following command, which should return 1,000,000,000:
 
-```scala
-scala> spark.range(1000 * 1000 * 1000).count()
-```
+    scala> spark.range(1000 * 1000 * 1000).count()
 
 ## Interactive Python Shell
 
 Alternatively, if you prefer Python, you can use the Python shell:
 
-```bash
-./bin/pyspark
-```
+    ./bin/pyspark
 
 And run the following command, which should also return 1,000,000,000:
 
-```python
->>> spark.range(1000 * 1000 * 1000).count()
-```
+    >>> spark.range(1000 * 1000 * 1000).count()
 
 ## Example Programs
 
 Spark also comes with several sample programs in the `examples` directory.
 To run one of them, use `./bin/run-example <class> [params]`. For example:
 
-```bash
-./bin/run-example SparkPi
-```
+    ./bin/run-example SparkPi
 
 will run the Pi example locally.
 
@@ -83,9 +71,7 @@ locally with one thread, or "local[N]" to run locally with N threads. You
 can also use an abbreviated class name if the class is in the `examples`
 package. For instance:
 
-```bash
-MASTER=spark://host:7077 ./bin/run-example SparkPi
-```
+    MASTER=spark://host:7077 ./bin/run-example SparkPi
 
 Many of the example programs print usage help if no params are given.
 
@@ -94,9 +80,7 @@ Many of the example programs print usage help if no params are given.
 Testing first requires [building Spark](#building-spark). Once Spark is built, tests
 can be run using:
 
-```bash
-./dev/run-tests
-```
+    ./dev/run-tests
 
 Please see the guidance on how to
 [run tests for a module, or individual tests](https://spark.apache.org/developer-tools.html#individual-tests).

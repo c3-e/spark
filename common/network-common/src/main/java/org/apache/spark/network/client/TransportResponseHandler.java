@@ -113,9 +113,9 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
         logger.warn("ChunkReceivedCallback.onFailure throws exception", e);
       }
     }
-    for (BaseResponseCallback callback : outstandingRpcs.values()) {
+    for (Map.Entry<Long, BaseResponseCallback> entry : outstandingRpcs.entrySet()) {
       try {
-        callback.onFailure(cause);
+        entry.getValue().onFailure(cause);
       } catch (Exception e) {
         logger.warn("RpcResponseCallback.onFailure throws exception", e);
       }
@@ -140,7 +140,7 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
 
   @Override
   public void channelInactive() {
-    if (hasOutstandingRequests()) {
+    if (numOutstandingRequests() > 0) {
       String remoteAddress = getRemoteAddress(channel);
       logger.error("Still have {} requests outstanding when connection from {} is closed",
         numOutstandingRequests(), remoteAddress);
@@ -150,7 +150,7 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
 
   @Override
   public void exceptionCaught(Throwable cause) {
-    if (hasOutstandingRequests()) {
+    if (numOutstandingRequests() > 0) {
       String remoteAddress = getRemoteAddress(channel);
       logger.error("Still have {} requests outstanding when connection from {} is closed",
         numOutstandingRequests(), remoteAddress);
@@ -273,12 +273,6 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
   public int numOutstandingRequests() {
     return outstandingFetches.size() + outstandingRpcs.size() + streamCallbacks.size() +
       (streamActive ? 1 : 0);
-  }
-
-  /** Check if there are any outstanding requests (fetch requests + rpcs) */
-  public Boolean hasOutstandingRequests() {
-    return streamActive || !outstandingFetches.isEmpty() || !outstandingRpcs.isEmpty() ||
-        !streamCallbacks.isEmpty();
   }
 
   /** Returns the time in nanoseconds of when the last request was sent out. */

@@ -23,11 +23,10 @@ import com.univocity.parsers.csv.CsvParser
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.catalyst.csv._
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.util._
-import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryErrorsBase}
+import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
@@ -92,7 +91,7 @@ case class CsvToStructs(
       assert(!rows.hasNext)
       result
     } else {
-      throw new IllegalStateException("Expected one row from CSV parser.")
+      throw QueryExecutionErrors.rowFromCSVParserNotExpectedError
     }
   }
 
@@ -160,14 +159,14 @@ case class CsvToStructs(
   examples = """
     Examples:
       > SELECT _FUNC_('1,abc');
-       STRUCT<_c0: INT, _c1: STRING>
+       STRUCT<`_c0`: INT, `_c1`: STRING>
   """,
   since = "3.0.0",
   group = "csv_funcs")
 case class SchemaOfCsv(
     child: Expression,
     options: Map[String, String])
-  extends UnaryExpression with CodegenFallback with QueryErrorsBase {
+  extends UnaryExpression with CodegenFallback {
 
   def this(child: Expression) = this(child, Map.empty[String, String])
 
@@ -185,17 +184,10 @@ case class SchemaOfCsv(
   override def checkInputDataTypes(): TypeCheckResult = {
     if (child.foldable && csv != null) {
       super.checkInputDataTypes()
-    } else if (!child.foldable) {
-      DataTypeMismatch(
-        errorSubClass = "NON_FOLDABLE_INPUT",
-        messageParameters = Map(
-          "inputName" -> "csv",
-          "inputType" -> toSQLType(child.dataType),
-          "inputExpr" -> toSQLExpr(child)))
     } else {
-      DataTypeMismatch(
-        errorSubClass = "UNEXPECTED_NULL",
-        messageParameters = Map("exprName" -> "csv"))
+      TypeCheckResult.TypeCheckFailure(
+        "The input csv should be a foldable string expression and not null; " +
+        s"however, got ${child.sql}.")
     }
   }
 
@@ -267,7 +259,7 @@ case class StructsToCsv(
   lazy val inputSchema: StructType = child.dataType match {
     case st: StructType => st
     case other =>
-      throw new IllegalArgumentException(s"Unsupported input type ${other.catalogString}")
+      throw QueryExecutionErrors.inputTypeUnsupportedError(other)
   }
 
   @transient

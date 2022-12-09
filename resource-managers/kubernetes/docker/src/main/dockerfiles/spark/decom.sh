@@ -18,22 +18,17 @@
 #
 
 
-set +e
-set -x
+set -ex
 echo "Asked to decommission"
 # Find the pid to signal
 date | tee -a ${LOG}
-WORKER_PID=$(ps -o pid,cmd -C java |grep Executor \
-	       | tail -n 1| awk '{ sub(/^[ \t]+/, ""); print }' \
-	       | cut -f 1 -d " ")
+WORKER_PID=$(ps -o pid -C java | tail -n 1| awk '{ sub(/^[ \t]+/, ""); print }')
 echo "Using worker pid $WORKER_PID"
 kill -s SIGPWR ${WORKER_PID}
-# If the worker does exit stop blocking K8s cleanup. Note this is a "soft"
-# block since the pod it's self will have a maximum decommissioning time which will
-# overload this.
+# For now we expect this to timeout, since we don't start exiting the backend.
 echo "Waiting for worker pid to exit"
-tail --pid=${WORKER_PID} -f /dev/null
-sleep 1
+# If the worker does exit stop blocking the cleanup.
+timeout 60 tail --pid=${WORKER_PID} -f /dev/null
 date
 echo "Done"
 date

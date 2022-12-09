@@ -5,16 +5,13 @@ and message parameters rather than an arbitrary error message.
 
 ## Usage
 
-1. Check if the error is an internal error.
-   Internal errors are bugs in the code that we do not expect users to encounter; this does not include unsupported operations.
-   If true, use the error class `INTERNAL_ERROR` and skip to step 4.
-2. Check if an appropriate error class already exists in `error-class.json`.
-   If true, use the error class and skip to step 4.
-3. Add a new class to `error-class.json`; keep in mind the invariants below.
-4. Check if the exception type already extends `SparkThrowable`.
-   If true, skip to step 6.
-5. Mix `SparkThrowable` into the exception.
-6. Throw the exception with the error class and message parameters. If the same exception is thrown in several places, create an util function in a central place such as `QueryCompilationErrors.scala` to instantiate the exception.
+1. Check if an appropriate error class already exists in `error-class.json`.
+   If true, skip to step 3. Otherwise, continue to step 2.
+2. Add a new class to `error-class.json`; keep in mind the invariants below.
+3. Check if the exception type already extends `SparkThrowable`.
+   If true, skip to step 5. Otherwise, continue to step 4.
+4. Mix `SparkThrowable` into the exception.
+5. Throw the exception with the error class and message parameters.
 
 ### Before
 
@@ -40,6 +37,8 @@ Throw with arbitrary error message:
         with SparkThrowable {
         
       def getErrorClass: String = errorClass
+      def getMessageParameters: Array[String] = messageParameters
+      def getSqlState: String = SparkThrowableHelper.getSqlState(errorClass)
     }
 
 Throw with error class and message parameters:
@@ -65,8 +64,6 @@ To access error fields, catch exceptions that extend `org.apache.spark.SparkThro
 ### Error class
 
 Error classes are a succinct, human-readable representation of the error category.
-
-An uncategorized errors can be assigned to a legacy error class with the prefix `_LEGACY_ERROR_TEMP_` and an unused sequential number, for instance `_LEGACY_ERROR_TEMP_0053`.
 
 #### Invariants
 
@@ -101,7 +98,6 @@ Spark only uses the standard-defined classes and subclasses, and does not use im
 
 The following SQLSTATEs are from ISO/IEC CD 9075-2.
 
-<!-- SQLSTATE table start -->
 |SQLSTATE|Class|Condition                                                   |Subclass|Subcondition                                                   |
 |--------|-----|------------------------------------------------------------|--------|---------------------------------------------------------------|
 |07000   |07   |dynamic SQL error                                           |000     |(no subclass)                                                  |
@@ -257,4 +253,3 @@ The following SQLSTATEs are from ISO/IEC CD 9075-2.
 |42000   |42   |syntax error or access rule violation                       |000     |(no subclass)                                                  |
 |44000   |44   |with check option violation                                 |000     |(no subclass)                                                  |
 |HZ000   |HZ   |remote database access                                      |000     |(no subclass)                                                  |
-<!-- SQLSTATE table stop -->

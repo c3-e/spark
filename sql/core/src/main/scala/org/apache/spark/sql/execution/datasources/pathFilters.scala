@@ -43,8 +43,10 @@ class PathGlobFilter(filePatten: String) extends PathFilterStrategy {
 }
 
 object PathGlobFilter extends StrategyBuilder {
+  val PARAM_NAME = "pathglobfilter"
+
   override def create(parameters: CaseInsensitiveMap[String]): Option[PathFilterStrategy] = {
-    parameters.get(FileIndexOptions.PATH_GLOB_FILTER).map(new PathGlobFilter(_))
+    parameters.get(PARAM_NAME).map(new PathGlobFilter(_))
   }
 }
 
@@ -109,10 +111,12 @@ class ModifiedBeforeFilter(thresholdTime: Long, val timeZoneId: String)
 object ModifiedBeforeFilter extends StrategyBuilder {
   import ModifiedDateFilter._
 
+  val PARAM_NAME = "modifiedbefore"
+
   override def create(parameters: CaseInsensitiveMap[String]): Option[PathFilterStrategy] = {
-    parameters.get(FileIndexOptions.MODIFIED_BEFORE).map { value =>
+    parameters.get(PARAM_NAME).map { value =>
       val timeZoneId = getTimeZoneId(parameters)
-      val thresholdTime = toThreshold(value, timeZoneId, FileIndexOptions.MODIFIED_BEFORE)
+      val thresholdTime = toThreshold(value, timeZoneId, PARAM_NAME)
       new ModifiedBeforeFilter(thresholdTime, timeZoneId)
     }
   }
@@ -133,10 +137,12 @@ class ModifiedAfterFilter(thresholdTime: Long, val timeZoneId: String)
 object ModifiedAfterFilter extends StrategyBuilder {
   import ModifiedDateFilter._
 
+  val PARAM_NAME = "modifiedafter"
+
   override def create(parameters: CaseInsensitiveMap[String]): Option[PathFilterStrategy] = {
-    parameters.get(FileIndexOptions.MODIFIED_AFTER).map { value =>
+    parameters.get(PARAM_NAME).map { value =>
       val timeZoneId = getTimeZoneId(parameters)
-      val thresholdTime = toThreshold(value, timeZoneId, FileIndexOptions.MODIFIED_AFTER)
+      val thresholdTime = toThreshold(value, timeZoneId, PARAM_NAME)
       new ModifiedAfterFilter(thresholdTime, timeZoneId)
     }
   }

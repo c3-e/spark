@@ -23,6 +23,7 @@ import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.dsl.plans.DslLogicalPlan
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.IntegralLiteralTestUtils._
+import org.apache.spark.sql.catalyst.expressions.aggregate.First
 import org.apache.spark.sql.catalyst.optimizer.UnwrapCastInBinaryComparison._
 import org.apache.spark.sql.catalyst.plans.PlanTest
 import org.apache.spark.sql.catalyst.plans.logical._
@@ -38,12 +39,10 @@ class UnwrapCastInBinaryComparisonSuite extends PlanTest with ExpressionEvalHelp
         NullPropagation, UnwrapCastInBinaryComparison) :: Nil
   }
 
-  val testRelation: LocalRelation = LocalRelation($"a".short, $"b".float,
-    $"c".decimal(5, 2), $"d".boolean)
-  val f: BoundReference = $"a".short.canBeNull.at(0)
-  val f2: BoundReference = $"b".float.canBeNull.at(1)
-  val f3: BoundReference = $"c".decimal(5, 2).canBeNull.at(2)
-  val f4: BoundReference = $"d".boolean.canBeNull.at(3)
+  val testRelation: LocalRelation = LocalRelation('a.short, 'b.float, 'c.decimal(5, 2))
+  val f: BoundReference = 'a.short.canBeNull.at(0)
+  val f2: BoundReference = 'b.float.canBeNull.at(1)
+  val f3: BoundReference = 'c.decimal(5, 2).canBeNull.at(2)
 
   test("unwrap casts when literal == max") {
     val v = Short.MaxValue
@@ -184,10 +183,10 @@ class UnwrapCastInBinaryComparisonSuite extends PlanTest with ExpressionEvalHelp
   }
 
  test("unwrap cast should skip when expression is non-deterministic or foldable") {
-   Seq(positiveLong, negativeLong).foreach (v => {
-     val e = Cast(Rand(0), LongType) <=> v
+    Seq(positiveInt, negativeInt).foreach(v => {
+      val e = Cast(First(f, ignoreNulls = true), IntegerType) <=> v
       assertEquivalent(e, e, evaluate = false)
-      val e2 = Cast(Literal(30), LongType) >= v
+      val e2 = Cast(Literal(30.toShort), IntegerType) >= v
       assertEquivalent(e2, e2, evaluate = false)
     })
   }
@@ -213,9 +212,7 @@ class UnwrapCastInBinaryComparisonSuite extends PlanTest with ExpressionEvalHelp
   }
 
   test("unwrap cast should skip if cannot coerce type") {
-    if (!conf.ansiEnabled) {
-      assertEquivalent(Cast(f, ByteType) > 100.toByte, Cast(f, ByteType) > 100.toByte)
-    }
+    assertEquivalent(Cast(f, ByteType) > 100.toByte, Cast(f, ByteType) > 100.toByte)
   }
 
   test("test getRange()") {
@@ -248,6 +245,18 @@ class UnwrapCastInBinaryComparisonSuite extends PlanTest with ExpressionEvalHelp
     val intLit = Literal.create(null, IntegerType)
     val shortLit = Literal.create(null, ShortType)
 
+    def checkInAndInSet(in: In, expected: Expression): Unit = {
+      assertEquivalent(in, expected)
+      val toInSet = (in: In) => InSet(in.value, HashSet() ++ in.list.map(_.eval()))
+      val expectedInSet = expected match {
+        case expectedIn: In =>
+          toInSet(expectedIn)
+        case Or(falseIfNotNull: And, expectedIn: In) =>
+          Or(falseIfNotNull, toInSet(expectedIn))
+      }
+      assertEquivalent(toInSet(in), expectedInSet)
+    }
+
     checkInAndInSet(
       In(Cast(f, LongType), Seq(1.toLong, 2.toLong, 3.toLong)),
       f.in(1.toShort, 2.toShort, 3.toShort))
@@ -255,12 +264,12 @@ class UnwrapCastInBinaryComparisonSuite extends PlanTest with ExpressionEvalHelp
     // in.list contains the value which out of `fromType` range
     checkInAndInSet(
       In(Cast(f, LongType), Seq(1.toLong, Int.MaxValue.toLong, Long.MaxValue)),
-      f.in(1.toShort))
+      Or(falseIfNotNull(f), f.in(1.toShort)))
 
     // in.list only contains the value which out of `fromType` range
     checkInAndInSet(
       In(Cast(f, LongType), Seq(Int.MaxValue.toLong, Long.MaxValue)),
-      falseIfNotNull(f))
+      Or(falseIfNotNull(f), f.in()))
 
     // in.list is empty
     checkInAndInSet(
@@ -268,49 +277,15 @@ class UnwrapCastInBinaryComparisonSuite extends PlanTest with ExpressionEvalHelp
 
     // in.list contains null value
     checkInAndInSet(
-      In(Cast(f, IntegerType), Seq(intLit)), f.in(shortLit))
+      In(Cast(f, IntegerType), Seq(intLit)), In(Cast(f, IntegerType), Seq(intLit)))
     checkInAndInSet(
-      In(Cast(f, IntegerType), Seq(intLit, intLit)), f.in(shortLit, shortLit))
+      In(Cast(f, IntegerType), Seq(intLit, intLit)), In(Cast(f, IntegerType), Seq(intLit, intLit)))
     checkInAndInSet(
       In(Cast(f, IntegerType), Seq(intLit, 1)), f.in(shortLit, 1.toShort))
     checkInAndInSet(
       In(Cast(f, LongType), Seq(longLit, 1.toLong, Long.MaxValue)),
-      f.in(shortLit, 1.toShort)
+      Or(falseIfNotNull(f), f.in(shortLit, 1.toShort))
     )
-    checkInAndInSet(
-      In(Cast(f, LongType), Seq(longLit, Long.MaxValue)),
-      f.in(shortLit)
-    )
-  }
-
-  test("SPARK-39896: unwrap cast when the literal of In/InSet downcast failed") {
-    val decimalValue = decimal2(123456.1234)
-    val decimalValue2 = decimal2(100.20)
-    checkInAndInSet(
-      In(castDecimal2(f3), Seq(decimalValue, decimalValue2)),
-      f3.in(decimal(decimalValue2)))
-  }
-
-  test("SPARK-39896: unwrap cast when the literal of In/Inset has round up or down") {
-
-    val doubleValue = 1.0
-    val doubleValue1 = 100.6
-    checkInAndInSet(
-      In(castDouble(f), Seq(doubleValue1, doubleValue)),
-      f.in(doubleValue.toShort))
-
-    // Cases for rounding up: 3.14 will be rounded to 3.14000010... after casting to float
-    val doubleValue2 = 3.14
-    checkInAndInSet(
-      In(castDouble(f2), Seq(doubleValue2, doubleValue)),
-      f2.in(doubleValue.toFloat))
-
-    // Another case: 400.5678 is rounded up to 400.57
-    val decimalValue1 = decimal2(400.5678)
-    val decimalValue2 = decimal2(1.0)
-    checkInAndInSet(
-      In(castDecimal2(f3), Seq(decimalValue1, decimalValue2)),
-      f3.in(decimal(decimalValue2)))
   }
 
   test("SPARK-36130: unwrap In should skip when in.list contains an expression that " +
@@ -332,42 +307,6 @@ class UnwrapCastInBinaryComparisonSuite extends PlanTest with ExpressionEvalHelp
       In(Cast(f2, DoubleType), Seq(0.0d, 1.0d, add)))
   }
 
-  test("SPARK-36607: Support BooleanType in UnwrapCastInBinaryComparison") {
-    assert(Some((false, true)) === getRange(BooleanType))
-
-    val n = -1
-    assertEquivalent(castInt(f4) > n, trueIfNotNull(f4))
-    assertEquivalent(castInt(f4) >= n, trueIfNotNull(f4))
-    assertEquivalent(castInt(f4) === n, falseIfNotNull(f4))
-    assertEquivalent(castInt(f4) <=> n, false)
-    assertEquivalent(castInt(f4) <= n, falseIfNotNull(f4))
-    assertEquivalent(castInt(f4) < n, falseIfNotNull(f4))
-
-    val z = 0
-    assertEquivalent(castInt(f4) > z, f4 =!= false)
-    assertEquivalent(castInt(f4) >= z, trueIfNotNull(f4))
-    assertEquivalent(castInt(f4) === z, f4 === false)
-    assertEquivalent(castInt(f4) <=> z, f4 <=> false)
-    assertEquivalent(castInt(f4) <= z, f4 === false)
-    assertEquivalent(castInt(f4) < z, falseIfNotNull(f4))
-
-    val o = 1
-    assertEquivalent(castInt(f4) > o, falseIfNotNull(f4))
-    assertEquivalent(castInt(f4) >= o, f4 === true)
-    assertEquivalent(castInt(f4) === o, f4 === true)
-    assertEquivalent(castInt(f4) <=> o, f4 <=> true)
-    assertEquivalent(castInt(f4) <= o, trueIfNotNull(f4))
-    assertEquivalent(castInt(f4) < o, f4 =!= true)
-
-    val t = 2
-    assertEquivalent(castInt(f4) > t, falseIfNotNull(f4))
-    assertEquivalent(castInt(f4) >= t, falseIfNotNull(f4))
-    assertEquivalent(castInt(f4) === t, falseIfNotNull(f4))
-    assertEquivalent(castInt(f4) <=> t, false)
-    assertEquivalent(castInt(f4) <= t, trueIfNotNull(f4))
-    assertEquivalent(castInt(f4) < t, trueIfNotNull(f4))
-  }
-
   private def castInt(e: Expression): Expression = Cast(e, IntegerType)
   private def castDouble(e: Expression): Expression = Cast(e, DoubleType)
   private def castDecimal2(e: Expression): Expression = Cast(e, DecimalType(10, 4))
@@ -383,30 +322,18 @@ class UnwrapCastInBinaryComparisonSuite extends PlanTest with ExpressionEvalHelp
 
     if (evaluate) {
       Seq(
-        (100.toShort, 3.14.toFloat, decimal2(100), true),
-        (-300.toShort, 3.1415927.toFloat, decimal2(-3000.50), false),
-        (null, Float.NaN, decimal2(12345.6789), null),
-        (null, null, null, null),
-        (Short.MaxValue, Float.PositiveInfinity, decimal2(Short.MaxValue), true),
-        (Short.MinValue, Float.NegativeInfinity, decimal2(Short.MinValue), false),
-        (0.toShort, Float.MaxValue, decimal2(0), null),
-        (0.toShort, Float.MinValue, decimal2(0.01), null)
+        (100.toShort, 3.14.toFloat, decimal2(100)),
+        (-300.toShort, 3.1415927.toFloat, decimal2(-3000.50)),
+        (null, Float.NaN, decimal2(12345.6789)),
+        (null, null, null),
+        (Short.MaxValue, Float.PositiveInfinity, decimal2(Short.MaxValue)),
+        (Short.MinValue, Float.NegativeInfinity, decimal2(Short.MinValue)),
+        (0.toShort, Float.MaxValue, decimal2(0)),
+        (0.toShort, Float.MinValue, decimal2(0.01))
       ).foreach(v => {
-        val row = create_row(v._1, v._2, v._3, v._4)
+        val row = create_row(v._1, v._2, v._3)
         checkEvaluation(e1, e2.eval(row), row)
       })
     }
-  }
-
-  private def checkInAndInSet(in: In, expected: Expression): Unit = {
-    assertEquivalent(in, expected)
-    val toInSet = (in: In) => InSet(in.value, HashSet() ++ in.list.map(_.eval()))
-    val expectedInSet = expected match {
-      case expectedIn: In =>
-        toInSet(expectedIn)
-      case falseIfNotNull: And =>
-        falseIfNotNull
-    }
-    assertEquivalent(toInSet(in), expectedInSet)
   }
 }

@@ -40,27 +40,24 @@ class SchemaUtilsSuite extends SparkFunSuite {
     val testType = if (caseSensitive) "case-sensitive" else "case-insensitive"
     test(s"Check column name duplication in $testType cases") {
       def checkExceptionCases(schemaStr: String, duplicatedColumns: Seq[String]): Unit = {
+        val expectedErrorMsg = "Found duplicate column(s) in SchemaUtilsSuite: " +
           duplicatedColumns.sorted.map(c => s"`${c.toLowerCase(Locale.ROOT)}`").mkString(", ")
         val schema = StructType.fromDDL(schemaStr)
-        checkError(
-          exception = intercept[AnalysisException] {
-            SchemaUtils.checkSchemaColumnNameDuplication(schema, caseSensitive)
-          },
-          errorClass = "COLUMN_ALREADY_EXISTS",
-          parameters = Map("columnName" -> "`a`"))
-        checkError(
-          exception = intercept[AnalysisException] {
-            SchemaUtils.checkColumnNameDuplication(schema.map(_.name), resolver(caseSensitive))
-          },
-          errorClass = "COLUMN_ALREADY_EXISTS",
-          parameters = Map("columnName" -> "`a`"))
-        checkError(
-          exception = intercept[AnalysisException] {
-            SchemaUtils.checkColumnNameDuplication(
-              schema.map(_.name), caseSensitiveAnalysis = caseSensitive)
-          },
-          errorClass = "COLUMN_ALREADY_EXISTS",
-          parameters = Map("columnName" -> "`a`"))
+        var msg = intercept[AnalysisException] {
+          SchemaUtils.checkSchemaColumnNameDuplication(
+            schema, "in SchemaUtilsSuite", caseSensitiveAnalysis = caseSensitive)
+        }.getMessage
+        assert(msg.contains(expectedErrorMsg))
+        msg = intercept[AnalysisException] {
+          SchemaUtils.checkColumnNameDuplication(
+            schema.map(_.name), "in SchemaUtilsSuite", resolver(caseSensitive))
+        }.getMessage
+        assert(msg.contains(expectedErrorMsg))
+        msg = intercept[AnalysisException] {
+          SchemaUtils.checkColumnNameDuplication(
+            schema.map(_.name), "in SchemaUtilsSuite", caseSensitiveAnalysis = caseSensitive)
+        }.getMessage
+        assert(msg.contains(expectedErrorMsg))
       }
 
       checkExceptionCases(s"$a0 INT, b INT, $a1 INT", a0 :: Nil)
@@ -73,11 +70,11 @@ class SchemaUtilsSuite extends SparkFunSuite {
     def checkNoExceptionCases(schemaStr: String, caseSensitive: Boolean): Unit = {
       val schema = StructType.fromDDL(schemaStr)
       SchemaUtils.checkSchemaColumnNameDuplication(
-        schema, caseSensitiveAnalysis = caseSensitive)
+        schema, "in SchemaUtilsSuite", caseSensitiveAnalysis = caseSensitive)
       SchemaUtils.checkColumnNameDuplication(
-        schema.map(_.name), resolver(caseSensitive))
+        schema.map(_.name), "in SchemaUtilsSuite", resolver(caseSensitive))
       SchemaUtils.checkColumnNameDuplication(
-        schema.map(_.name), caseSensitiveAnalysis = caseSensitive)
+        schema.map(_.name), "in SchemaUtilsSuite", caseSensitiveAnalysis = caseSensitive)
     }
 
     checkNoExceptionCases("a INT, b INT, c INT", caseSensitive = true)
@@ -102,12 +99,11 @@ class SchemaUtilsSuite extends SparkFunSuite {
     val schemaE = MapType(LongType, schemaD)
     val schemaF = MapType(schemaD, LongType)
     Seq(schemaA, schemaB, schemaC, schemaD, schemaE, schemaF).foreach { schema =>
-      checkError(
-        exception = intercept[AnalysisException] {
-          SchemaUtils.checkSchemaColumnNameDuplication(schema)
-        },
-        errorClass = "COLUMN_ALREADY_EXISTS",
-        parameters = Map("columnName" -> "`camelcase`"))
+      val msg = intercept[AnalysisException] {
+        SchemaUtils.checkSchemaColumnNameDuplication(
+          schema, "in SchemaUtilsSuite", caseSensitiveAnalysis = false)
+      }.getMessage
+      assert(msg.contains("Found duplicate column(s) in SchemaUtilsSuite: `camelcase`"))
     }
   }
 }

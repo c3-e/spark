@@ -20,15 +20,10 @@ from typing import Any, Union
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import (  # type: ignore[attr-defined]
-    is_bool_dtype,
-    is_integer_dtype,
-    CategoricalDtype,
-)
+from pandas.api.types import is_bool_dtype, is_integer_dtype, CategoricalDtype
 
 from pyspark.pandas._typing import Dtype, IndexOpsLike, SeriesOrIndex
 from pyspark.pandas.base import column_op, IndexOpsMixin, numpy_column_op
-from pyspark.pandas.config import get_option
 from pyspark.pandas.data_type_ops.base import (
     DataTypeOps,
     is_valid_operand_for_numeric_arithmetic,
@@ -38,8 +33,6 @@ from pyspark.pandas.data_type_ops.base import (
     _as_other_type,
     _as_string_type,
     _sanitize_list_like,
-    _is_valid_for_logical_operator,
-    _is_boolean_type,
 )
 from pyspark.pandas.spark import functions as SF
 from pyspark.pandas.typedef.typehints import extension_dtypes, pandas_on_spark_type
@@ -60,7 +53,7 @@ def _non_fractional_astype(
     elif isinstance(spark_type, BooleanType):
         return _as_bool_type(index_ops, dtype)
     elif isinstance(spark_type, StringType):
-        return _as_string_type(index_ops, dtype, null_str="NaN")
+        return _as_string_type(index_ops, dtype, null_str=str(np.nan))
     else:
         return _as_other_type(index_ops, dtype, spark_type)
 
@@ -107,7 +100,7 @@ class NumericOps(DataTypeOps):
         def pow_func(left: Column, right: Any) -> Column:
             return (
                 F.when(left == 1, left)
-                .when(F.lit(right) == 0, 1)
+                .when(SF.lit(right) == 0, 1)
                 .otherwise(Column.__pow__(left, right))
             )
 
@@ -141,7 +134,7 @@ class NumericOps(DataTypeOps):
             raise TypeError("Exponentiation can not be applied to given types.")
 
         def rpow_func(left: Column, right: Any) -> Column:
-            return F.when(F.lit(right == 1), right).otherwise(Column.__rpow__(left, right))
+            return F.when(SF.lit(right == 1), right).otherwise(Column.__rpow__(left, right))
 
         right = transform_boolean_operand_to_numeric(right)
         return column_op(rpow_func)(left, right)
@@ -188,30 +181,6 @@ class IntegralOps(NumericOps):
     LongType, IntegerType, ByteType and ShortType.
     """
 
-    def xor(self, left: IndexOpsLike, right: Any) -> SeriesOrIndex:
-        _sanitize_list_like(right)
-
-        if isinstance(right, IndexOpsMixin) and isinstance(right.dtype, extension_dtypes):
-            return right ^ left
-        elif _is_valid_for_logical_operator(right):
-            right_is_boolean = _is_boolean_type(right)
-
-            def xor_func(left: Column, right: Any) -> Column:
-                if not isinstance(right, Column):
-                    if pd.isna(right):
-                        right = F.lit(None)
-                    else:
-                        right = F.lit(right)
-                return (
-                    left.bitwiseXOR(right.cast("integer")).cast("boolean")
-                    if right_is_boolean
-                    else left.bitwiseXOR(right)
-                )
-
-            return column_op(xor_func)(left, right)
-        else:
-            raise TypeError("XOR can not be applied to given types.")
-
     @property
     def pretty_name(self) -> str:
         return "integrals"
@@ -233,9 +202,9 @@ class IntegralOps(NumericOps):
             raise TypeError("True division can not be applied to given types.")
 
         def truediv(left: Column, right: Any) -> Column:
-            return F.when(F.lit(right != 0) | F.lit(right).isNull(), left.__div__(right)).otherwise(
-                F.lit(np.inf).__div__(left)
-            )
+            return F.when(
+                SF.lit(right != 0) | SF.lit(right).isNull(), left.__div__(right)
+            ).otherwise(SF.lit(np.inf).__div__(left))
 
         right = transform_boolean_operand_to_numeric(right, spark_type=left.spark.data_type)
         return numpy_column_op(truediv)(left, right)
@@ -246,10 +215,10 @@ class IntegralOps(NumericOps):
             raise TypeError("Floor division can not be applied to given types.")
 
         def floordiv(left: Column, right: Any) -> Column:
-            return F.when(F.lit(right is np.nan), np.nan).otherwise(
+            return F.when(SF.lit(right is np.nan), np.nan).otherwise(
                 F.when(
-                    F.lit(right != 0) | F.lit(right).isNull(), F.floor(left.__div__(right))
-                ).otherwise(F.lit(np.inf).__div__(left))
+                    SF.lit(right != 0) | SF.lit(right).isNull(), F.floor(left.__div__(right))
+                ).otherwise(SF.lit(np.inf).__div__(left))
             )
 
         right = transform_boolean_operand_to_numeric(right, spark_type=left.spark.data_type)
@@ -261,8 +230,8 @@ class IntegralOps(NumericOps):
             raise TypeError("True division can not be applied to given types.")
 
         def rtruediv(left: Column, right: Any) -> Column:
-            return F.when(left == 0, F.lit(np.inf).__div__(right)).otherwise(
-                F.lit(right).__truediv__(left)
+            return F.when(left == 0, SF.lit(np.inf).__div__(right)).otherwise(
+                SF.lit(right).__truediv__(left)
             )
 
         right = transform_boolean_operand_to_numeric(right, spark_type=left.spark.data_type)
@@ -274,8 +243,8 @@ class IntegralOps(NumericOps):
             raise TypeError("Floor division can not be applied to given types.")
 
         def rfloordiv(left: Column, right: Any) -> Column:
-            return F.when(F.lit(left == 0), F.lit(np.inf).__div__(right)).otherwise(
-                F.floor(F.lit(right).__div__(left))
+            return F.when(SF.lit(left == 0), SF.lit(np.inf).__div__(right)).otherwise(
+                F.floor(SF.lit(right).__div__(left))
             )
 
         right = transform_boolean_operand_to_numeric(right, spark_type=left.spark.data_type)
@@ -315,9 +284,11 @@ class FractionalOps(NumericOps):
             raise TypeError("True division can not be applied to given types.")
 
         def truediv(left: Column, right: Any) -> Column:
-            return F.when(F.lit(right != 0) | F.lit(right).isNull(), left.__div__(right)).otherwise(
-                F.when(F.lit(left == np.inf) | F.lit(left == -np.inf), left).otherwise(
-                    F.lit(np.inf).__div__(left)
+            return F.when(
+                SF.lit(right != 0) | SF.lit(right).isNull(), left.__div__(right)
+            ).otherwise(
+                F.when(SF.lit(left == np.inf) | SF.lit(left == -np.inf), left).otherwise(
+                    SF.lit(np.inf).__div__(left)
                 )
             )
 
@@ -330,12 +301,12 @@ class FractionalOps(NumericOps):
             raise TypeError("Floor division can not be applied to given types.")
 
         def floordiv(left: Column, right: Any) -> Column:
-            return F.when(F.lit(right is np.nan), np.nan).otherwise(
+            return F.when(SF.lit(right is np.nan), np.nan).otherwise(
                 F.when(
-                    F.lit(right != 0) | F.lit(right).isNull(), F.floor(left.__div__(right))
+                    SF.lit(right != 0) | SF.lit(right).isNull(), F.floor(left.__div__(right))
                 ).otherwise(
-                    F.when(F.lit(left == np.inf) | F.lit(left == -np.inf), left).otherwise(
-                        F.lit(np.inf).__div__(left)
+                    F.when(SF.lit(left == np.inf) | SF.lit(left == -np.inf), left).otherwise(
+                        SF.lit(np.inf).__div__(left)
                     )
                 )
             )
@@ -349,8 +320,8 @@ class FractionalOps(NumericOps):
             raise TypeError("True division can not be applied to given types.")
 
         def rtruediv(left: Column, right: Any) -> Column:
-            return F.when(left == 0, F.lit(np.inf).__div__(right)).otherwise(
-                F.lit(right).__truediv__(left)
+            return F.when(left == 0, SF.lit(np.inf).__div__(right)).otherwise(
+                SF.lit(right).__truediv__(left)
             )
 
         right = transform_boolean_operand_to_numeric(right, spark_type=left.spark.data_type)
@@ -362,8 +333,10 @@ class FractionalOps(NumericOps):
             raise TypeError("Floor division can not be applied to given types.")
 
         def rfloordiv(left: Column, right: Any) -> Column:
-            return F.when(F.lit(left == 0), F.lit(np.inf).__div__(right)).otherwise(
-                F.when(F.lit(left) == np.nan, np.nan).otherwise(F.floor(F.lit(right).__div__(left)))
+            return F.when(SF.lit(left == 0), SF.lit(np.inf).__div__(right)).otherwise(
+                F.when(SF.lit(left) == np.nan, np.nan).otherwise(
+                    F.floor(SF.lit(right).__div__(left))
+                )
             )
 
         right = transform_boolean_operand_to_numeric(right, spark_type=left.spark.data_type)
@@ -381,7 +354,7 @@ class FractionalOps(NumericOps):
         # Special handle floating point types because Spark's count treats nan as a valid value,
         # whereas pandas count doesn't include nan.
         return index_ops._with_new_scol(
-            F.nanvl(index_ops.spark.column, F.lit(None)),
+            F.nanvl(index_ops.spark.column, SF.lit(None)),
             field=index_ops._internal.data_fields[0].copy(nullable=True),
         )
 
@@ -389,7 +362,7 @@ class FractionalOps(NumericOps):
         dtype, spark_type = pandas_on_spark_type(dtype)
 
         if is_integer_dtype(dtype) and not isinstance(dtype, extension_dtypes):
-            if get_option("compute.eager_check") and index_ops.hasnans:
+            if index_ops.hasnans:
                 raise ValueError(
                     "Cannot convert %s with missing values to integer" % self.pretty_name
                 )
@@ -402,7 +375,7 @@ class FractionalOps(NumericOps):
             else:
                 scol = F.when(
                     index_ops.spark.column.isNull() | F.isnan(index_ops.spark.column),
-                    F.lit(True),
+                    SF.lit(True),
                 ).otherwise(index_ops.spark.column.cast(spark_type))
             return index_ops._with_new_scol(
                 scol.alias(index_ops._internal.data_spark_column_names[0]),
@@ -448,28 +421,9 @@ class DecimalOps(FractionalOps):
         return index_ops.copy()
 
     def astype(self, index_ops: IndexOpsLike, dtype: Union[str, type, Dtype]) -> IndexOpsLike:
+        # TODO(SPARK-36230): check index_ops.hasnans after fixing SPARK-36230
         dtype, spark_type = pandas_on_spark_type(dtype)
-        if is_integer_dtype(dtype) and not isinstance(dtype, extension_dtypes):
-            if get_option("compute.eager_check") and index_ops.hasnans:
-                raise ValueError(
-                    "Cannot convert %s with missing values to integer" % self.pretty_name
-                )
         return _non_fractional_astype(index_ops, dtype, spark_type)
-
-    def rpow(self, left: IndexOpsLike, right: Any) -> SeriesOrIndex:
-        _sanitize_list_like(right)
-        if not isinstance(right, numbers.Number):
-            raise TypeError("Exponentiation can not be applied to given types.")
-
-        def rpow_func(left: Column, right: Any) -> Column:
-            return (
-                F.when(left.isNull(), np.nan)
-                .when(F.lit(right == 1), right)
-                .otherwise(Column.__rpow__(left, right))
-            )
-
-        right = transform_boolean_operand_to_numeric(right)
-        return column_op(rpow_func)(left, right)
 
 
 class IntegralExtensionOps(IntegralOps):
@@ -481,27 +435,21 @@ class IntegralExtensionOps(IntegralOps):
         Int8Dtype, Int16Dtype, Int32Dtype, Int64Dtype
     """
 
-    def xor(self, left: IndexOpsLike, right: Any) -> SeriesOrIndex:
-        _sanitize_list_like(right)
-        raise TypeError("XOR can not be applied to given types.")
-
     def restore(self, col: pd.Series) -> pd.Series:
         """Restore column when to_pandas."""
         return col.astype(self.dtype)
 
     def astype(self, index_ops: IndexOpsLike, dtype: Union[str, type, Dtype]) -> IndexOpsLike:
         dtype, spark_type = pandas_on_spark_type(dtype)
-        if get_option("compute.eager_check"):
-            if is_integer_dtype(dtype) and not isinstance(dtype, extension_dtypes):
-                if index_ops.hasnans:
-                    raise ValueError(
-                        "Cannot convert %s with missing values to integer" % self.pretty_name
-                    )
-            elif is_bool_dtype(dtype) and not isinstance(dtype, extension_dtypes):
-                if index_ops.hasnans:
-                    raise ValueError(
-                        "Cannot convert %s with missing values to bool" % self.pretty_name
-                    )
+
+        if is_integer_dtype(dtype) and not isinstance(dtype, extension_dtypes):
+            if index_ops.hasnans:
+                raise ValueError(
+                    "Cannot convert %s with missing values to integer" % self.pretty_name
+                )
+        elif is_bool_dtype(dtype) and not isinstance(dtype, extension_dtypes):
+            if index_ops.hasnans:
+                raise ValueError("Cannot convert %s with missing values to bool" % self.pretty_name)
         return _non_fractional_astype(index_ops, dtype, spark_type)
 
 
@@ -520,17 +468,15 @@ class FractionalExtensionOps(FractionalOps):
 
     def astype(self, index_ops: IndexOpsLike, dtype: Union[str, type, Dtype]) -> IndexOpsLike:
         dtype, spark_type = pandas_on_spark_type(dtype)
-        if get_option("compute.eager_check"):
-            if is_integer_dtype(dtype) and not isinstance(dtype, extension_dtypes):
-                if index_ops.hasnans:
-                    raise ValueError(
-                        "Cannot convert %s with missing values to integer" % self.pretty_name
-                    )
-            elif is_bool_dtype(dtype) and not isinstance(dtype, extension_dtypes):
-                if index_ops.hasnans:
-                    raise ValueError(
-                        "Cannot convert %s with missing values to bool" % self.pretty_name
-                    )
+
+        if is_integer_dtype(dtype) and not isinstance(dtype, extension_dtypes):
+            if index_ops.hasnans:
+                raise ValueError(
+                    "Cannot convert %s with missing values to integer" % self.pretty_name
+                )
+        elif is_bool_dtype(dtype) and not isinstance(dtype, extension_dtypes):
+            if index_ops.hasnans:
+                raise ValueError("Cannot convert %s with missing values to bool" % self.pretty_name)
 
         if isinstance(dtype, CategoricalDtype):
             return _as_categorical_type(index_ops, dtype, spark_type)
@@ -540,7 +486,7 @@ class FractionalExtensionOps(FractionalOps):
             else:
                 scol = F.when(
                     index_ops.spark.column.isNull() | F.isnan(index_ops.spark.column),
-                    F.lit(True),
+                    SF.lit(True),
                 ).otherwise(index_ops.spark.column.cast(spark_type))
             return index_ops._with_new_scol(
                 scol.alias(index_ops._internal.data_spark_column_names[0]),

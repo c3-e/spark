@@ -71,6 +71,14 @@ private final case class ShuffledRowRDDPartition(
   index: Int, spec: ShufflePartitionSpec) extends Partition
 
 /**
+ * A dummy partitioner for use with records whose partition ids have been pre-computed (i.e. for
+ * use on RDDs of (Int, Row) pairs where the Int is a partition id in the expected range).
+ */
+private class PartitionIdPassthrough(override val numPartitions: Int) extends Partitioner {
+  override def getPartition(key: Any): Int = key.asInstanceOf[Int]
+}
+
+/**
  * A Partitioner that might group together one or more partitions from the parent.
  *
  * @param parent a parent partitioner
@@ -85,7 +93,7 @@ class CoalescedPartitioner(val parent: Partitioner, val partitionStartIndices: A
   @transient private lazy val parentPartitionMapping: Array[Int] = {
     val n = parent.numPartitions
     val result = new Array[Int](n)
-    for (i <- partitionStartIndices.indices) {
+    for (i <- 0 until partitionStartIndices.length) {
       val start = partitionStartIndices(i)
       val end = if (i < partitionStartIndices.length - 1) partitionStartIndices(i + 1) else n
       for (j <- start until end) {

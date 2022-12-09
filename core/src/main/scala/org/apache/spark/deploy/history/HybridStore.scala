@@ -32,15 +32,15 @@ import org.apache.spark.util.kvstore._
  *
  * When rebuilding the application state from event logs, HybridStore will
  * write data to InMemoryStore at first and use a background thread to dump
- * data to a disk-based KVStore once the app store is restored. We don't expect write
- * operations (except the case for caching) after calling switch to the disk-based KVStore.
+ * data to LevelDB once the app store is restored. We don't expect write
+ * operations (except the case for caching) after calling switch to level DB.
  */
 
 private[history] class HybridStore extends KVStore {
 
   private val inMemoryStore = new InMemoryStore()
 
-  private var diskStore: KVStore = null
+  private var levelDB: LevelDB = null
 
   // Flag to indicate whether we should use inMemoryStore or levelDB
   private val shouldUseInMemoryStore = new AtomicBoolean(true)
@@ -107,8 +107,8 @@ private[history] class HybridStore extends KVStore {
       }
     } finally {
       inMemoryStore.close()
-      if (diskStore != null) {
-        diskStore.close()
+      if (levelDB != null) {
+        levelDB.close()
       }
     }
   }
@@ -125,18 +125,18 @@ private[history] class HybridStore extends KVStore {
     getStore().removeAllByIndexValues(klass, index, indexValues)
   }
 
-  def setDiskStore(diskStore: KVStore): Unit = {
-    this.diskStore = diskStore
+  def setLevelDB(levelDB: LevelDB): Unit = {
+    this.levelDB = levelDB
   }
 
   /**
    * This method is called when the writing is done for inMemoryStore. A
    * background thread will be created and be started to dump data in inMemoryStore
-   * to diskStore. Once the dumping is completed, the underlying kvstore will be
-   * switched to diskStore.
+   * to levelDB. Once the dumping is completed, the underlying kvstore will be
+   * switched to levelDB.
    */
-  def switchToDiskStore(
-      listener: HybridStore.SwitchToDiskStoreListener,
+  def switchToLevelDB(
+      listener: HybridStore.SwitchToLevelDBListener,
       appId: String,
       attemptId: Option[String]): Unit = {
     if (closed.get) {
@@ -148,18 +148,14 @@ private[history] class HybridStore extends KVStore {
         for (klass <- klassMap.keys().asScala) {
           val values = Lists.newArrayList(
               inMemoryStore.view(klass).closeableIterator())
-          diskStore match {
-            case db: LevelDB => db.writeAll(values)
-            case db: RocksDB => db.writeAll(values)
-            case _ => throw new IllegalStateException("Unknown disk-based KVStore")
-          }
+          levelDB.writeAll(values)
         }
-        listener.onSwitchToDiskStoreSuccess()
+        listener.onSwitchToLevelDBSuccess()
         shouldUseInMemoryStore.set(false)
         inMemoryStore.close()
       } catch {
         case e: Exception =>
-          listener.onSwitchToDiskStoreFail(e)
+          listener.onSwitchToLevelDBFail(e)
       }
     })
     backgroundThread.setDaemon(true)
@@ -175,17 +171,17 @@ private[history] class HybridStore extends KVStore {
     if (shouldUseInMemoryStore.get) {
       inMemoryStore
     } else {
-      diskStore
+      levelDB
     }
   }
 }
 
 private[history] object HybridStore {
 
-  trait SwitchToDiskStoreListener {
+  trait SwitchToLevelDBListener {
 
-    def onSwitchToDiskStoreSuccess(): Unit
+    def onSwitchToLevelDBSuccess(): Unit
 
-    def onSwitchToDiskStoreFail(e: Exception): Unit
+    def onSwitchToLevelDBFail(e: Exception): Unit
   }
 }

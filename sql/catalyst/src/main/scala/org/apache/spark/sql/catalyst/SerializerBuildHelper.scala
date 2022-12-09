@@ -86,15 +86,6 @@ object SerializerBuildHelper {
       returnNullable = false)
   }
 
-  def createSerializerForAnyTimestamp(inputObject: Expression): Expression = {
-    StaticInvoke(
-      DateTimeUtils.getClass,
-      TimestampType,
-      "anyToMicros",
-      inputObject :: Nil,
-      returnNullable = false)
-  }
-
   def createSerializerForLocalDateTime(inputObject: Expression): Expression = {
     StaticInvoke(
       DateTimeUtils.getClass,
@@ -118,15 +109,6 @@ object SerializerBuildHelper {
       DateTimeUtils.getClass,
       DateType,
       "fromJavaDate",
-      inputObject :: Nil,
-      returnNullable = false)
-  }
-
-  def createSerializerForAnyDate(inputObject: Expression): Expression = {
-    StaticInvoke(
-      DateTimeUtils.getClass,
-      DateType,
-      "anyToDays",
       inputObject :: Nil,
       returnNullable = false)
   }

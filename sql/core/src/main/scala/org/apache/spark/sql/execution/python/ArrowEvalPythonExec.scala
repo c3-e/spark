@@ -61,7 +61,7 @@ private[spark] class BatchIterator[T](iter: Iterator[T], batchSize: Int)
  */
 case class ArrowEvalPythonExec(udfs: Seq[PythonUDF], resultAttrs: Seq[Attribute], child: SparkPlan,
     evalType: Int)
-  extends EvalPythonExec with PythonSQLMetrics {
+  extends EvalPythonExec {
 
   private val batchSize = conf.arrowMaxRecordsPerBatch
   private val sessionLocalTimeZone = conf.sessionLocalTimeZone
@@ -85,8 +85,7 @@ case class ArrowEvalPythonExec(udfs: Seq[PythonUDF], resultAttrs: Seq[Attribute]
       argOffsets,
       schema,
       sessionLocalTimeZone,
-      pythonRunnerConf,
-      pythonMetrics).compute(batchIter, context.partitionId(), context)
+      pythonRunnerConf).compute(batchIter, context.partitionId(), context)
 
     columnarBatchIter.flatMap { batch =>
       val actualDataTypes = (0 until batch.numCols()).map(i => batch.column(i).dataType())

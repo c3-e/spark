@@ -20,7 +20,6 @@ package org.apache.spark.ml.attribute
 import scala.annotation.varargs
 
 import org.apache.spark.sql.types.{DoubleType, Metadata, MetadataBuilder, NumericType, StructField}
-import org.apache.spark.util.collection.Utils
 
 /**
  * Abstract class for ML attributes.
@@ -339,7 +338,7 @@ class NominalAttribute private[ml] (
   override def isNominal: Boolean = true
 
   private lazy val valueToIndex: Map[String, Int] = {
-    values.map(Utils.toMapWithIndex(_)).getOrElse(Map.empty)
+    values.map(_.zipWithIndex.toMap).getOrElse(Map.empty)
   }
 
   /** Index of a specific value. */

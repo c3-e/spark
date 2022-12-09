@@ -46,8 +46,7 @@ object DeduplicateRelations extends Rule[LogicalPlan] {
       return newPlan
     }
     newPlan.resolveOperatorsUpWithPruning(
-      _.containsAnyPattern(JOIN, LATERAL_JOIN, AS_OF_JOIN, INTERSECT, EXCEPT, UNION, COMMAND),
-      ruleId) {
+      _.containsAnyPattern(JOIN, LATERAL_JOIN, INTERSECT, EXCEPT, UNION, COMMAND), ruleId) {
       case p: LogicalPlan if !p.childrenResolved => p
       // To resolve duplicate expression IDs for Join.
       case j @ Join(left, right, _, _, _) if !j.duplicateResolved =>
@@ -55,9 +54,6 @@ object DeduplicateRelations extends Rule[LogicalPlan] {
       // Resolve duplicate output for LateralJoin.
       case j @ LateralJoin(left, right, _, _) if right.resolved && !j.duplicateResolved =>
         j.copy(right = right.withNewPlan(dedupRight(left, right.plan)))
-      // Resolve duplicate output for AsOfJoin.
-      case j @ AsOfJoin(left, right, _, _, _, _, _) if !j.duplicateResolved =>
-        j.copy(right = dedupRight(left, right))
       // intersect/except will be rewritten to join at the beginning of optimizer. Here we need to
       // deduplicate the right side plan, so that we won't produce an invalid self-join later.
       case i @ Intersect(left, right, _) if !i.duplicateResolved =>
@@ -80,8 +76,8 @@ object DeduplicateRelations extends Rule[LogicalPlan] {
           }
         }
         u.copy(children = newChildren)
-      case merge: MergeIntoTable if !merge.duplicateResolved =>
-        merge.copy(sourceTable = dedupRight(merge.targetTable, merge.sourceTable))
+      case m @ MergeIntoTable(targetTable, sourceTable, _, _, _) if !m.duplicateResolved =>
+        m.copy(sourceTable = dedupRight(targetTable, sourceTable))
     }
   }
 
@@ -90,46 +86,44 @@ object DeduplicateRelations extends Rule[LogicalPlan] {
    * @param existingRelations the known unique relations for a LogicalPlan
    * @param plan the LogicalPlan that requires the deduplication
    * @return (the new LogicalPlan which already deduplicate all duplicated relations (if any),
-   *          whether the plan is changed or not)
+   *         all relations of the new LogicalPlan, whether the plan is changed or not)
    */
   private def renewDuplicatedRelations(
       existingRelations: mutable.HashSet[ReferenceEqualPlanWrapper],
-      plan: LogicalPlan): (LogicalPlan, Boolean) = plan match {
-    case p: LogicalPlan if p.isStreaming => (plan, false)
+      plan: LogicalPlan)
+    : (LogicalPlan, mutable.HashSet[ReferenceEqualPlanWrapper], Boolean) = plan match {
+    case p: LogicalPlan if p.isStreaming => (plan, mutable.HashSet.empty, false)
 
     case m: MultiInstanceRelation =>
       val planWrapper = ReferenceEqualPlanWrapper(m)
       if (existingRelations.contains(planWrapper)) {
         val newNode = m.newInstance()
         newNode.copyTagsFrom(m)
-        (newNode, true)
+        (newNode, mutable.HashSet.empty, true)
       } else {
-        existingRelations.add(planWrapper)
-        (m, false)
+        val mWrapper = new mutable.HashSet[ReferenceEqualPlanWrapper]()
+        mWrapper.add(planWrapper)
+        (m, mWrapper, false)
       }
 
     case plan: LogicalPlan =>
+      val relations = new mutable.HashSet[ReferenceEqualPlanWrapper]()
       var planChanged = false
       val newPlan = if (plan.children.nonEmpty) {
         val newChildren = mutable.ArrayBuffer.empty[LogicalPlan]
         for (c <- plan.children) {
-          val (renewed, changed) = renewDuplicatedRelations(existingRelations, c)
+          val (renewed, collected, changed) =
+            renewDuplicatedRelations(existingRelations ++ relations, c)
           newChildren += renewed
+          relations ++= collected
           if (changed) {
             planChanged = true
           }
         }
 
-        val planWithNewSubquery = plan.transformExpressions {
-          case subquery: SubqueryExpression =>
-            val (renewed, changed) = renewDuplicatedRelations(existingRelations, subquery.plan)
-            if (changed) planChanged = true
-            subquery.withNewPlan(renewed)
-        }
-
         if (planChanged) {
-          if (planWithNewSubquery.childrenResolved) {
-            val planWithNewChildren = planWithNewSubquery.withNewChildren(newChildren.toSeq)
+          if (plan.childrenResolved) {
+            val planWithNewChildren = plan.withNewChildren(newChildren.toSeq)
             val attrMap = AttributeMap(
               plan
                 .children
@@ -142,7 +136,7 @@ object DeduplicateRelations extends Rule[LogicalPlan] {
               planWithNewChildren.rewriteAttrs(attrMap)
             }
           } else {
-            planWithNewSubquery.withNewChildren(newChildren.toSeq)
+            plan.withNewChildren(newChildren.toSeq)
           }
         } else {
           plan
@@ -150,7 +144,16 @@ object DeduplicateRelations extends Rule[LogicalPlan] {
       } else {
         plan
       }
-      (newPlan, planChanged)
+
+      val planWithNewSubquery = newPlan.transformExpressions {
+        case subquery: SubqueryExpression =>
+          val (renewed, collected, changed) = renewDuplicatedRelations(
+            existingRelations ++ relations, subquery.plan)
+          relations ++= collected
+          if (changed) planChanged = true
+          subquery.withNewPlan(renewed)
+      }
+      (planWithNewSubquery, relations, planChanged)
   }
 
   /**
@@ -234,12 +237,6 @@ object DeduplicateRelations extends Rule[LogicalPlan] {
         Seq((oldVersion, newVersion))
 
       case oldVersion @ MapInPandas(_, output, _)
-        if oldVersion.outputSet.intersect(conflictingAttributes).nonEmpty =>
-        val newVersion = oldVersion.copy(output = output.map(_.newInstance()))
-        newVersion.copyTagsFrom(oldVersion)
-        Seq((oldVersion, newVersion))
-
-      case oldVersion @ PythonMapInArrow(_, output, _)
         if oldVersion.outputSet.intersect(conflictingAttributes).nonEmpty =>
         val newVersion = oldVersion.copy(output = output.map(_.newInstance()))
         newVersion.copyTagsFrom(oldVersion)

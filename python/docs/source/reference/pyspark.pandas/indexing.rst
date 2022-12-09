@@ -240,7 +240,6 @@ MultiIndex Properties
    MultiIndex.nlevels
    MultiIndex.levshape
    MultiIndex.values
-   MultiIndex.dtypes
 
 MultiIndex components
 ~~~~~~~~~~~~~~~~~~~~~
@@ -270,7 +269,6 @@ MultiIndex Modifying and computations
    :toctree: api/
 
    MultiIndex.equals
-   MultiIndex.equal_levels
    MultiIndex.identical
    MultiIndex.insert
    MultiIndex.drop
@@ -386,19 +384,3 @@ Time-specific operations
    DatetimeIndex.ceil
    DatetimeIndex.month_name
    DatetimeIndex.day_name
-
-TimedeltaIndex
---------------
-.. autosummary::
-   :toctree: api/
-
-   TimedeltaIndex
-
-Components
-~~~~~~~~~~
-.. autosummary::
-   :toctree: api/
-
-   TimedeltaIndex.days
-   TimedeltaIndex.seconds
-   TimedeltaIndex.microseconds

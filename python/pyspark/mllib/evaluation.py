@@ -15,25 +15,15 @@
 # limitations under the License.
 #
 
-from typing import Generic, List, Optional, Tuple, TypeVar, Union
-
 import sys
 
 from pyspark import since
-from pyspark.rdd import RDD
 from pyspark.mllib.common import JavaModelWrapper, callMLlibFunc
-from pyspark.mllib.linalg import Matrix
 from pyspark.sql import SQLContext
-from pyspark.sql.types import ArrayType, DoubleType, StructField, StructType
+from pyspark.sql.types import ArrayType, StructField, StructType, DoubleType
 
-__all__ = [
-    "BinaryClassificationMetrics",
-    "RegressionMetrics",
-    "MulticlassMetrics",
-    "RankingMetrics",
-]
-
-T = TypeVar("T")
+__all__ = ['BinaryClassificationMetrics', 'RegressionMetrics',
+           'MulticlassMetrics', 'RankingMetrics']
 
 
 class BinaryClassificationMetrics(JavaModelWrapper):
@@ -67,43 +57,39 @@ class BinaryClassificationMetrics(JavaModelWrapper):
     0.88...
     """
 
-    def __init__(self, scoreAndLabels: RDD[Tuple[float, float]]):
+    def __init__(self, scoreAndLabels):
         sc = scoreAndLabels.ctx
         sql_ctx = SQLContext.getOrCreate(sc)
         numCol = len(scoreAndLabels.first())
-        schema = StructType(
-            [
-                StructField("score", DoubleType(), nullable=False),
-                StructField("label", DoubleType(), nullable=False),
-            ]
-        )
+        schema = StructType([
+            StructField("score", DoubleType(), nullable=False),
+            StructField("label", DoubleType(), nullable=False)])
         if numCol == 3:
             schema.add("weight", DoubleType(), False)
         df = sql_ctx.createDataFrame(scoreAndLabels, schema=schema)
-        assert sc._jvm is not None
         java_class = sc._jvm.org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
         java_model = java_class(df._jdf)
         super(BinaryClassificationMetrics, self).__init__(java_model)
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def areaUnderROC(self) -> float:
+    @property
+    @since('1.4.0')
+    def areaUnderROC(self):
         """
         Computes the area under the receiver operating characteristic
         (ROC) curve.
         """
         return self.call("areaUnderROC")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def areaUnderPR(self) -> float:
+    @property
+    @since('1.4.0')
+    def areaUnderPR(self):
         """
         Computes the area under the precision-recall curve.
         """
         return self.call("areaUnderPR")
 
-    @since("1.4.0")
-    def unpersist(self) -> None:
+    @since('1.4.0')
+    def unpersist(self):
         """
         Unpersists intermediate RDDs used in the computation.
         """
@@ -143,63 +129,59 @@ class RegressionMetrics(JavaModelWrapper):
     0.68...
     """
 
-    def __init__(self, predictionAndObservations: RDD[Tuple[float, float]]):
+    def __init__(self, predictionAndObservations):
         sc = predictionAndObservations.ctx
         sql_ctx = SQLContext.getOrCreate(sc)
         numCol = len(predictionAndObservations.first())
-        schema = StructType(
-            [
-                StructField("prediction", DoubleType(), nullable=False),
-                StructField("observation", DoubleType(), nullable=False),
-            ]
-        )
+        schema = StructType([
+            StructField("prediction", DoubleType(), nullable=False),
+            StructField("observation", DoubleType(), nullable=False)])
         if numCol == 3:
             schema.add("weight", DoubleType(), False)
         df = sql_ctx.createDataFrame(predictionAndObservations, schema=schema)
-        assert sc._jvm is not None
         java_class = sc._jvm.org.apache.spark.mllib.evaluation.RegressionMetrics
         java_model = java_class(df._jdf)
         super(RegressionMetrics, self).__init__(java_model)
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def explainedVariance(self) -> float:
+    @property
+    @since('1.4.0')
+    def explainedVariance(self):
         r"""
         Returns the explained variance regression score.
         explainedVariance = :math:`1 - \frac{variance(y - \hat{y})}{variance(y)}`
         """
         return self.call("explainedVariance")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def meanAbsoluteError(self) -> float:
+    @property
+    @since('1.4.0')
+    def meanAbsoluteError(self):
         """
         Returns the mean absolute error, which is a risk function corresponding to the
         expected value of the absolute error loss or l1-norm loss.
         """
         return self.call("meanAbsoluteError")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def meanSquaredError(self) -> float:
+    @property
+    @since('1.4.0')
+    def meanSquaredError(self):
         """
         Returns the mean squared error, which is a risk function corresponding to the
         expected value of the squared error loss or quadratic loss.
         """
         return self.call("meanSquaredError")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def rootMeanSquaredError(self) -> float:
+    @property
+    @since('1.4.0')
+    def rootMeanSquaredError(self):
         """
         Returns the root mean squared error, which is defined as the square root of
         the mean squared error.
         """
         return self.call("rootMeanSquaredError")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def r2(self) -> float:
+    @property
+    @since('1.4.0')
+    def r2(self):
         """
         Returns R^2^, the coefficient of determination.
         """
@@ -282,64 +264,60 @@ class MulticlassMetrics(JavaModelWrapper):
     0.9682...
     """
 
-    def __init__(self, predictionAndLabels: RDD[Tuple[float, float]]):
+    def __init__(self, predictionAndLabels):
         sc = predictionAndLabels.ctx
         sql_ctx = SQLContext.getOrCreate(sc)
         numCol = len(predictionAndLabels.first())
-        schema = StructType(
-            [
-                StructField("prediction", DoubleType(), nullable=False),
-                StructField("label", DoubleType(), nullable=False),
-            ]
-        )
+        schema = StructType([
+            StructField("prediction", DoubleType(), nullable=False),
+            StructField("label", DoubleType(), nullable=False)])
         if numCol >= 3:
             schema.add("weight", DoubleType(), False)
         if numCol == 4:
             schema.add("probability", ArrayType(DoubleType(), False), False)
         df = sql_ctx.createDataFrame(predictionAndLabels, schema)
-        assert sc._jvm is not None
         java_class = sc._jvm.org.apache.spark.mllib.evaluation.MulticlassMetrics
         java_model = java_class(df._jdf)
         super(MulticlassMetrics, self).__init__(java_model)
 
-    @since("1.4.0")
-    def confusionMatrix(self) -> Matrix:
+    @since('1.4.0')
+    def confusionMatrix(self):
         """
         Returns confusion matrix: predicted classes are in columns,
         they are ordered by class label ascending, as in "labels".
         """
         return self.call("confusionMatrix")
 
-    @since("1.4.0")
-    def truePositiveRate(self, label: float) -> float:
+    @since('1.4.0')
+    def truePositiveRate(self, label):
         """
         Returns true positive rate for a given label (category).
         """
         return self.call("truePositiveRate", label)
 
-    @since("1.4.0")
-    def falsePositiveRate(self, label: float) -> float:
+    @since('1.4.0')
+    def falsePositiveRate(self, label):
         """
         Returns false positive rate for a given label (category).
         """
         return self.call("falsePositiveRate", label)
 
-    @since("1.4.0")
-    def precision(self, label: float) -> float:
+    @since('1.4.0')
+    def precision(self, label):
         """
         Returns precision.
         """
         return self.call("precision", float(label))
 
-    @since("1.4.0")
-    def recall(self, label: float) -> float:
+    @since('1.4.0')
+    def recall(self, label):
         """
         Returns recall.
         """
         return self.call("recall", float(label))
 
-    @since("1.4.0")
-    def fMeasure(self, label: float, beta: Optional[float] = None) -> float:
+    @since('1.4.0')
+    def fMeasure(self, label, beta=None):
         """
         Returns f-measure.
         """
@@ -348,51 +326,51 @@ class MulticlassMetrics(JavaModelWrapper):
         else:
             return self.call("fMeasure", label, beta)
 
-    @property  # type: ignore[misc]
-    @since("2.0.0")
-    def accuracy(self) -> float:
+    @property
+    @since('2.0.0')
+    def accuracy(self):
         """
         Returns accuracy (equals to the total number of correctly classified instances
         out of the total number of instances).
         """
         return self.call("accuracy")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def weightedTruePositiveRate(self) -> float:
+    @property
+    @since('1.4.0')
+    def weightedTruePositiveRate(self):
         """
         Returns weighted true positive rate.
         (equals to precision, recall and f-measure)
         """
         return self.call("weightedTruePositiveRate")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def weightedFalsePositiveRate(self) -> float:
+    @property
+    @since('1.4.0')
+    def weightedFalsePositiveRate(self):
         """
         Returns weighted false positive rate.
         """
         return self.call("weightedFalsePositiveRate")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def weightedRecall(self) -> float:
+    @property
+    @since('1.4.0')
+    def weightedRecall(self):
         """
         Returns weighted averaged recall.
         (equals to precision, recall and f-measure)
         """
         return self.call("weightedRecall")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def weightedPrecision(self) -> float:
+    @property
+    @since('1.4.0')
+    def weightedPrecision(self):
         """
         Returns weighted averaged precision.
         """
         return self.call("weightedPrecision")
 
-    @since("1.4.0")
-    def weightedFMeasure(self, beta: Optional[float] = None) -> float:
+    @since('1.4.0')
+    def weightedFMeasure(self, beta=None):
         """
         Returns weighted averaged f-measure.
         """
@@ -401,15 +379,15 @@ class MulticlassMetrics(JavaModelWrapper):
         else:
             return self.call("weightedFMeasure", beta)
 
-    @since("3.0.0")
-    def logLoss(self, eps: float = 1e-15) -> float:
+    @since('3.0.0')
+    def logLoss(self, eps=1e-15):
         """
         Returns weighted logLoss.
         """
         return self.call("logLoss", eps)
 
 
-class RankingMetrics(JavaModelWrapper, Generic[T]):
+class RankingMetrics(JavaModelWrapper):
     """
     Evaluator for ranking algorithms.
 
@@ -418,10 +396,7 @@ class RankingMetrics(JavaModelWrapper, Generic[T]):
     Parameters
     ----------
     predictionAndLabels : :py:class:`pyspark.RDD`
-        an RDD of (predicted ranking, ground truth set) pairs
-        or (predicted ranking, ground truth set,
-        relevance value of ground truth set).
-        Since 3.4.0, it supports ndcg evaluation with relevance value.
+        an RDD of (predicted ranking, ground truth set) pairs.
 
     Examples
     --------
@@ -454,22 +429,16 @@ class RankingMetrics(JavaModelWrapper, Generic[T]):
     0.66...
     """
 
-    def __init__(
-        self,
-        predictionAndLabels: Union[
-            RDD[Tuple[List[T], List[T]]], RDD[Tuple[List[T], List[T], List[float]]]
-        ],
-    ):
+    def __init__(self, predictionAndLabels):
         sc = predictionAndLabels.ctx
         sql_ctx = SQLContext.getOrCreate(sc)
-        df = sql_ctx.createDataFrame(
-            predictionAndLabels, schema=sql_ctx._inferSchema(predictionAndLabels)
-        )
+        df = sql_ctx.createDataFrame(predictionAndLabels,
+                                     schema=sql_ctx._inferSchema(predictionAndLabels))
         java_model = callMLlibFunc("newRankingMetrics", df._jdf)
         super(RankingMetrics, self).__init__(java_model)
 
-    @since("1.4.0")
-    def precisionAt(self, k: int) -> float:
+    @since('1.4.0')
+    def precisionAt(self, k):
         """
         Compute the average precision of all the queries, truncated at ranking position k.
 
@@ -482,9 +451,9 @@ class RankingMetrics(JavaModelWrapper, Generic[T]):
         """
         return self.call("precisionAt", int(k))
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def meanAveragePrecision(self) -> float:
+    @property
+    @since('1.4.0')
+    def meanAveragePrecision(self):
         """
         Returns the mean average precision (MAP) of all the queries.
         If a query has an empty ground truth set, the average precision will be zero and
@@ -492,8 +461,8 @@ class RankingMetrics(JavaModelWrapper, Generic[T]):
         """
         return self.call("meanAveragePrecision")
 
-    @since("3.0.0")
-    def meanAveragePrecisionAt(self, k: int) -> float:
+    @since('3.0.0')
+    def meanAveragePrecisionAt(self, k):
         """
         Returns the mean average precision (MAP) at first k ranking of all the queries.
         If a query has an empty ground truth set, the average precision will be zero and
@@ -501,8 +470,8 @@ class RankingMetrics(JavaModelWrapper, Generic[T]):
         """
         return self.call("meanAveragePrecisionAt", int(k))
 
-    @since("1.4.0")
-    def ndcgAt(self, k: int) -> float:
+    @since('1.4.0')
+    def ndcgAt(self, k):
         """
         Compute the average NDCG value of all the queries, truncated at ranking position k.
         The discounted cumulative gain at position k is computed as:
@@ -514,8 +483,8 @@ class RankingMetrics(JavaModelWrapper, Generic[T]):
         """
         return self.call("ndcgAt", int(k))
 
-    @since("3.0.0")
-    def recallAt(self, k: int) -> float:
+    @since('3.0.0')
+    def recallAt(self, k):
         """
         Compute the average recall of all the queries, truncated at ranking position k.
 
@@ -573,19 +542,17 @@ class MultilabelMetrics(JavaModelWrapper):
     0.54...
     """
 
-    def __init__(self, predictionAndLabels: RDD[Tuple[List[float], List[float]]]):
+    def __init__(self, predictionAndLabels):
         sc = predictionAndLabels.ctx
         sql_ctx = SQLContext.getOrCreate(sc)
-        df = sql_ctx.createDataFrame(
-            predictionAndLabels, schema=sql_ctx._inferSchema(predictionAndLabels)
-        )
-        assert sc._jvm is not None
+        df = sql_ctx.createDataFrame(predictionAndLabels,
+                                     schema=sql_ctx._inferSchema(predictionAndLabels))
         java_class = sc._jvm.org.apache.spark.mllib.evaluation.MultilabelMetrics
         java_model = java_class(df._jdf)
         super(MultilabelMetrics, self).__init__(java_model)
 
-    @since("1.4.0")
-    def precision(self, label: Optional[float] = None) -> float:
+    @since('1.4.0')
+    def precision(self, label=None):
         """
         Returns precision or precision for a given label (category) if specified.
         """
@@ -594,8 +561,8 @@ class MultilabelMetrics(JavaModelWrapper):
         else:
             return self.call("precision", float(label))
 
-    @since("1.4.0")
-    def recall(self, label: Optional[float] = None) -> float:
+    @since('1.4.0')
+    def recall(self, label=None):
         """
         Returns recall or recall for a given label (category) if specified.
         """
@@ -604,8 +571,8 @@ class MultilabelMetrics(JavaModelWrapper):
         else:
             return self.call("recall", float(label))
 
-    @since("1.4.0")
-    def f1Measure(self, label: Optional[float] = None) -> float:
+    @since('1.4.0')
+    def f1Measure(self, label=None):
         """
         Returns f1Measure or f1Measure for a given label (category) if specified.
         """
@@ -614,73 +581,75 @@ class MultilabelMetrics(JavaModelWrapper):
         else:
             return self.call("f1Measure", float(label))
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def microPrecision(self) -> float:
+    @property
+    @since('1.4.0')
+    def microPrecision(self):
         """
         Returns micro-averaged label-based precision.
         (equals to micro-averaged document-based precision)
         """
         return self.call("microPrecision")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def microRecall(self) -> float:
+    @property
+    @since('1.4.0')
+    def microRecall(self):
         """
         Returns micro-averaged label-based recall.
         (equals to micro-averaged document-based recall)
         """
         return self.call("microRecall")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def microF1Measure(self) -> float:
+    @property
+    @since('1.4.0')
+    def microF1Measure(self):
         """
         Returns micro-averaged label-based f1-measure.
         (equals to micro-averaged document-based f1-measure)
         """
         return self.call("microF1Measure")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def hammingLoss(self) -> float:
+    @property
+    @since('1.4.0')
+    def hammingLoss(self):
         """
         Returns Hamming-loss.
         """
         return self.call("hammingLoss")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def subsetAccuracy(self) -> float:
+    @property
+    @since('1.4.0')
+    def subsetAccuracy(self):
         """
         Returns subset accuracy.
         (for equal sets of labels)
         """
         return self.call("subsetAccuracy")
 
-    @property  # type: ignore[misc]
-    @since("1.4.0")
-    def accuracy(self) -> float:
+    @property
+    @since('1.4.0')
+    def accuracy(self):
         """
         Returns accuracy.
         """
         return self.call("accuracy")
 
 
-def _test() -> None:
+def _test():
     import doctest
     import numpy
     from pyspark.sql import SparkSession
     import pyspark.mllib.evaluation
-
     try:
         # Numpy 1.14+ changed it's string format.
-        numpy.set_printoptions(legacy="1.13")
+        numpy.set_printoptions(legacy='1.13')
     except TypeError:
         pass
     globs = pyspark.mllib.evaluation.__dict__.copy()
-    spark = SparkSession.builder.master("local[4]").appName("mllib.evaluation tests").getOrCreate()
-    globs["sc"] = spark.sparkContext
+    spark = SparkSession.builder\
+        .master("local[4]")\
+        .appName("mllib.evaluation tests")\
+        .getOrCreate()
+    globs['sc'] = spark.sparkContext
     (failure_count, test_count) = doctest.testmod(globs=globs, optionflags=doctest.ELLIPSIS)
     spark.stop()
     if failure_count:

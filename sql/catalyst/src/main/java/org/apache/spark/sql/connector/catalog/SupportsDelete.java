@@ -18,8 +18,6 @@
 package org.apache.spark.sql.connector.catalog;
 
 import org.apache.spark.annotation.Evolving;
-import org.apache.spark.sql.connector.expressions.filter.Predicate;
-import org.apache.spark.sql.internal.connector.PredicateUtils;
 import org.apache.spark.sql.sources.AlwaysTrue;
 import org.apache.spark.sql.sources.Filter;
 
@@ -30,7 +28,7 @@ import org.apache.spark.sql.sources.Filter;
  * @since 3.0.0
  */
 @Evolving
-public interface SupportsDelete extends SupportsDeleteV2 {
+public interface SupportsDelete extends TruncatableTable {
 
   /**
    * Checks whether it is possible to delete data from a data source table that matches filter
@@ -71,16 +69,6 @@ public interface SupportsDelete extends SupportsDeleteV2 {
    * @throws IllegalArgumentException If the delete is rejected due to required effort
    */
   void deleteWhere(Filter[] filters);
-
-  default boolean canDeleteWhere(Predicate[] predicates) {
-    Filter[] v1Filters = PredicateUtils.toV1(predicates);
-    if (v1Filters.length < predicates.length) return false;
-    return this.canDeleteWhere(v1Filters);
-  }
-
-  default void deleteWhere(Predicate[] predicates) {
-    this.deleteWhere(PredicateUtils.toV1(predicates));
-  }
 
   @Override
   default boolean truncateTable() {

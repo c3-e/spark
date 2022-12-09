@@ -34,12 +34,10 @@ import scala.util.{Failure, Random, Success, Try}
 import scala.util.control.NonFatal
 
 import com.codahale.metrics.{MetricRegistry, MetricSet}
-import com.esotericsoftware.kryo.KryoException
 import com.google.common.cache.CacheBuilder
 import org.apache.commons.io.IOUtils
 
 import org.apache.spark._
-import org.apache.spark.errors.SparkCoreErrors
 import org.apache.spark.executor.DataReadMethod
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config
@@ -259,9 +257,7 @@ private[spark] class BlockManager(
   // specified memory threshold. Files will be deleted automatically based on weak reference.
   // Exposed for test
   private[storage] val remoteBlockTempFileManager =
-    new BlockManager.RemoteBlockDownloadFileManager(
-      this,
-      securityManager.getIOEncryptionKey())
+    new BlockManager.RemoteBlockDownloadFileManager(this)
   private val maxRemoteBlockToMem = conf.get(config.MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM)
 
   var hostLocalDirManager: Option[HostLocalDirManager] = None
@@ -274,7 +270,7 @@ private[spark] class BlockManager(
     // Don't reject broadcast blocks since they may be stored during task exec and
     // don't need to be migrated.
     if (isDecommissioning() && !blockId.isBroadcast) {
-      throw SparkCoreErrors.cannotSaveBlockOnDecommissionedExecutorError(blockId)
+        throw new BlockSavedOnDecommissionedBlockManagerException(blockId)
     }
   }
 
@@ -343,10 +339,6 @@ private[spark] class BlockManager(
             iter.close()
             false
         }
-      } catch {
-        case ex: KryoException if ex.getCause.isInstanceOf[IOException] =>
-          logInfo(extendMessageWithBlockDetails(ex.getMessage, blockId))
-          throw ex
       } finally {
         IOUtils.closeQuietly(inputStream)
       }
@@ -421,7 +413,8 @@ private[spark] class BlockManager(
           try {
             ThreadUtils.awaitReady(replicationFuture, Duration.Inf)
           } catch {
-            case NonFatal(t) => throw SparkCoreErrors.waitingForReplicationToFinishError(t)
+            case NonFatal(t) =>
+              throw new SparkException("Error occurred while waiting for replication to finish", t)
           }
         }
         if (blockWasSuccessfullyStored) {
@@ -514,27 +507,9 @@ private[spark] class BlockManager(
       ret
     }
 
-    // Register Executors' configuration with the local shuffle service, if one should exist.
-    // Registration with the ESS should happen before registering the block manager with the
-    // BlockManagerMaster. In push-based shuffle, the registered BM is selected by the driver
-    // as a merger. However, for the ESS on this host to be able to merge blocks successfully,
-    // it needs the merge directories metadata which is provided by the local executor during
-    // the registration with the ESS. Therefore, this registration should be prior to
-    // the BlockManager registration. See SPARK-39647.
-    if (externalShuffleServiceEnabled) {
-      logInfo(s"external shuffle service port = $externalShuffleServicePort")
-      shuffleServerId = BlockManagerId(executorId, blockTransferService.hostName,
-        externalShuffleServicePort)
-      if (!isDriver) {
-        registerWithExternalShuffleServer()
-      }
-    }
-
     val id =
       BlockManagerId(executorId, blockTransferService.hostName, blockTransferService.port, None)
 
-    // The idFromMaster has just additional topology information. Otherwise, it has the same
-    // executor id/host/port of idWithoutTopologyInfo which is not expected to be changed.
     val idFromMaster = master.registerBlockManager(
       id,
       diskBlockManager.localDirsString,
@@ -544,8 +519,16 @@ private[spark] class BlockManager(
 
     blockManagerId = if (idFromMaster != null) idFromMaster else id
 
-    if (!externalShuffleServiceEnabled) {
-      shuffleServerId = blockManagerId
+    shuffleServerId = if (externalShuffleServiceEnabled) {
+      logInfo(s"external shuffle service port = $externalShuffleServicePort")
+      BlockManagerId(executorId, blockTransferService.hostName, externalShuffleServicePort)
+    } else {
+      blockManagerId
+    }
+
+    // Register Executors' configuration with the local shuffle service, if one should exist.
+    if (externalShuffleServiceEnabled && !blockManagerId.isDriver) {
+      registerWithExternalShuffleServer()
     }
 
     hostLocalDirManager = {
@@ -602,7 +585,9 @@ private[spark] class BlockManager(
           logError(s"Failed to connect to external shuffle server, will retry ${MAX_ATTEMPTS - i}"
             + s" more times after waiting $SLEEP_TIME_SECS seconds...", e)
           Thread.sleep(SLEEP_TIME_SECS * 1000L)
-        case NonFatal(e) => throw SparkCoreErrors.unableToRegisterWithExternalShuffleServerError(e)
+        case NonFatal(e) =>
+          throw new SparkException("Unable to register with external shuffle server due to : " +
+            e.getMessage, e)
       }
     }
   }
@@ -670,7 +655,7 @@ private[spark] class BlockManager(
         ThreadUtils.awaitReady(task, Duration.Inf)
       } catch {
         case NonFatal(t) =>
-          throw SparkCoreErrors.waitingForAsyncReregistrationError(t)
+          throw new Exception("Error occurred while waiting for async. reregistration", t)
       }
     }
   }
@@ -707,7 +692,7 @@ private[spark] class BlockManager(
           // likely that the master has outdated block statuses for this block. Therefore, we send
           // an RPC so that this block is marked as being unavailable from this block manager.
           reportBlockStatus(blockId, BlockStatus.empty)
-          throw SparkCoreErrors.blockNotFoundError(blockId)
+          throw new BlockNotFoundException(blockId.toString)
       }
     }
   }
@@ -738,9 +723,9 @@ private[spark] class BlockManager(
       try {
         return migratableResolver.putShuffleBlockAsStream(blockId, serializerManager)
       } catch {
-        case e: ClassCastException =>
-          throw SparkCoreErrors.unexpectedShuffleBlockWithUnsupportedResolverError(shuffleManager,
-            blockId)
+        case e: ClassCastException => throw new SparkException(
+          s"Unexpected shuffle block ${blockId} with unsupported shuffle " +
+          s"resolver ${shuffleManager.shuffleBlockResolver}")
       }
     }
     logDebug(s"Putting regular block ${blockId}")
@@ -768,7 +753,7 @@ private[spark] class BlockManager(
         val blockStored = TempFileBasedBlockStoreUpdater(
           blockId, level, classTag, tmpFile, blockSize).save()
         if (!blockStored) {
-          throw SparkCoreErrors.failToStoreBlockOnBlockManagerError(blockManagerId, blockId)
+          throw new Exception(s"Failure while trying to store block $blockId on $blockManagerId.")
         }
       }
 
@@ -910,12 +895,8 @@ private[spark] class BlockManager(
     releaseLock(blockId)
     // Remove the missing block so that its unavailability is reported to the driver
     removeBlock(blockId)
-    throw SparkCoreErrors.readLockedBlockNotFoundError(blockId)
+    throw new SparkException(s"Block $blockId was not found even though it's read-locked")
   }
-
-  private def isIORelatedException(t: Throwable): Boolean =
-    t.isInstanceOf[IOException] ||
-      (t.isInstanceOf[KryoException] && t.getCause.isInstanceOf[IOException])
 
   /**
    * Get block from local block manager as an iterator of Java objects.
@@ -945,10 +926,9 @@ private[spark] class BlockManager(
           })
           Some(new BlockResult(ci, DataReadMethod.Memory, info.size))
         } else if (level.useDisk && diskStore.contains(blockId)) {
-          var diskData: BlockData = null
-          try {
-            diskData = diskStore.getBytes(blockId)
-            val iterToReturn = if (level.deserialized) {
+          val diskData = diskStore.getBytes(blockId)
+          val iterToReturn: Iterator[Any] = {
+            if (level.deserialized) {
               val diskValues = serializerManager.dataDeserializeStream(
                 blockId,
                 diskData.toInputStream())(info.classTag)
@@ -959,41 +939,14 @@ private[spark] class BlockManager(
                 .getOrElse { diskData.toInputStream() }
               serializerManager.dataDeserializeStream(blockId, stream)(info.classTag)
             }
-            val ci = CompletionIterator[Any, Iterator[Any]](iterToReturn, {
-              releaseLockAndDispose(blockId, diskData, taskContext)
-            })
-            Some(new BlockResult(ci, DataReadMethod.Disk, info.size))
-          } catch {
-            case t: Throwable =>
-              if (diskData != null) {
-                diskData.dispose()
-                diskData = null
-              }
-              releaseLock(blockId, taskContext)
-              if (isIORelatedException(t)) {
-                logInfo(extendMessageWithBlockDetails(t.getMessage, blockId))
-                // Remove the block so that its unavailability is reported to the driver
-                removeBlock(blockId)
-              }
-              throw t
           }
+          val ci = CompletionIterator[Any, Iterator[Any]](iterToReturn, {
+            releaseLockAndDispose(blockId, diskData, taskContext)
+          })
+          Some(new BlockResult(ci, DataReadMethod.Disk, info.size))
         } else {
           handleLocalReadFailure(blockId)
         }
-    }
-  }
-
-  /**
-   *  We need to have detailed log message to catch environmental problems easily.
-   *  Further details: https://issues.apache.org/jira/browse/SPARK-37710
-   */
-   private def extendMessageWithBlockDetails(msg: String, blockId: BlockId): String = {
-    val message: String = "%s. %s - blockId: %s".format(msg, blockManagerId.toString, blockId)
-    val file = diskBlockManager.getFile(blockId)
-    if (file.exists()) {
-      "%s - blockDiskPath: %s".format(message, file.getAbsolutePath)
-    } else {
-      message
     }
   }
 
@@ -1165,8 +1118,7 @@ private[spark] class BlockManager(
         val buf = blockTransferService.fetchBlockSync(loc.host, loc.port, loc.executorId,
           blockId.toString, tempFileManager)
         if (blockSize > 0 && buf.size() == 0) {
-          throw new IllegalStateException("Empty buffer received for non empty block " +
-            s"when fetching remote block $blockId from $loc")
+          throw new IllegalStateException("Empty buffer received for non empty block")
         }
         buf
       } catch {
@@ -1178,8 +1130,7 @@ private[spark] class BlockManager(
             // Give up trying anymore locations. Either we've tried all of the original locations,
             // or we've refreshed the list of locations from the master, and have still
             // hit failures after trying locations from the refreshed list.
-            logWarning(s"Failed to fetch remote block $blockId " +
-              s"from [${locations.mkString(", ")}] after $totalFailureCount fetch failures. " +
+            logWarning(s"Failed to fetch block after $totalFailureCount fetch failures. " +
               s"Most recent failure cause:", e)
             return None
           }
@@ -1349,7 +1300,7 @@ private[spark] class BlockManager(
           // Since we held a read lock between the doPut() and get() calls, the block should not
           // have been evicted, so get() not returning the block indicates some internal error.
           releaseLock(blockId)
-          throw SparkCoreErrors.failToGetBlockWithLockError(blockId)
+          throw new SparkException(s"get() failed for block $blockId even though we held a lock")
         }
         // We already hold a read lock on the block from the doPut() call and getLocalValues()
         // acquires the lock again, so we need to call releaseLock() here so that the net number
@@ -1841,7 +1792,7 @@ private[spark] class BlockManager(
     }
 
     logDebug(s"block $blockId replicated to ${peersReplicatedTo.mkString(", ")}")
-    true
+    return true
   }
 
   /**
@@ -1894,7 +1845,7 @@ private[spark] class BlockManager(
             serializerManager.dataSerializeStream(
               blockId,
               out,
-              elements.iterator)(info.classTag.asInstanceOf[ClassTag[T]])
+              elements.toIterator)(info.classTag.asInstanceOf[ClassTag[T]])
           }
         case Right(bytes) =>
           diskStore.putBytes(blockId, bytes)
@@ -1991,32 +1942,23 @@ private[spark] class BlockManager(
    * lock on the block.
    */
   private def removeBlockInternal(blockId: BlockId, tellMaster: Boolean): Unit = {
-    var hasRemoveBlock = false
-    try {
-      val blockStatus = if (tellMaster) {
-        val blockInfo = blockInfoManager.assertBlockIsLockedForWriting(blockId)
-        Some(getCurrentBlockStatus(blockId, blockInfo))
-      } else None
+    val blockStatus = if (tellMaster) {
+      val blockInfo = blockInfoManager.assertBlockIsLockedForWriting(blockId)
+      Some(getCurrentBlockStatus(blockId, blockInfo))
+    } else None
 
-      // Removals are idempotent in disk store and memory store. At worst, we get a warning.
-      val removedFromMemory = memoryStore.remove(blockId)
-      val removedFromDisk = diskStore.remove(blockId)
-      if (!removedFromMemory && !removedFromDisk) {
-        logWarning(s"Block $blockId could not be removed as it was not found on disk or in memory")
-      }
+    // Removals are idempotent in disk store and memory store. At worst, we get a warning.
+    val removedFromMemory = memoryStore.remove(blockId)
+    val removedFromDisk = diskStore.remove(blockId)
+    if (!removedFromMemory && !removedFromDisk) {
+      logWarning(s"Block $blockId could not be removed as it was not found on disk or in memory")
+    }
 
-      blockInfoManager.removeBlock(blockId)
-      hasRemoveBlock = true
-      if (tellMaster) {
-        // Only update storage level from the captured block status before deleting, so that
-        // memory size and disk size are being kept for calculating delta.
-        reportBlockStatus(blockId, blockStatus.get.copy(storageLevel = StorageLevel.NONE))
-      }
-    } finally {
-      if (!hasRemoveBlock) {
-        logWarning(s"Block $blockId was not removed normally.")
-        blockInfoManager.removeBlock(blockId)
-      }
+    blockInfoManager.removeBlock(blockId)
+    if (tellMaster) {
+      // Only update storage level from the captured block status before deleting, so that
+      // memory size and disk size are being kept for calculating delta.
+      reportBlockStatus(blockId, blockStatus.get.copy(storageLevel = StorageLevel.NONE))
     }
   }
 
@@ -2071,7 +2013,7 @@ private[spark] object BlockManager {
     }
 
     val blockManagers = new HashMap[BlockId, Seq[String]]
-    for (i <- blockIds.indices) {
+    for (i <- 0 until blockIds.length) {
       blockManagers(blockIds(i)) = blockLocations(i).map { loc =>
         ExecutorCacheTaskLocation(loc.host, loc.executorId).toString
       }
@@ -2087,23 +2029,22 @@ private[spark] object BlockManager {
     metricRegistry.registerAll(metricSet)
   }
 
-  class RemoteBlockDownloadFileManager(
-       blockManager: BlockManager,
-       encryptionKey: Option[Array[Byte]])
+  class RemoteBlockDownloadFileManager(blockManager: BlockManager)
       extends DownloadFileManager with Logging {
+    // lazy because SparkEnv is set after this
+    lazy val encryptionKey = SparkEnv.get.securityManager.getIOEncryptionKey()
 
     private class ReferenceWithCleanup(
         file: DownloadFile,
         referenceQueue: JReferenceQueue[DownloadFile]
         ) extends WeakReference[DownloadFile](file, referenceQueue) {
 
-      // we cannot use `file.delete()` here otherwise it won't be garbage-collected
       val filePath = file.path()
 
       def cleanUp(): Unit = {
         logDebug(s"Clean up file $filePath")
 
-        if (!new File(filePath).delete()) {
+        if (!file.delete()) {
           logDebug(s"Fail to delete file $filePath")
         }
       }

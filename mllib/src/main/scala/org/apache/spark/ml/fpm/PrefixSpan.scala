@@ -154,7 +154,7 @@ final class PrefixSpan(@Since("2.4.0") override val uid: String) extends Params 
       .setMaxLocalProjDBSize($(maxLocalProjDBSize))
 
     val rows = mllibPrefixSpan.run(sequences).freqSequences.map(f => Row(f.sequence, f.freq))
-    val schema = StructType(Array(
+    val schema = StructType(Seq(
       StructField("sequence", dataset.schema(sequenceColParam).dataType, nullable = false),
       StructField("freq", LongType, nullable = false)))
     val freqSequences = dataset.sparkSession.createDataFrame(rows, schema)

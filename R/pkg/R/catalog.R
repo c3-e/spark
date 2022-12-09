@@ -17,66 +17,6 @@
 
 # catalog.R: SparkSession catalog functions
 
-#' Returns the current default catalog
-#'
-#' Returns the current default catalog.
-#'
-#' @return name of the current default catalog.
-#' @rdname currentCatalog
-#' @name currentCatalog
-#' @examples
-#' \dontrun{
-#' sparkR.session()
-#' currentCatalog()
-#' }
-#' @note since 3.4.0
-currentCatalog <- function() {
-  sparkSession <- getSparkSession()
-  catalog <- callJMethod(sparkSession, "catalog")
-  callJMethod(catalog, "currentCatalog")
-}
-
-#' Sets the current default catalog
-#'
-#' Sets the current default catalog.
-#'
-#' @param catalogName name of the catalog
-#' @rdname setCurrentCatalog
-#' @name setCurrentCatalog
-#' @examples
-#' \dontrun{
-#' sparkR.session()
-#' setCurrentCatalog("spark_catalog")
-#' }
-#' @note since 3.4.0
-setCurrentCatalog <- function(catalogName) {
-  sparkSession <- getSparkSession()
-  if (class(catalogName) != "character") {
-    stop("catalogName must be a string.")
-  }
-  catalog <- callJMethod(sparkSession, "catalog")
-  invisible(handledCallJMethod(catalog, "setCurrentCatalog", catalogName))
-}
-
-#' Returns a list of catalog available
-#'
-#' Returns a list of catalog available.
-#'
-#' @return a SparkDataFrame of the list of catalog.
-#' @rdname listCatalogs
-#' @name listCatalogs
-#' @examples
-#' \dontrun{
-#' sparkR.session()
-#' listCatalogs()
-#' }
-#' @note since 3.4.0
-listCatalogs <- function() {
-  sparkSession <- getSparkSession()
-  catalog <- callJMethod(sparkSession, "catalog")
-  dataFrame(callJMethod(callJMethod(catalog, "listCatalogs"), "toDF"))
-}
-
 #' (Deprecated) Create an external table
 #'
 #' Creates an external table based on the dataset in a data source,
@@ -118,7 +58,6 @@ createExternalTable <- function(tableName, path = NULL, source = NULL, schema = 
 #'
 #' @param tableName the qualified or unqualified name that designates a table. If no database
 #'                  identifier is provided, it refers to a table in the current database.
-#'                  The table name can be fully qualified with catalog name since 3.4.0.
 #' @param path (optional) the path of files to load.
 #' @param source (optional) the name of the data source.
 #' @param schema (optional) the schema of the data required for some data sources.
@@ -130,7 +69,7 @@ createExternalTable <- function(tableName, path = NULL, source = NULL, schema = 
 #' sparkR.session()
 #' df <- createTable("myjson", path="path/to/json", source="json", schema)
 #'
-#' createTable("spark_catalog.default.people", source = "json", schema = schema)
+#' createTable("people", source = "json", schema = schema)
 #' insertInto(df, "people")
 #' }
 #' @name createTable
@@ -161,7 +100,6 @@ createTable <- function(tableName, path = NULL, source = NULL, schema = NULL, ..
 #'
 #' @param tableName the qualified or unqualified name that designates a table. If no database
 #'                  identifier is provided, it refers to a table in the current database.
-#'                  The table name can be fully qualified with catalog name since 3.4.0.
 #' @return SparkDataFrame
 #' @rdname cacheTable
 #' @examples
@@ -186,7 +124,6 @@ cacheTable <- function(tableName) {
 #'
 #' @param tableName the qualified or unqualified name that designates a table. If no database
 #'                  identifier is provided, it refers to a table in the current database.
-#'                  The table name can be fully qualified with catalog name since 3.4.0.
 #' @return SparkDataFrame
 #' @rdname uncacheTable
 #' @examples
@@ -278,14 +215,13 @@ dropTempView <- function(viewName) {
 #' Returns a SparkDataFrame containing names of tables in the given database.
 #'
 #' @param databaseName (optional) name of the database
-#'                     The database name can be qualified with catalog name since 3.4.0.
 #' @return a SparkDataFrame
 #' @rdname tables
 #' @seealso \link{listTables}
 #' @examples
 #'\dontrun{
 #' sparkR.session()
-#' tables("spark_catalog.hive")
+#' tables("hive")
 #' }
 #' @name tables
 #' @note tables since 1.4.0
@@ -299,13 +235,12 @@ tables <- function(databaseName = NULL) {
 #' Returns the names of tables in the given database as an array.
 #'
 #' @param databaseName (optional) name of the database
-#'                     The database name can be qualified with catalog name since 3.4.0.
 #' @return a list of table names
 #' @rdname tableNames
 #' @examples
 #'\dontrun{
 #' sparkR.session()
-#' tableNames("spark_catalog.hive")
+#' tableNames("hive")
 #' }
 #' @name tableNames
 #' @note tableNames since 1.4.0
@@ -358,28 +293,6 @@ setCurrentDatabase <- function(databaseName) {
   invisible(handledCallJMethod(catalog, "setCurrentDatabase", databaseName))
 }
 
-#' Checks if the database with the specified name exists.
-#'
-#' Checks if the database with the specified name exists.
-#'
-#' @param databaseName name of the database, allowed to be qualified with catalog name
-#' @rdname databaseExists
-#' @name databaseExists
-#' @examples
-#' \dontrun{
-#' sparkR.session()
-#' databaseExists("spark_catalog.default")
-#' }
-#' @note since 3.4.0
-databaseExists <- function(databaseName) {
-  sparkSession <- getSparkSession()
-  if (class(databaseName) != "character") {
-    stop("databaseName must be a string.")
-  }
-  catalog <- callJMethod(sparkSession, "catalog")
-  callJMethod(catalog, "databaseExists", databaseName)
-}
-
 #' Returns a list of databases available
 #'
 #' Returns a list of databases available.
@@ -399,54 +312,12 @@ listDatabases <- function() {
   dataFrame(callJMethod(callJMethod(catalog, "listDatabases"), "toDF"))
 }
 
-#' Get the database with the specified name
-#'
-#' Get the database with the specified name
-#'
-#' @param databaseName name of the database, allowed to be qualified with catalog name
-#' @return A named list.
-#' @rdname getDatabase
-#' @name getDatabase
-#' @examples
-#' \dontrun{
-#' sparkR.session()
-#' db <- getDatabase("default")
-#' }
-#' @note since 3.4.0
-getDatabase <- function(databaseName) {
-  sparkSession <- getSparkSession()
-  if (class(databaseName) != "character") {
-    stop("databaseName must be a string.")
-  }
-  catalog <- callJMethod(sparkSession, "catalog")
-  jdb <- handledCallJMethod(catalog, "getDatabase", databaseName)
-
-  ret <- list(name = callJMethod(jdb, "name"))
-  jcata <- callJMethod(jdb, "catalog")
-  if (is.null(jcata)) {
-    ret$catalog <- NA
-  } else {
-    ret$catalog <- jcata
-  }
-
-  jdesc <- callJMethod(jdb, "description")
-  if (is.null(jdesc)) {
-    ret$description <- NA
-  } else {
-    ret$description <- jdesc
-  }
-
-  ret$locationUri <- callJMethod(jdb, "locationUri")
-  ret
-}
-
 #' Returns a list of tables or views in the specified database
 #'
 #' Returns a list of tables or views in the specified database.
 #' This includes all temporary views.
 #'
 #' @param databaseName (optional) name of the database
-#'                     The database name can be qualified with catalog name since 3.4.0.
 #' @return a SparkDataFrame of the list of tables.
 #' @rdname listTables
 #' @name listTables
@@ -455,7 +326,7 @@ getDatabase <- function(databaseName) {
 #' \dontrun{
 #' sparkR.session()
 #' listTables()
-#' listTables("spark_catalog.default")
+#' listTables("default")
 #' }
 #' @note since 2.2.0
 listTables <- function(databaseName = NULL) {
@@ -472,78 +343,6 @@ listTables <- function(databaseName = NULL) {
   dataFrame(callJMethod(jdst, "toDF"))
 }
 
-#' Checks if the table with the specified name exists.
-#'
-#' Checks if the table with the specified name exists.
-#'
-#' @param tableName name of the table, allowed to be qualified with catalog name
-#' @rdname tableExists
-#' @name tableExists
-#' @examples
-#' \dontrun{
-#' sparkR.session()
-#' databaseExists("spark_catalog.default.myTable")
-#' }
-#' @note since 3.4.0
-tableExists <- function(tableName) {
-  sparkSession <- getSparkSession()
-  if (class(tableName) != "character") {
-    stop("tableName must be a string.")
-  }
-  catalog <- callJMethod(sparkSession, "catalog")
-  callJMethod(catalog, "tableExists", tableName)
-}
-
-#' Get the table with the specified name
-#'
-#' Get the table with the specified name
-#'
-#' @param tableName the qualified or unqualified name that designates a table, allowed to be
-#'                  qualified with catalog name
-#' @return A named list.
-#' @rdname getTable
-#' @name getTable
-#' @examples
-#' \dontrun{
-#' sparkR.session()
-#' tbl <- getTable("spark_catalog.default.myTable")
-#' }
-#' @note since 3.4.0
-getTable <- function(tableName) {
-  sparkSession <- getSparkSession()
-  if (class(tableName) != "character") {
-    stop("tableName must be a string.")
-  }
-  catalog <- callJMethod(sparkSession, "catalog")
-  jtbl <- handledCallJMethod(catalog, "getTable", tableName)
-
-  ret <- list(name = callJMethod(jtbl, "name"))
-  jcata <- callJMethod(jtbl, "catalog")
-  if (is.null(jcata)) {
-    ret$catalog <- NA
-  } else {
-    ret$catalog <- jcata
-  }
-
-  jns <- callJMethod(jtbl, "namespace")
-  if (is.null(jns)) {
-    ret$namespace <- NA
-  } else {
-    ret$namespace <- jns
-  }
-
-  jdesc <- callJMethod(jtbl, "description")
-  if (is.null(jdesc)) {
-    ret$description <- NA
-  } else {
-    ret$description <- jdesc
-  }
-
-  ret$tableType <- callJMethod(jtbl, "tableType")
-  ret$isTemporary <- callJMethod(jtbl, "isTemporary")
-  ret
-}
-
 #' Returns a list of columns for the given table/view in the specified database
 #'
 #' Returns a list of columns for the given table/view in the specified database.
@@ -551,8 +350,6 @@ getTable <- function(tableName) {
 #' @param tableName the qualified or unqualified name that designates a table/view. If no database
 #'                  identifier is provided, it refers to a table/view in the current database.
 #'                  If \code{databaseName} parameter is specified, this must be an unqualified name.
-#'                  The table name can be qualified with catalog name since 3.4.0, when databaseName
-#'                  is NULL.
 #' @param databaseName (optional) name of the database
 #' @return a SparkDataFrame of the list of column descriptions.
 #' @rdname listColumns
@@ -560,7 +357,7 @@ getTable <- function(tableName) {
 #' @examples
 #' \dontrun{
 #' sparkR.session()
-#' listColumns("spark_catalog.default.mytable")
+#' listColumns("mytable")
 #' }
 #' @note since 2.2.0
 listColumns <- function(tableName, databaseName = NULL) {
@@ -583,14 +380,13 @@ listColumns <- function(tableName, databaseName = NULL) {
 #' This includes all temporary functions.
 #'
 #' @param databaseName (optional) name of the database
-#'                     The database name can be qualified with catalog name since 3.4.0.
 #' @return a SparkDataFrame of the list of function descriptions.
 #' @rdname listFunctions
 #' @name listFunctions
 #' @examples
 #' \dontrun{
 #' sparkR.session()
-#' listFunctions(spark_catalog.default)
+#' listFunctions()
 #' }
 #' @note since 2.2.0
 listFunctions <- function(databaseName = NULL) {
@@ -607,78 +403,6 @@ listFunctions <- function(databaseName = NULL) {
   dataFrame(callJMethod(jdst, "toDF"))
 }
 
-#' Checks if the function with the specified name exists.
-#'
-#' Checks if the function with the specified name exists.
-#'
-#' @param functionName name of the function, allowed to be qualified with catalog name
-#' @rdname functionExists
-#' @name functionExists
-#' @examples
-#' \dontrun{
-#' sparkR.session()
-#' functionExists("spark_catalog.default.myFunc")
-#' }
-#' @note since 3.4.0
-functionExists <- function(functionName) {
-  sparkSession <- getSparkSession()
-  if (class(functionName) != "character") {
-    stop("functionName must be a string.")
-  }
-  catalog <- callJMethod(sparkSession, "catalog")
-  callJMethod(catalog, "functionExists", functionName)
-}
-
-#' Get the function with the specified name
-#'
-#' Get the function with the specified name
-#'
-#' @param functionName name of the function, allowed to be qualified with catalog name
-#' @return A named list.
-#' @rdname getFunc
-#' @name getFunc
-#' @examples
-#' \dontrun{
-#' sparkR.session()
-#' func <- getFunc("spark_catalog.default.myFunc")
-#' }
-#' @note since 3.4.0. Use different name with the scala/python side, to avoid the
-#'       signature conflict with built-in "getFunction".
-getFunc <- function(functionName) {
-  sparkSession <- getSparkSession()
-  if (class(functionName) != "character") {
-    stop("functionName must be a string.")
-  }
-  catalog <- callJMethod(sparkSession, "catalog")
-  jfunc <- handledCallJMethod(catalog, "getFunction", functionName)
-
-  ret <- list(name = callJMethod(jfunc, "name"))
-  jcata <- callJMethod(jfunc, "catalog")
-  if (is.null(jcata)) {
-    ret$catalog <- NA
-  } else {
-    ret$catalog <- jcata
-  }
-
-  jns <- callJMethod(jfunc, "namespace")
-  if (is.null(jns)) {
-    ret$namespace <- NA
-  } else {
-    ret$namespace <- jns
-  }
-
-  jdesc <- callJMethod(jfunc, "description")
-  if (is.null(jdesc)) {
-    ret$description <- NA
-  } else {
-    ret$description <- jdesc
-  }
-
-  ret$className <- callJMethod(jfunc, "className")
-  ret$isTemporary <- callJMethod(jfunc, "isTemporary")
-  ret
-}
-
 #' Recovers all the partitions in the directory of a table and update the catalog
 #'
 #' Recovers all the partitions in the directory of a table and update the catalog. The name should
@@ -686,13 +410,12 @@ getFunc <- function(functionName) {
 #'
 #' @param tableName the qualified or unqualified name that designates a table. If no database
 #'                  identifier is provided, it refers to a table in the current database.
-#'                  The table name can be fully qualified with catalog name since 3.4.0.
 #' @rdname recoverPartitions
 #' @name recoverPartitions
 #' @examples
 #' \dontrun{
 #' sparkR.session()
-#' recoverPartitions("spark_catalog.default.myTable")
+#' recoverPartitions("myTable")
 #' }
 #' @note since 2.2.0
 recoverPartitions <- function(tableName) {
@@ -713,13 +436,12 @@ recoverPartitions <- function(tableName) {
 #'
 #' @param tableName the qualified or unqualified name that designates a table. If no database
 #'                  identifier is provided, it refers to a table in the current database.
-#'                  The table name can be fully qualified with catalog name since 3.4.0.
 #' @rdname refreshTable
 #' @name refreshTable
 #' @examples
 #' \dontrun{
 #' sparkR.session()
-#' refreshTable("spark_catalog.default.myTable")
+#' refreshTable("myTable")
 #' }
 #' @note since 2.2.0
 refreshTable <- function(tableName) {

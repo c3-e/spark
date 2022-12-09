@@ -76,8 +76,6 @@ private[ml] class LeastSquaresBlockAggregator(
     Double.NaN
   }
 
-  @transient private var buffer: Array[Double] = _
-
   /**
    * Add a new training instance block to this LeastSquaresBlockAggregator, and update the loss
    * and gradient of the objective function.
@@ -96,17 +94,9 @@ private[ml] class LeastSquaresBlockAggregator(
 
     val size = block.size
 
-    if (buffer == null || buffer.length < size) {
-      buffer = Array.ofDim[Double](size)
-    }
-
     // arr here represents diffs
-    val arr = buffer
-    if (fitIntercept) {
-      java.util.Arrays.fill(arr, 0, size, offset)
-    } else {
-      java.util.Arrays.fill(arr, 0, size, 0.0)
-    }
+    val arr = Array.ofDim[Double](size)
+    if (fitIntercept) java.util.Arrays.fill(arr, offset)
     BLAS.javaBLAS.daxpy(size, -1.0 / labelStd, block.labels, 1, arr, 1)
     BLAS.gemv(1.0, block.matrix, effectiveCoef, 1.0, arr)
 

@@ -181,6 +181,8 @@ final class DataFrameStatFunctions private[sql](df: DataFrame) {
 
   /**
    * Computes a pair-wise frequency table of the given columns. Also known as a contingency table.
+   * The number of distinct values for each column should be less than 1e4. At most 1e6 non-zero
+   * pair frequencies will be returned.
    * The first column of each row will be the distinct values of `col1` and the column names will
    * be the distinct values of `col2`. The name of the first column will be `col1_col2`. Counts
    * will be returned as `Long`s. Pairs that have no occurrences will have zero as their counts.
@@ -535,7 +537,7 @@ final class DataFrameStatFunctions private[sql](df: DataFrame) {
    * @since 2.0.0
    */
   def bloomFilter(colName: String, expectedNumItems: Long, fpp: Double): BloomFilter = {
-    buildBloomFilter(Column(colName), expectedNumItems, -1L, fpp)
+    buildBloomFilter(Column(colName), BloomFilter.create(expectedNumItems, fpp))
   }
 
   /**
@@ -547,7 +549,7 @@ final class DataFrameStatFunctions private[sql](df: DataFrame) {
    * @since 2.0.0
    */
   def bloomFilter(col: Column, expectedNumItems: Long, fpp: Double): BloomFilter = {
-    buildBloomFilter(col, expectedNumItems, -1L, fpp)
+    buildBloomFilter(col, BloomFilter.create(expectedNumItems, fpp))
   }
 
   /**
@@ -559,7 +561,7 @@ final class DataFrameStatFunctions private[sql](df: DataFrame) {
    * @since 2.0.0
    */
   def bloomFilter(colName: String, expectedNumItems: Long, numBits: Long): BloomFilter = {
-    buildBloomFilter(Column(colName), expectedNumItems, numBits, Double.NaN)
+    buildBloomFilter(Column(colName), BloomFilter.create(expectedNumItems, numBits))
   }
 
   /**
@@ -571,12 +573,10 @@ final class DataFrameStatFunctions private[sql](df: DataFrame) {
    * @since 2.0.0
    */
   def bloomFilter(col: Column, expectedNumItems: Long, numBits: Long): BloomFilter = {
-    buildBloomFilter(col, expectedNumItems, numBits, Double.NaN)
+    buildBloomFilter(col, BloomFilter.create(expectedNumItems, numBits))
   }
 
-  private def buildBloomFilter(col: Column, expectedNumItems: Long,
-                               numBits: Long,
-                               fpp: Double): BloomFilter = {
+  private def buildBloomFilter(col: Column, zero: BloomFilter): BloomFilter = {
     val singleCol = df.select(col)
     val colType = singleCol.schema.head.dataType
 
@@ -598,30 +598,12 @@ final class DataFrameStatFunctions private[sql](df: DataFrame) {
         )
     }
 
-    singleCol.queryExecution.toRdd.treeAggregate(null.asInstanceOf[BloomFilter])(
+    singleCol.queryExecution.toRdd.treeAggregate(zero)(
       (filter: BloomFilter, row: InternalRow) => {
-        val theFilter =
-          if (filter == null) {
-            if (fpp.isNaN) {
-              BloomFilter.create(expectedNumItems, numBits)
-            } else {
-              BloomFilter.create(expectedNumItems, fpp)
-            }
-          } else {
-            filter
-          }
-        updater(theFilter, row)
-        theFilter
+        updater(filter, row)
+        filter
       },
-      (filter1, filter2) => {
-        if (filter1 == null) {
-          filter2
-        } else if (filter2 == null) {
-          filter1
-        } else {
-          filter1.mergeInPlace(filter2)
-        }
-      }
+      (filter1, filter2) => filter1.mergeInPlace(filter2)
     )
   }
 }

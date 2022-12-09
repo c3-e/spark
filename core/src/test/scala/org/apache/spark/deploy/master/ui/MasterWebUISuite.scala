@@ -25,15 +25,16 @@ import java.util.Date
 import scala.collection.mutable.HashMap
 
 import org.mockito.Mockito.{mock, times, verify, when}
+import org.scalatest.BeforeAndAfterAll
 
 import org.apache.spark.{SecurityManager, SparkConf, SparkFunSuite}
 import org.apache.spark.deploy.DeployMessages.{DecommissionWorkersOnHosts, KillDriverResponse, RequestKillDriver}
 import org.apache.spark.deploy.DeployTestUtils._
 import org.apache.spark.deploy.master._
 import org.apache.spark.rpc.{RpcEndpointRef, RpcEnv}
-import org.apache.spark.util.Utils
 
-class MasterWebUISuite extends SparkFunSuite {
+
+class MasterWebUISuite extends SparkFunSuite with BeforeAndAfterAll {
 
   val conf = new SparkConf()
   val securityMgr = new SecurityManager(conf)
@@ -67,7 +68,7 @@ class MasterWebUISuite extends SparkFunSuite {
 
     when(master.idToApp).thenReturn(HashMap[String, ApplicationInfo]((activeApp.id, activeApp)))
 
-    val url = s"http://${Utils.localHostNameForURI()}:${masterWebUI.boundPort}/app/kill/"
+    val url = s"http://localhost:${masterWebUI.boundPort}/app/kill/"
     val body = convPostDataToString(Map(("id", activeApp.id), ("terminate", "true")))
     val conn = sendHttpRequest(url, "POST", body)
     conn.getResponseCode
@@ -78,7 +79,7 @@ class MasterWebUISuite extends SparkFunSuite {
 
   test("kill driver") {
     val activeDriverId = "driver-0"
-    val url = s"http://${Utils.localHostNameForURI()}:${masterWebUI.boundPort}/driver/kill/"
+    val url = s"http://localhost:${masterWebUI.boundPort}/driver/kill/"
     val body = convPostDataToString(Map(("id", activeDriverId), ("terminate", "true")))
     val conn = sendHttpRequest(url, "POST", body)
     conn.getResponseCode
@@ -88,7 +89,7 @@ class MasterWebUISuite extends SparkFunSuite {
   }
 
   private def testKillWorkers(hostnames: Seq[String]): Unit = {
-    val url = s"http://${Utils.localHostNameForURI()}:${masterWebUI.boundPort}/workers/kill/"
+    val url = s"http://localhost:${masterWebUI.boundPort}/workers/kill/"
     val body = convPostDataToString(hostnames.map(("host", _)))
     val conn = sendHttpRequest(url, "POST", body)
     // The master is mocked here, so cannot assert on the response code
@@ -98,7 +99,7 @@ class MasterWebUISuite extends SparkFunSuite {
   }
 
   test("Kill one host") {
-    testKillWorkers(Seq(s"${Utils.localHostNameForURI()}"))
+    testKillWorkers(Seq("localhost"))
   }
 
   test("Kill multiple hosts") {

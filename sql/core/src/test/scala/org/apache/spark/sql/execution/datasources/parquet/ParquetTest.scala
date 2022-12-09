@@ -26,14 +26,12 @@ import scala.reflect.runtime.universe.TypeTag
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.HadoopReadOptions
-import org.apache.parquet.column.ParquetProperties
 import org.apache.parquet.format.converter.ParquetMetadataConverter
-import org.apache.parquet.hadoop.{Footer, ParquetFileReader, ParquetFileWriter, ParquetOutputFormat}
+import org.apache.parquet.hadoop.{Footer, ParquetFileReader, ParquetFileWriter}
 import org.apache.parquet.hadoop.metadata.{BlockMetaData, FileMetaData, ParquetMetadata}
 import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.apache.parquet.schema.MessageType
 
-import org.apache.spark.TestUtils
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.execution.datasources.FileBasedDataSourceTest
 import org.apache.spark.sql.internal.SQLConf
@@ -51,8 +49,6 @@ private[sql] trait ParquetTest extends FileBasedDataSourceTest {
   override protected val dataSourceName: String = "parquet"
   override protected val vectorizedReaderEnabledKey: String =
     SQLConf.PARQUET_VECTORIZED_READER_ENABLED.key
-  override protected val vectorizedReaderNestedEnabledKey: String =
-    SQLConf.PARQUET_VECTORIZED_READER_NESTED_COLUMN_ENABLED.key
 
   /**
    * Reads the parquet file at `path`
@@ -167,30 +163,13 @@ private[sql] trait ParquetTest extends FileBasedDataSourceTest {
 
   def withAllParquetReaders(code: => Unit): Unit = {
     // test the row-based reader
-    withSQLConf(SQLConf.PARQUET_VECTORIZED_READER_ENABLED.key -> "false") {
-      withClue("Parquet-mr reader") {
-        code
-      }
-    }
+    withSQLConf(SQLConf.PARQUET_VECTORIZED_READER_ENABLED.key -> "false")(code)
     // test the vectorized reader
-    withSQLConf(SQLConf.PARQUET_VECTORIZED_READER_ENABLED.key -> "true") {
-      withClue("Vectorized reader") {
-        code
-      }
-    }
-  }
-
-  def withAllParquetWriters(code: => Unit): Unit = {
-    // Parquet version 1
-    withSQLConf(ParquetOutputFormat.WRITER_VERSION ->
-      ParquetProperties.WriterVersion.PARQUET_1_0.toString)(code)
-    // Parquet version 2
-    withSQLConf(ParquetOutputFormat.WRITER_VERSION ->
-      ParquetProperties.WriterVersion.PARQUET_2_0.toString)(code)
+    withSQLConf(SQLConf.PARQUET_VECTORIZED_READER_ENABLED.key -> "true")(code)
   }
 
   def getMetaData(dir: java.io.File): Map[String, String] = {
-    val file = TestUtils.listDirectory(dir).head
+    val file = SpecificParquetRecordReaderBase.listDirectory(dir).get(0)
     val conf = new Configuration()
     val hadoopInputFile = HadoopInputFile.fromPath(new Path(file), conf)
     val parquetReadOptions = HadoopReadOptions.builder(conf).build()

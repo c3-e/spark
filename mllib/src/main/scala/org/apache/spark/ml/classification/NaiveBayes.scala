@@ -22,16 +22,16 @@ import org.json4s.DefaultFormats
 
 import org.apache.spark.annotation.Since
 import org.apache.spark.ml.PredictorParams
+import org.apache.spark.ml.functions.checkNonNegativeWeight
 import org.apache.spark.ml.impl.Utils
 import org.apache.spark.ml.linalg._
 import org.apache.spark.ml.param.{DoubleParam, Param, ParamMap, ParamValidators}
 import org.apache.spark.ml.param.shared.HasWeightCol
 import org.apache.spark.ml.stat.Summarizer
 import org.apache.spark.ml.util._
-import org.apache.spark.ml.util.DatasetUtils._
 import org.apache.spark.ml.util.Instrumentation.instrumented
 import org.apache.spark.mllib.util.MLUtils
-import org.apache.spark.sql._
+import org.apache.spark.sql.{Dataset, Row}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 import org.apache.spark.util.VersionUtils
@@ -131,7 +131,7 @@ class NaiveBayes @Since("1.5.0") (
   def setWeightCol(value: String): this.type = set(weightCol, value)
 
   override protected def train(dataset: Dataset[_]): NaiveBayesModel = {
-    trainWithLabelCheck(dataset, nonNegativeLabel = true)
+    trainWithLabelCheck(dataset, positiveLabel = true)
   }
 
   /**
@@ -142,65 +142,25 @@ class NaiveBayes @Since("1.5.0") (
    */
   private[spark] def trainWithLabelCheck(
       dataset: Dataset[_],
-      nonNegativeLabel: Boolean): NaiveBayesModel = instrumented { instr =>
+      positiveLabel: Boolean): NaiveBayesModel = instrumented { instr =>
     instr.logPipelineStage(this)
     instr.logDataset(dataset)
     instr.logParams(this, labelCol, featuresCol, weightCol, predictionCol, rawPredictionCol,
       probabilityCol, modelType, smoothing, thresholds)
 
-    val validatedLabelCol = if (nonNegativeLabel) {
-      checkClassificationLabels($(labelCol), get(thresholds).map(_.length))
-    } else {
-      checkRegressionLabels($(labelCol))
+    if (positiveLabel && isDefined(thresholds)) {
+      val numClasses = getNumClasses(dataset)
+      instr.logNumClasses(numClasses)
+      require($(thresholds).length == numClasses, this.getClass.getSimpleName +
+        ".train() called with non-matching numClasses and thresholds.length." +
+        s" numClasses=$numClasses, but thresholds has length ${$(thresholds).length}")
     }
-
-    val validatedWeightCol = checkNonNegativeWeights(get(weightCol))
-
-    val validatedfeaturesCol = $(modelType) match {
-      case Multinomial | Complement =>
-        val checkNonNegativeVector = udf { vector: Vector =>
-          vector match {
-            case dv: DenseVector => dv.values.forall(v => v >= 0 && !v.isInfinity)
-            case sv: SparseVector => sv.values.forall(v => v >= 0 && !v.isInfinity)
-          }
-        }
-        val vecCol = col($(featuresCol))
-        when(vecCol.isNull, raise_error(lit("Vectors MUST NOT be Null")))
-          .when(!checkNonNegativeVector(vecCol),
-            raise_error(concat(
-              lit("Vector values MUST NOT be Negative, NaN or Infinity, but got "),
-              vecCol.cast(StringType))))
-          .otherwise(vecCol)
-
-      case Bernoulli =>
-        val checkBinaryVector = udf { vector: Vector =>
-          vector match {
-            case dv: DenseVector => dv.values.forall(v => v == 0 || v == 1)
-            case sv: SparseVector => sv.values.forall(v => v == 0 || v == 1)
-          }
-        }
-        val vecCol = col($(featuresCol))
-        when(vecCol.isNull, raise_error(lit("Vectors MUST NOT be Null")))
-          .when(!checkBinaryVector(vecCol),
-            raise_error(concat(
-              lit("Vector values MUST be in {0, 1}, but got "),
-              vecCol.cast(StringType))))
-          .otherwise(vecCol)
-
-      case _ => checkNonNanVectors($(featuresCol))
-    }
-
-    val validated = dataset.select(
-      validatedLabelCol.as("_validated_label_"),
-      validatedWeightCol.as("_validated_weight_"),
-      validatedfeaturesCol.as("_validated_features_")
-    )
 
     $(modelType) match {
       case Bernoulli | Multinomial | Complement =>
-        trainDiscreteImpl(validated, instr)
+        trainDiscreteImpl(dataset, instr)
       case Gaussian =>
-        trainGaussianImpl(validated, instr)
+        trainGaussianImpl(dataset, instr)
       case _ =>
         // This should never happen.
         throw new IllegalArgumentException(s"Invalid modelType: ${$(modelType)}.")
@@ -212,13 +172,25 @@ class NaiveBayes @Since("1.5.0") (
       instr: Instrumentation): NaiveBayesModel = {
     val spark = dataset.sparkSession
     import spark.implicits._
-    val Array(label, weight, featuers) = dataset.schema.fieldNames
+
+    val validateUDF = $(modelType) match {
+      case Multinomial | Complement =>
+        udf { vector: Vector => requireNonnegativeValues(vector); vector }
+      case Bernoulli =>
+        udf { vector: Vector => requireZeroOneBernoulliValues(vector); vector }
+    }
+
+    val w = if (isDefined(weightCol) && $(weightCol).nonEmpty) {
+      checkNonNegativeWeight(col($(weightCol)).cast(DoubleType))
+    } else {
+      lit(1.0)
+    }
 
     // Aggregates term frequencies per label.
-    val aggregated = dataset.groupBy(col(label))
-      .agg(sum(col(weight)).as("weightSum"),
-        Summarizer.metrics("sum", "count").summary(col(featuers), col(weight)).as("summary"))
-      .select(label, "weightSum", "summary.sum", "summary.count")
+    val aggregated = dataset.groupBy(col($(labelCol)))
+      .agg(sum(w).as("weightSum"), Summarizer.metrics("sum", "count")
+        .summary(validateUDF(col($(featuresCol))), w).as("summary"))
+      .select($(labelCol), "weightSum", "summary.sum", "summary.count")
       .as[(Double, Double, Vector, Long)]
       .collect().sortBy(_._1)
 
@@ -287,13 +259,18 @@ class NaiveBayes @Since("1.5.0") (
       instr: Instrumentation): NaiveBayesModel = {
     val spark = dataset.sparkSession
     import spark.implicits._
-    val Array(label, weight, featuers) = dataset.schema.fieldNames
+
+    val w = if (isDefined(weightCol) && $(weightCol).nonEmpty) {
+      checkNonNegativeWeight(col($(weightCol)).cast(DoubleType))
+    } else {
+      lit(1.0)
+    }
 
     // Aggregates mean vector and square-sum vector per label.
-    val aggregated = dataset.groupBy(col(label))
-      .agg(sum(col(weight)).as("weightSum"),
-        Summarizer.metrics("mean", "normL2").summary(col(featuers), col(weight)).as("summary"))
-      .select(label, "weightSum", "summary.mean", "summary.normL2")
+    val aggregated = dataset.groupBy(col($(labelCol)))
+      .agg(sum(w).as("weightSum"), Summarizer.metrics("mean", "normL2")
+        .summary(col($(featuresCol)), w).as("summary"))
+      .select($(labelCol), "weightSum", "summary.mean", "summary.normL2")
       .as[(Double, Double, Vector, Vector)]
       .map { case (label, weightSum, mean, normL2) =>
         (label, weightSum, mean, Vectors.dense(normL2.toArray.map(v => v * v)))
@@ -502,7 +479,7 @@ class NaiveBayesModel private[ml] (
 
     j = 0
     while (j < probArray.length) {
-      probArray(j) -= logSumExp
+      probArray(j) = probArray(j) - logSumExp
       j += 1
     }
     Vectors.dense(probArray)
@@ -620,7 +597,7 @@ object NaiveBayesModel extends MLReadable[NaiveBayesModel] {
       val data = sparkSession.read.parquet(dataPath)
       val vecConverted = MLUtils.convertVectorColumnsToML(data, "pi")
 
-      val model = if (major < 3) {
+      val model = if (major.toInt < 3) {
         val Row(pi: Vector, theta: Matrix) =
           MLUtils.convertMatrixColumnsToML(vecConverted, "theta")
             .select("pi", "theta")

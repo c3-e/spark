@@ -528,10 +528,8 @@ trait StreamTest extends QueryTest with SharedSparkSession with TimeLimits with 
           verify(triggerClock.isInstanceOf[SystemClock]
             || triggerClock.isInstanceOf[StreamManualClock],
             "Use either SystemClock or StreamManualClock to start the stream")
-          triggerClock match {
-            case clock: StreamManualClock =>
-              manualClockExpectedTime = clock.getTimeMillis()
-            case _ =>
+          if (triggerClock.isInstanceOf[StreamManualClock]) {
+            manualClockExpectedTime = triggerClock.asInstanceOf[StreamManualClock].getTimeMillis()
           }
           val metadataRoot = Option(checkpointLocation).getOrElse(defaultCheckpointLocation)
 

@@ -60,15 +60,8 @@ object ExecutorPodsSnapshot extends Logging {
   }
 
   private def toStatesByExecutorId(executorPods: Seq[Pod]): Map[Long, ExecutorPodState] = {
-    executorPods.flatMap { pod =>
-      pod.getMetadata.getLabels.get(SPARK_EXECUTOR_ID_LABEL) match {
-        case "EXECID" | null =>
-          // The exec label has not yet been assigned
-          None
-        case id =>
-          // We have a "real" id label
-          Some((id.toLong, toState(pod)))
-      }
+    executorPods.map { pod =>
+      (pod.getMetadata.getLabels.get(SPARK_EXECUTOR_ID_LABEL).toLong, toState(pod))
     }.toMap
   }
 

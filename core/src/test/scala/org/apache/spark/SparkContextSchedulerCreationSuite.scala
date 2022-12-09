@@ -19,21 +19,28 @@ package org.apache.spark
 
 import org.scalatest.PrivateMethodTester
 
+import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.{SchedulerBackend, TaskScheduler, TaskSchedulerImpl}
 import org.apache.spark.scheduler.cluster.StandaloneSchedulerBackend
 import org.apache.spark.scheduler.local.LocalSchedulerBackend
 import org.apache.spark.util.Utils
 
+
 class SparkContextSchedulerCreationSuite
-  extends SparkFunSuite with LocalSparkContext with PrivateMethodTester {
+  extends SparkFunSuite with LocalSparkContext with PrivateMethodTester with Logging {
 
   def noOp(taskSchedulerImpl: TaskSchedulerImpl): Unit = {}
 
   def createTaskScheduler(master: String)(body: TaskSchedulerImpl => Unit = noOp): Unit =
-    createTaskScheduler(master, new SparkConf())(body)
+    createTaskScheduler(master, "client")(body)
+
+  def createTaskScheduler(master: String, deployMode: String)(
+      body: TaskSchedulerImpl => Unit): Unit =
+    createTaskScheduler(master, deployMode, new SparkConf())(body)
 
   def createTaskScheduler(
       master: String,
+      deployMode: String,
       conf: SparkConf)(body: TaskSchedulerImpl => Unit): Unit = {
     // Create local SparkContext to setup a SparkEnv. We don't actually want to start() the
     // real schedulers, so we don't want to create a full SparkContext with the desired scheduler.
@@ -41,7 +48,7 @@ class SparkContextSchedulerCreationSuite
     val createTaskSchedulerMethod =
       PrivateMethod[Tuple2[SchedulerBackend, TaskScheduler]](Symbol("createTaskScheduler"))
     val (_, sched) =
-      SparkContext invokePrivate createTaskSchedulerMethod(sc, master)
+      SparkContext invokePrivate createTaskSchedulerMethod(sc, master, deployMode)
     try {
       body(sched.asInstanceOf[TaskSchedulerImpl])
     } finally {
@@ -125,7 +132,7 @@ class SparkContextSchedulerCreationSuite
   test("local-default-parallelism") {
     val conf = new SparkConf().set("spark.default.parallelism", "16")
 
-    val sched = createTaskScheduler("local", conf) { sched =>
+    val sched = createTaskScheduler("local", "client", conf) { sched =>
       sched.backend match {
         case s: LocalSchedulerBackend => assert(s.defaultParallelism() === 16)
         case _ => fail()

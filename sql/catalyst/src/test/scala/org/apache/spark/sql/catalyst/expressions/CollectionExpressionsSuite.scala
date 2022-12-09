@@ -24,11 +24,10 @@ import java.util.TimeZone
 import scala.language.implicitConversions
 import scala.util.Random
 
-import org.apache.spark.{SparkFunSuite, SparkRuntimeException}
+import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.catalyst.util.{DateTimeTestUtils, DateTimeUtils}
 import org.apache.spark.sql.catalyst.util.DateTimeTestUtils.{outstandingZoneIds, LA, UTC}
 import org.apache.spark.sql.catalyst.util.IntervalUtils._
@@ -67,9 +66,7 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
   }
 
   test("Array and Map Size - legacy") {
-    withSQLConf(
-      SQLConf.LEGACY_SIZE_OF_NULL.key -> "true",
-      SQLConf.ANSI_ENABLED.key -> "false") {
+    withSQLConf(SQLConf.LEGACY_SIZE_OF_NULL.key -> "true") {
       testSize(sizeOfNull = -1)
     }
   }
@@ -97,26 +94,6 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
     checkEvaluation(MapValues(m1), Seq())
     checkEvaluation(MapKeys(m2), null)
     checkEvaluation(MapValues(m2), null)
-  }
-
-  test("MapContainsKey") {
-    val left = Literal.create(Map("a" -> "1", "b" -> "2"), MapType(StringType, StringType))
-    val right = Literal.create(null, NullType)
-    assert(MapContainsKey(left, right).checkInputDataTypes() ==
-      DataTypeMismatch(
-        errorSubClass = "NULL_TYPE",
-        messageParameters = Map("functionName" -> "`map_contains_key`")
-      )
-    )
-  }
-
-  test("ArrayContains") {
-    val m0 = Literal.create(Map("a" -> "1", "b" -> "2"), MapType(StringType, StringType))
-    val m1 = Literal.create(null, MapType(StringType, StringType))
-    checkEvaluation(ArrayContains(MapKeys(m0), Literal("a")), true)
-    checkEvaluation(ArrayContains(MapKeys(m0), Literal("c")), false)
-    checkEvaluation(ArrayContains(MapKeys(m0), Literal(null, StringType)), null)
-    checkEvaluation(ArrayContains(MapKeys(m1), Literal("a")), null)
   }
 
   test("MapEntries") {
@@ -232,24 +209,8 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
     // argument checking
     assert(MapConcat(Seq(m0, m1)).checkInputDataTypes().isSuccess)
     assert(MapConcat(Seq(m5, m6)).checkInputDataTypes().isSuccess)
-    assert(MapConcat(Seq(m0, m5)).checkInputDataTypes() ==
-      DataTypeMismatch(
-        errorSubClass = "DATA_DIFF_TYPES",
-        messageParameters = Map(
-          "functionName" -> "`map_concat`",
-          "dataType" -> "(\"MAP<STRING, STRING>\" or \"MAP<STRING, INT>\")"
-        )
-      )
-    )
-    assert(MapConcat(Seq(m0, Literal(12))).checkInputDataTypes() ==
-      DataTypeMismatch(
-        errorSubClass = "MAP_CONCAT_DIFF_TYPES",
-        messageParameters = Map(
-          "functionName" -> "`map_concat`",
-          "dataType" -> "[\"MAP<STRING, STRING>\", \"INT\"]"
-        )
-      )
-    )
+    assert(MapConcat(Seq(m0, m5)).checkInputDataTypes().isFailure)
+    assert(MapConcat(Seq(m0, Literal(12))).checkInputDataTypes().isFailure)
     assert(MapConcat(Seq(m0, m1)).dataType.keyType == StringType)
     assert(MapConcat(Seq(m0, m1)).dataType.valueType == StringType)
     assert(!MapConcat(Seq(m0, m1)).dataType.valueContainsNull)
@@ -291,9 +252,8 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
     val map = MapConcat(Seq(mapOfMap, mapOfMap2))
     map.checkInputDataTypes() match {
       case TypeCheckResult.TypeCheckSuccess => fail("should not allow map as map key")
-      case TypeCheckResult.DataTypeMismatch(errorSubClass, messageParameters) =>
-        assert(errorSubClass === "INVALID_MAP_KEY_TYPE")
-        assert(messageParameters === Map("keyType" -> "\"MAP<INT, INT>\""))
+      case TypeCheckResult.TypeCheckFailure(msg) =>
+        assert(msg.contains("The key of map cannot be/contain map"))
     }
   }
 
@@ -331,9 +291,9 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
       checkEvaluation(MapFromEntries(ai4), create_map(1 -> 20))
     }
     // Map key can't be null
-    checkErrorInExpression[SparkRuntimeException](
+    checkExceptionInExpression[RuntimeException](
       MapFromEntries(ai5),
-      "NULL_MAP_KEY")
+      "Cannot use null as map key")
     checkEvaluation(MapFromEntries(ai6), null)
 
     // Non-primitive-type keys and values
@@ -358,9 +318,9 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
       checkEvaluation(MapFromEntries(as4), create_map("a" -> "bb"))
     }
     // Map key can't be null
-    checkExceptionInExpression[SparkRuntimeException](
+    checkExceptionInExpression[RuntimeException](
       MapFromEntries(as5),
-      "NULL_MAP_KEY")
+      "Cannot use null as map key")
     checkEvaluation(MapFromEntries(as6), null)
 
     // map key can't be map
@@ -370,24 +330,9 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
       arrayType(keyType = MapType(IntegerType, IntegerType), valueType = IntegerType)))
     map.checkInputDataTypes() match {
       case TypeCheckResult.TypeCheckSuccess => fail("should not allow map as map key")
-      case TypeCheckResult.DataTypeMismatch(errorSubClass, messageParameters) =>
-        assert(errorSubClass === "INVALID_MAP_KEY_TYPE")
-        assert(messageParameters === Map("keyType" -> "\"MAP<INT, INT>\""))
+      case TypeCheckResult.TypeCheckFailure(msg) =>
+        assert(msg.contains("The key of map cannot be/contain map"))
     }
-
-    // accepts only arrays of pair structs
-    val mapWrongType = MapFromEntries(Literal(1))
-    assert(mapWrongType.checkInputDataTypes() ==
-      DataTypeMismatch(
-        errorSubClass = "UNEXPECTED_INPUT_TYPE",
-        messageParameters = Map(
-          "paramIndex" -> "1",
-          "inputSql" -> "\"1\"",
-          "inputType" -> "\"INT\"",
-          "requiredType" -> "\"ARRAY\" of pair \"STRUCT\""
-        )
-      )
-    )
   }
 
   test("Sort Array") {
@@ -1424,23 +1369,6 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
         Date.valueOf("2018-01-03"),
         Date.valueOf("2018-01-02"),
         Date.valueOf("2018-01-01")))
-
-    // +/- 1 day for LocalDateTimes
-    checkEvaluation(new Sequence(
-      Literal(LocalDateTime.parse("2018-01-01T00:00:00")),
-      Literal(LocalDateTime.parse("2018-01-03T00:00:00"))),
-      Seq(
-        LocalDateTime.parse("2018-01-01T00:00:00"),
-        LocalDateTime.parse("2018-01-02T00:00:00"),
-        LocalDateTime.parse("2018-01-03T00:00:00")))
-
-    checkEvaluation(new Sequence(
-      Literal(LocalDateTime.parse("2018-01-03T00:00:00")),
-      Literal(LocalDateTime.parse("2018-01-01T00:00:00"))),
-      Seq(
-        LocalDateTime.parse("2018-01-03T00:00:00"),
-        LocalDateTime.parse("2018-01-02T00:00:00"),
-        LocalDateTime.parse("2018-01-01T00:00:00")))
   }
 
   test("Reverse") {
@@ -1527,10 +1455,8 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
       checkEvaluation(ElementAt(a0, Literal(0)), null)
     }.getMessage.contains("SQL array indices start at 1")
     intercept[Exception] { checkEvaluation(ElementAt(a0, Literal(1.1)), null) }
-    withSQLConf(SQLConf.ANSI_ENABLED.key -> false.toString) {
-      checkEvaluation(ElementAt(a0, Literal(4)), null)
-      checkEvaluation(ElementAt(a0, Literal(-4)), null)
-    }
+    checkEvaluation(ElementAt(a0, Literal(4)), null)
+    checkEvaluation(ElementAt(a0, Literal(-4)), null)
 
     checkEvaluation(ElementAt(a0, Literal(1)), 1)
     checkEvaluation(ElementAt(a0, Literal(2)), 2)
@@ -1554,22 +1480,11 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
     val m1 = Literal.create(Map[String, String](), MapType(StringType, StringType))
     val m2 = Literal.create(null, MapType(StringType, StringType))
 
-    assert(ElementAt(m0, Literal(1.0)).checkInputDataTypes() ==
-      DataTypeMismatch(
-        errorSubClass = "MAP_FUNCTION_DIFF_TYPES",
-        messageParameters = Map(
-          "functionName" -> "`element_at`",
-          "dataType" -> "\"MAP\"",
-          "leftType" -> "\"MAP<STRING, STRING>\"",
-          "rightType" -> "\"DOUBLE\""
-        )
-      )
-    )
+    assert(ElementAt(m0, Literal(1.0)).checkInputDataTypes().isFailure)
 
-    withSQLConf(SQLConf.ANSI_ENABLED.key -> false.toString) {
-      checkEvaluation(ElementAt(m0, Literal("d")), null)
-      checkEvaluation(ElementAt(m1, Literal("a")), null)
-    }
+    checkEvaluation(ElementAt(m0, Literal("d")), null)
+
+    checkEvaluation(ElementAt(m1, Literal("a")), null)
 
     checkEvaluation(ElementAt(m0, Literal("a")), "1")
     checkEvaluation(ElementAt(m0, Literal("b")), "2")
@@ -1583,32 +1498,11 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
       MapType(BinaryType, StringType))
     val mb1 = Literal.create(Map[Array[Byte], String](), MapType(BinaryType, StringType))
 
-    withSQLConf(SQLConf.ANSI_ENABLED.key -> false.toString) {
-      checkEvaluation(ElementAt(mb0, Literal(Array[Byte](1, 2, 3))), null)
-      checkEvaluation(ElementAt(mb1, Literal(Array[Byte](1, 2))), null)
-    }
+    checkEvaluation(ElementAt(mb0, Literal(Array[Byte](1, 2, 3))), null)
+
+    checkEvaluation(ElementAt(mb1, Literal(Array[Byte](1, 2))), null)
     checkEvaluation(ElementAt(mb0, Literal(Array[Byte](2, 1), BinaryType)), "2")
     checkEvaluation(ElementAt(mb0, Literal(Array[Byte](3, 4))), null)
-
-    // test defaultValueOutOfBound
-    withSQLConf(SQLConf.ANSI_ENABLED.key -> false.toString) {
-      val delimiter = Literal.create(".", StringType)
-      val str = StringSplitSQL(Literal.create("11.12.13", StringType), delimiter)
-      val outOfBoundValue = Some(Literal.create("", StringType))
-
-      checkEvaluation(ElementAt(str, Literal(3), outOfBoundValue), UTF8String.fromString("13"))
-      checkEvaluation(ElementAt(str, Literal(1), outOfBoundValue), UTF8String.fromString("11"))
-      checkEvaluation(ElementAt(str, Literal(10), outOfBoundValue), UTF8String.fromString(""))
-      checkEvaluation(ElementAt(str, Literal(-10), outOfBoundValue), UTF8String.fromString(""))
-
-      checkEvaluation(ElementAt(StringSplitSQL(Literal.create(null, StringType), delimiter),
-        Literal(1), outOfBoundValue), null)
-      checkEvaluation(ElementAt(StringSplitSQL(Literal.create("11.12.13", StringType),
-        Literal.create(null, StringType)), Literal(1), outOfBoundValue), null)
-
-      checkExceptionInExpression[Exception](
-        ElementAt(str, Literal(0), outOfBoundValue), "The index 0 is invalid")
-    }
   }
 
   test("correctly handles ElementAt nullability for arrays") {
@@ -2237,23 +2131,6 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
     checkEvaluation(ArrayExcept(empty, oneNull), Seq.empty)
     checkEvaluation(ArrayExcept(oneNull, empty), Seq(null))
     checkEvaluation(ArrayExcept(twoNulls, empty), Seq(null))
-
-    checkEvaluation(ArrayExcept(
-      Literal.create(Seq(1d, 2d, null), ArrayType(DoubleType)),
-      Literal.create(Seq(1d), ArrayType(DoubleType))),
-      Seq(2d, null))
-    checkEvaluation(ArrayExcept(
-      Literal.create(Seq(1d, 2d, null), ArrayType(DoubleType)),
-      Literal.create(Seq(1d), ArrayType(DoubleType, false))),
-      Seq(2d, null))
-    checkEvaluation(ArrayExcept(
-      Literal.create(Seq(1d, 2d), ArrayType(DoubleType)),
-      Literal.create(Seq(1d, null), ArrayType(DoubleType))),
-      Seq(2d))
-    checkEvaluation(ArrayExcept(
-      Literal.create(Seq(1d, 2d), ArrayType(DoubleType, false)),
-      Literal.create(Seq(1d, null), ArrayType(DoubleType))),
-      Seq(2d))
   }
 
   test("Array Intersect") {
@@ -2379,23 +2256,6 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
     checkEvaluation(ArrayIntersect(oneNull, twoNulls), Seq(null))
     checkEvaluation(ArrayIntersect(empty, oneNull), Seq.empty)
     checkEvaluation(ArrayIntersect(oneNull, empty), Seq.empty)
-
-    checkEvaluation(ArrayIntersect(
-      Literal.create(Seq(1d, 2d, null), ArrayType(DoubleType)),
-      Literal.create(Seq(1d), ArrayType(DoubleType))),
-      Seq(1d))
-    checkEvaluation(ArrayIntersect(
-      Literal.create(Seq(1d, 2d, null), ArrayType(DoubleType)),
-      Literal.create(Seq(1d), ArrayType(DoubleType, false))),
-      Seq(1d))
-    checkEvaluation(ArrayIntersect(
-      Literal.create(Seq(1d, 2d), ArrayType(DoubleType)),
-      Literal.create(Seq(1d, null), ArrayType(DoubleType))),
-      Seq(1d))
-    checkEvaluation(ArrayIntersect(
-      Literal.create(Seq(1d, 2d), ArrayType(DoubleType, false)),
-      Literal.create(Seq(1d, null), ArrayType(DoubleType))),
-      Seq(1d))
   }
 
   test("SPARK-31980: Start and end equal in month range") {
@@ -2440,7 +2300,7 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
         val array = Literal.create(Seq(1, 2, 3), ArrayType(IntegerType))
         var expr: Expression = ElementAt(array, Literal(5))
         if (ansiEnabled) {
-          val errMsg = "The index 5 is out of bounds. The array has 3 elements."
+          val errMsg = "Invalid index: 5, numElements: 3"
           checkExceptionInExpression[Exception](expr, errMsg)
         } else {
           checkEvaluation(expr, null)
@@ -2448,21 +2308,31 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
 
         expr = ElementAt(array, Literal(-5))
         if (ansiEnabled) {
-          val errMsg = "The index -5 is out of bounds. The array has 3 elements."
+          val errMsg = "Invalid index: -5, numElements: 3"
           checkExceptionInExpression[Exception](expr, errMsg)
         } else {
           checkEvaluation(expr, null)
         }
+
+        // SQL array indices start at 1 exception throws for both mode.
+        expr = ElementAt(array, Literal(0))
+        val errMsg = "SQL array indices start at 1"
+        checkExceptionInExpression[Exception](expr, errMsg)
       }
     }
   }
 
-  test("SPARK-40066: element_at returns null on invalid map value access") {
+  test("SPARK-33460: element_at NoSuchElementException") {
     Seq(true, false).foreach { ansiEnabled =>
       withSQLConf(SQLConf.ANSI_ENABLED.key -> ansiEnabled.toString) {
         val map = Literal.create(Map(1 -> "a", 2 -> "b"), MapType(IntegerType, StringType))
         val expr: Expression = ElementAt(map, Literal(5))
-        checkEvaluation(expr, null)
+        if (ansiEnabled) {
+          val errMsg = "Key 5 does not exist."
+          checkExceptionInExpression[Exception](expr, errMsg)
+        } else {
+          checkEvaluation(expr, null)
+        }
       }
     }
   }
@@ -2555,45 +2425,5 @@ class CollectionExpressionsSuite extends SparkFunSuite with ExpressionEvalHelper
     checkEvaluation(new SortArray(
       Literal.create(Seq(Double.NaN, 1d, 2d, null), ArrayType(DoubleType))),
       Seq(null, 1d, 2d, Double.NaN))
-  }
-
-  test("SPARK-39184: Avoid ArrayIndexOutOfBoundsException when crossing DST boundary") {
-    DateTimeTestUtils.withDefaultTimeZone(LA) {
-      checkEvaluation(new Sequence(
-        Literal(Timestamp.valueOf("2016-03-13 00:00:00")),
-        Literal(Timestamp.valueOf("2016-03-14 00:00:00")),
-        Literal(stringToInterval("interval 1 day"))),
-        Seq(
-          Timestamp.valueOf("2016-03-13 00:00:00"),
-          Timestamp.valueOf("2016-03-14 00:00:00")))
-
-      checkEvaluation(new Sequence(
-        Literal(Timestamp.valueOf("2016-03-14 00:00:00")),
-        Literal(Timestamp.valueOf("2016-03-13 00:00:00")),
-        Literal(stringToInterval("interval -1 days"))),
-        Seq(
-          Timestamp.valueOf("2016-03-14 00:00:00"),
-          Timestamp.valueOf("2016-03-13 00:00:00")))
-
-      checkEvaluation(new Sequence(
-        Literal(Date.valueOf("2016-03-13")),
-        Literal(Date.valueOf("2016-03-16")),
-        Literal(stringToInterval("interval 1 day 12 hour"))),
-        Seq(
-          Date.valueOf("2016-03-13"),
-          Date.valueOf("2016-03-14"),
-          Date.valueOf("2016-03-16")))
-
-      checkEvaluation(new Sequence(
-        Literal(Date.valueOf("2017-04-06")),
-        Literal(Date.valueOf("2017-02-12")),
-        Literal(stringToInterval("interval -13 days -6 hours"))),
-        Seq(
-          Date.valueOf("2017-04-06"),
-          Date.valueOf("2017-03-23"),
-          Date.valueOf("2017-03-10"),
-          Date.valueOf("2017-02-25"),
-          Date.valueOf("2017-02-12")))
-    }
   }
 }

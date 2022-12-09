@@ -305,7 +305,7 @@ private[spark] class MemoryStore(
         val unrolledIterator = if (valuesHolder.vector != null) {
           valuesHolder.vector.iterator
         } else {
-          valuesHolder.arrayValues.iterator
+          valuesHolder.arrayValues.toIterator
         }
 
         Left(new PartiallyUnrolledIterator(
@@ -504,7 +504,7 @@ private[spark] class MemoryStore(
         try {
           logInfo(s"${selectedBlocks.size} blocks selected for dropping " +
             s"(${Utils.bytesToString(freedMemory)} bytes)")
-          selectedBlocks.indices.foreach { idx =>
+          (0 until selectedBlocks.size).foreach { idx =>
             val blockId = selectedBlocks(idx)
             val entry = entries.synchronized {
               entries.get(blockId)

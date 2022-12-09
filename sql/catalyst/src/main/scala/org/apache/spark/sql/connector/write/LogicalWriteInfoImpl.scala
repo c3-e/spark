@@ -17,15 +17,10 @@
 
 package org.apache.spark.sql.connector.write
 
-import java.util.Optional
-
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 private[sql] case class LogicalWriteInfoImpl(
     queryId: String,
     schema: StructType,
-    options: CaseInsensitiveStringMap,
-    override val rowIdSchema: Optional[StructType] = Optional.empty[StructType],
-    override val metadataSchema: Optional[StructType] = Optional.empty[StructType])
-  extends LogicalWriteInfo
+    options: CaseInsensitiveStringMap) extends LogicalWriteInfo

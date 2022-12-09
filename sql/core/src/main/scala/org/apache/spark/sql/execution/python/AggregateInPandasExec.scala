@@ -46,7 +46,7 @@ case class AggregateInPandasExec(
     udfExpressions: Seq[PythonUDF],
     resultExpressions: Seq[NamedExpression],
     child: SparkPlan)
-  extends UnaryExecNode with PythonSQLMetrics {
+  extends UnaryExecNode {
 
   override val output: Seq[Attribute] = resultExpressions.map(_.toAttribute)
 
@@ -88,7 +88,7 @@ case class AggregateInPandasExec(
         (ChainedPythonFunctions(chained.funcs ++ Seq(udf.func)), children)
       case children =>
         // There should not be any other UDFs, or the children can't be evaluated directly.
-        assert(children.forall(!_.exists(_.isInstanceOf[PythonUDF])))
+        assert(children.forall(_.find(_.isInstanceOf[PythonUDF]).isEmpty))
         (ChainedPythonFunctions(Seq(udf.func)), udf.children)
     }
   }
@@ -120,7 +120,7 @@ case class AggregateInPandasExec(
     // Schema of input rows to the python runner
     val aggInputSchema = StructType(dataTypes.zipWithIndex.map { case (dt, i) =>
       StructField(s"_$i", dt)
-    }.toArray)
+    }.toSeq)
 
     // Map grouped rows to ArrowPythonRunner results, Only execute if partition is not empty
     inputRDD.mapPartitionsInternal { iter => if (iter.isEmpty) iter else {
@@ -131,13 +131,12 @@ case class AggregateInPandasExec(
       val newIter: Iterator[InternalRow] = mayAppendUpdatingSessionIterator(iter)
       val prunedProj = UnsafeProjection.create(allInputs.toSeq, child.output)
 
-      val groupedItr = if (groupingExpressions.isEmpty) {
+      val grouped = if (groupingExpressions.isEmpty) {
         // Use an empty unsafe row as a place holder for the grouping key
         Iterator((new UnsafeRow(), newIter))
       } else {
         GroupedIterator(newIter, groupingExpressions, child.output)
-      }
-      val grouped = groupedItr.map { case (key, rows) =>
+      }.map { case (key, rows) =>
         (key, rows.map(prunedProj))
       }
 
@@ -163,8 +162,7 @@ case class AggregateInPandasExec(
         argOffsets,
         aggInputSchema,
         sessionLocalTimeZone,
-        pythonRunnerConf,
-        pythonMetrics).compute(projectedRowIter, context.partitionId(), context)
+        pythonRunnerConf).compute(projectedRowIter, context.partitionId(), context)
 
       val joinedAttributes =
         groupingExpressions.map(_.toAttribute) ++ udfExpressions.map(_.resultAttribute)

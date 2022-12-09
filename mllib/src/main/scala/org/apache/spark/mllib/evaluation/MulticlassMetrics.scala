@@ -149,7 +149,7 @@ class MulticlassMetrics @Since("1.1.0") (predictionAndLabels: RDD[_ <: Product])
   def precision(label: Double): Double = {
     val tp = tpByClass(label)
     val fp = fpByClass.getOrElse(label, 0.0)
-    if (tp + fp == 0) 0 else tp / (tp + fp)
+    if (tp + fp == 0) 0 else tp.toDouble / (tp + fp)
   }
 
   /**
@@ -199,7 +199,7 @@ class MulticlassMetrics @Since("1.1.0") (predictionAndLabels: RDD[_ <: Product])
    */
   @Since("1.1.0")
   lazy val weightedFalsePositiveRate: Double = labelCountByClass.map { case (category, count) =>
-    falsePositiveRate(category) * count / labelCount
+    falsePositiveRate(category) * count.toDouble / labelCount
   }.sum
 
   /**
@@ -208,7 +208,7 @@ class MulticlassMetrics @Since("1.1.0") (predictionAndLabels: RDD[_ <: Product])
    */
   @Since("1.1.0")
   lazy val weightedRecall: Double = labelCountByClass.map { case (category, count) =>
-    recall(category) * count / labelCount
+    recall(category) * count.toDouble / labelCount
   }.sum
 
   /**
@@ -216,7 +216,7 @@ class MulticlassMetrics @Since("1.1.0") (predictionAndLabels: RDD[_ <: Product])
    */
   @Since("1.1.0")
   lazy val weightedPrecision: Double = labelCountByClass.map { case (category, count) =>
-    precision(category) * count / labelCount
+    precision(category) * count.toDouble / labelCount
   }.sum
 
   /**
@@ -225,7 +225,7 @@ class MulticlassMetrics @Since("1.1.0") (predictionAndLabels: RDD[_ <: Product])
    */
   @Since("1.1.0")
   def weightedFMeasure(beta: Double): Double = labelCountByClass.map { case (category, count) =>
-    fMeasure(category, beta) * count / labelCount
+    fMeasure(category, beta) * count.toDouble / labelCount
   }.sum
 
   /**

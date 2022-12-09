@@ -19,6 +19,8 @@ package org.apache.spark.sql.execution.datasources.noop
 
 import java.util
 
+import scala.collection.JavaConverters._
+
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.catalog.{SupportsWrite, Table, TableCapability}
 import org.apache.spark.sql.connector.write.{BatchWrite, DataWriter, DataWriterFactory, LogicalWriteInfo, PhysicalWriteInfo, SupportsTruncate, Write, WriteBuilder, WriterCommitMessage}
@@ -42,11 +44,11 @@ private[noop] object NoopTable extends Table with SupportsWrite {
   override def name(): String = "noop-table"
   override def schema(): StructType = new StructType()
   override def capabilities(): util.Set[TableCapability] = {
-    util.EnumSet.of(
+    Set(
       TableCapability.BATCH_WRITE,
       TableCapability.STREAMING_WRITE,
       TableCapability.TRUNCATE,
-      TableCapability.ACCEPT_ANY_SCHEMA)
+      TableCapability.ACCEPT_ANY_SCHEMA).asJava
   }
 }
 

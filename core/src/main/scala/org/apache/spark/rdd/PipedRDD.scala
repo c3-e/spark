@@ -33,7 +33,6 @@ import scala.io.Source
 import scala.reflect.ClassTag
 
 import org.apache.spark.{Partition, TaskContext}
-import org.apache.spark.errors.SparkCoreErrors
 import org.apache.spark.util.Utils
 
 
@@ -72,10 +71,9 @@ private[spark] class PipedRDD[T: ClassTag](
 
     // for compatibility with Hadoop which sets these env variables
     // so the user code can access the input filename
-    split match {
-      case hadoopSplit: HadoopPartition =>
-        currentEnvVars.putAll(hadoopSplit.getPipeEnvVars().asJava)
-      case _ => // do nothing
+    if (split.isInstanceOf[HadoopPartition]) {
+      val hadoopSplit = split.asInstanceOf[HadoopPartition]
+      currentEnvVars.putAll(hadoopSplit.getPipeEnvVars().asJava)
     }
 
     // When spark.worker.separated.working.directory option is turned on, each
@@ -186,7 +184,7 @@ private[spark] class PipedRDD[T: ClassTag](
     new Iterator[String] {
       def next(): String = {
         if (!hasNext()) {
-          throw SparkCoreErrors.noSuchElementError()
+          throw new NoSuchElementException()
         }
         lines.next()
       }

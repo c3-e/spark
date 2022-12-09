@@ -133,8 +133,8 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     val inputData1 = MemoryStream[Int]
     val aggWithoutWatermark = inputData1.toDF()
       .withColumn("eventTime", timestamp_seconds($"value"))
-      .groupBy(window($"eventTime", "5 seconds") as Symbol("window"))
-      .agg(count("*") as Symbol("count"))
+      .groupBy(window($"eventTime", "5 seconds") as 'window)
+      .agg(count("*") as 'count)
       .select($"window".getField("start").cast("long").as[Long], $"count".as[Long])
 
     testStream(aggWithoutWatermark, outputMode = Complete)(
@@ -151,8 +151,8 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     val aggWithWatermark = inputData2.toDF()
         .withColumn("eventTime", timestamp_seconds($"value"))
         .withWatermark("eventTime", "10 seconds")
-        .groupBy(window($"eventTime", "5 seconds") as Symbol("window"))
-        .agg(count("*") as Symbol("count"))
+        .groupBy(window($"eventTime", "5 seconds") as 'window)
+        .agg(count("*") as 'count)
         .select($"window".getField("start").cast("long").as[Long], $"count".as[Long])
 
     testStream(aggWithWatermark)(
@@ -174,8 +174,8 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     val aggWithWatermark = inputData.toDF()
         .withColumn("eventTime", timestamp_seconds($"value"))
         .withWatermark("eventTime", "10 seconds")
-        .groupBy(window($"eventTime", "5 seconds") as Symbol("window"))
-        .agg(count("*") as Symbol("count"))
+        .groupBy(window($"eventTime", "5 seconds") as 'window)
+        .agg(count("*") as 'count)
         .select($"window".getField("start").cast("long").as[Long], $"count".as[Long])
 
     // Unlike the ProcessingTime trigger, Trigger.Once only runs one trigger every time
@@ -183,8 +183,6 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     // by the updated watermark is only generated the next time the query is started.
     // Also, the data to process in the next trigger is added *before* starting the stream in
     // Trigger.Once to ensure that first and only trigger picks up the new data.
-
-    // NOTE: the test uses the deprecated Trigger.Once() by intention, do not change.
 
     testStream(aggWithWatermark)(
       StartStream(Trigger.Once),  // to make sure the query is not running when adding data 1st time
@@ -231,8 +229,8 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     val aggWithWatermark = inputData.toDF()
         .withColumn("eventTime", timestamp_seconds($"value"))
         .withWatermark("eventTime", "10 seconds")
-        .groupBy(window($"eventTime", "5 seconds") as Symbol("window"))
-        .agg(count("*") as Symbol("count"))
+        .groupBy(window($"eventTime", "5 seconds") as 'window)
+        .agg(count("*") as 'count)
         .select($"window".getField("start").cast("long").as[Long], $"count".as[Long])
 
 
@@ -263,24 +261,28 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
       // Offset log should have watermark recorded as 5.
       */
 
-      StartStream(Trigger.AvailableNow),
+      StartStream(Trigger.Once),
       awaitTermination(),
 
       AddData(inputData, 25),
-      StartStream(Trigger.AvailableNow, checkpointLocation = checkpointDir.getAbsolutePath),
+      StartStream(Trigger.Once, checkpointLocation = checkpointDir.getAbsolutePath),
       awaitTermination(),
-      CheckNewAnswer((10, 3)), // watermark should be updated to 25 - 10 = 15
+      CheckNewAnswer(),
+      assertEventStats(min = 25, max = 25, avg = 25, wtrmark = 5),
+      // watermark should be updated to 25 - 10 = 15
 
       AddData(inputData, 50),
-      StartStream(Trigger.AvailableNow, checkpointLocation = checkpointDir.getAbsolutePath),
+      StartStream(Trigger.Once, checkpointLocation = checkpointDir.getAbsolutePath),
       awaitTermination(),
-      CheckNewAnswer((15, 1), (25, 1)), // watermark should be updated to 50 - 10 = 40
+      CheckNewAnswer((10, 3)),   // watermark = 15 is used to generate this
+      assertEventStats(min = 50, max = 50, avg = 50, wtrmark = 15),
+      // watermark should be updated to 50 - 10 = 40
 
       AddData(inputData, 50),
-      StartStream(Trigger.AvailableNow, checkpointLocation = checkpointDir.getAbsolutePath),
+      StartStream(Trigger.Once, checkpointLocation = checkpointDir.getAbsolutePath),
       awaitTermination(),
-      CheckNewAnswer()
-    )
+      CheckNewAnswer((15, 1), (25, 1)), // watermark = 40 is used to generate this
+      assertEventStats(min = 50, max = 50, avg = 50, wtrmark = 40))
   }
 
   test("append mode") {
@@ -289,8 +291,8 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     val windowedAggregation = inputData.toDF()
       .withColumn("eventTime", timestamp_seconds($"value"))
       .withWatermark("eventTime", "10 seconds")
-      .groupBy(window($"eventTime", "5 seconds") as Symbol("window"))
-      .agg(count("*") as Symbol("count"))
+      .groupBy(window($"eventTime", "5 seconds") as 'window)
+      .agg(count("*") as 'count)
       .select($"window".getField("start").cast("long").as[Long], $"count".as[Long])
 
     testStream(windowedAggregation)(
@@ -314,8 +316,8 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     val windowedAggregation = inputData.toDF()
       .withColumn("eventTime", timestamp_seconds($"value"))
       .withWatermark("eventTime", "10 seconds")
-      .groupBy(window($"eventTime", "5 seconds") as Symbol("window"))
-      .agg(count("*") as Symbol("count"))
+      .groupBy(window($"eventTime", "5 seconds") as 'window)
+      .agg(count("*") as 'count)
       .select($"window".getField("start").cast("long").as[Long], $"count".as[Long])
 
     testStream(windowedAggregation, OutputMode.Update)(
@@ -344,8 +346,8 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     val aggWithWatermark = input.toDF()
       .withColumn("eventTime", timestamp_seconds($"value"))
       .withWatermark("eventTime", "2 years 5 months")
-      .groupBy(window($"eventTime", "5 seconds") as Symbol("window"))
-      .agg(count("*") as Symbol("count"))
+      .groupBy(window($"eventTime", "5 seconds") as 'window)
+      .agg(count("*") as 'count)
       .select($"window".getField("start").cast("long").as[Long], $"count".as[Long])
 
     def monthsSinceEpoch(date: Date): Int = {
@@ -376,8 +378,8 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     val df = inputData.toDF()
       .withColumn("eventTime", timestamp_seconds($"value"))
       .withWatermark("eventTime", "10 seconds")
-      .groupBy(window($"eventTime", "5 seconds") as Symbol("window"))
-      .agg(count("*") as Symbol("count"))
+      .groupBy(window($"eventTime", "5 seconds") as 'window)
+      .agg(count("*") as 'count)
       .select($"window".getField("start").cast("long").as[Long], $"count".as[Long])
 
     testStream(df)(
@@ -411,17 +413,17 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     val firstDf = first.toDF()
       .withColumn("eventTime", timestamp_seconds($"value"))
       .withWatermark("eventTime", "10 seconds")
-      .select($"value")
+      .select('value)
 
     val second = MemoryStream[Int]
 
     val secondDf = second.toDF()
       .withColumn("eventTime", timestamp_seconds($"value"))
       .withWatermark("eventTime", "5 seconds")
-      .select($"value")
+      .select('value)
 
     withTempDir { checkpointDir =>
-      val unionWriter = firstDf.union(secondDf).agg(sum($"value"))
+      val unionWriter = firstDf.union(secondDf).agg(sum('value))
         .writeStream
         .option("checkpointLocation", checkpointDir.getCanonicalPath)
         .format("memory")
@@ -488,8 +490,8 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     val windowedAggregation = inputData.toDF()
         .withColumn("eventTime", timestamp_seconds($"value"))
         .withWatermark("eventTime", "10 seconds")
-        .groupBy(window($"eventTime", "5 seconds") as Symbol("window"))
-        .agg(count("*") as Symbol("count"))
+        .groupBy(window($"eventTime", "5 seconds") as 'window)
+        .agg(count("*") as 'count)
         .select($"window".getField("start").cast("long").as[Long], $"count".as[Long])
 
     // No eviction when asked to compute complete results.
@@ -514,7 +516,7 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
         .withColumn("eventTime", timestamp_seconds($"value"))
         .withWatermark("eventTime", "10 seconds")
         .groupBy($"eventTime")
-        .agg(count("*") as Symbol("count"))
+        .agg(count("*") as 'count)
         .select($"eventTime".cast("long").as[Long], $"count".as[Long])
 
     testStream(windowedAggregation)(
@@ -585,7 +587,7 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
       val groupEvents = input
         .withWatermark("eventTime", "2 seconds")
         .groupBy("symbol", "eventTime")
-        .agg(count("price") as Symbol("count"))
+        .agg(count("price") as 'count)
         .select("symbol", "eventTime", "count")
       val q = groupEvents.writeStream
         .outputMode("append")
@@ -604,14 +606,14 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
     val aliasWindow = inputData.toDF()
       .withColumn("eventTime", timestamp_seconds($"value"))
       .withWatermark("eventTime", "10 seconds")
-      .select(window($"eventTime", "5 seconds") as Symbol("aliasWindow"))
+      .select(window($"eventTime", "5 seconds") as 'aliasWindow)
     // Check the eventTime metadata is kept in the top level alias.
     assert(aliasWindow.logicalPlan.output.exists(
       _.metadata.contains(EventTimeWatermark.delayKey)))
 
     val windowedAggregation = aliasWindow
-      .groupBy($"aliasWindow")
-      .agg(count("*") as Symbol("count"))
+      .groupBy('aliasWindow)
+      .agg(count("*") as 'count)
       .select($"aliasWindow".getField("start").cast("long").as[Long], $"count".as[Long])
 
     testStream(windowedAggregation)(
@@ -634,8 +636,8 @@ class EventTimeWatermarkSuite extends StreamTest with BeforeAndAfter with Matche
       val windowedAggregation = inputData.toDF()
         .withColumn("eventTime", timestamp_seconds($"value"))
         .withWatermark("eventTime", "10 seconds")
-        .groupBy(window($"eventTime", "5 seconds") as Symbol("window"))
-        .agg(count("*") as Symbol("count"))
+        .groupBy(window($"eventTime", "5 seconds") as 'window)
+        .agg(count("*") as 'count)
         .select($"window".getField("start").cast("long").as[Long], $"count".as[Long])
 
       testStream(windowedAggregation)(

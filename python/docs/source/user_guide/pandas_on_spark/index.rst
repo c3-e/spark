@@ -30,5 +30,4 @@ Pandas API on Spark
    typehints
    from_to_dbms
    best_practices
-   supported_pandas_api
    faq

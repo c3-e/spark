@@ -25,6 +25,7 @@ import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.catalyst.plans.logical.{LeafNode, LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.trees.TreePattern._
 import org.apache.spark.sql.catalyst.util._
+import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
 import org.apache.spark.sql.types.{DataType, Metadata, StructType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -75,6 +76,28 @@ object UnresolvedRelation {
 }
 
 /**
+ * A variant of [[UnresolvedRelation]] which can only be resolved to a v2 relation
+ * (`DataSourceV2Relation`), not v1 relation or temp view.
+ *
+ * @param originalNameParts the original table identifier name parts before catalog is resolved.
+ * @param catalog The catalog which the table should be looked up from.
+ * @param tableName The name of the table to look up.
+ */
+case class UnresolvedV2Relation(
+    originalNameParts: Seq[String],
+    catalog: TableCatalog,
+    tableName: Identifier)
+  extends LeafNode with NamedRelation {
+  import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
+
+  override def name: String = originalNameParts.quoted
+
+  override def output: Seq[Attribute] = Nil
+
+  override lazy val resolved = false
+}
+
+/**
  * An inline table that has not been resolved yet. Once resolved, it is turned by the analyzer into
  * a [[org.apache.spark.sql.catalyst.plans.logical.LocalRelation]].
  *
@@ -106,7 +129,7 @@ case class UnresolvedInlineTable(
  *                    adds [[Project]] to rename the output columns.
  */
 case class UnresolvedTableValuedFunction(
-    name: Seq[String],
+    name: FunctionIdentifier,
     functionArgs: Seq[Expression],
     outputNames: Seq[String])
   extends LeafNode {
@@ -114,25 +137,14 @@ case class UnresolvedTableValuedFunction(
   override def output: Seq[Attribute] = Nil
 
   override lazy val resolved = false
-
-  final override val nodePatterns: Seq[TreePattern] = Seq(UNRESOLVED_TABLE_VALUED_FUNCTION)
 }
 
 object UnresolvedTableValuedFunction {
-  import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
-
   def apply(
       name: String,
       functionArgs: Seq[Expression],
       outputNames: Seq[String]): UnresolvedTableValuedFunction = {
-    UnresolvedTableValuedFunction(Seq(name), functionArgs, outputNames)
-  }
-
-  def apply(
-      name: FunctionIdentifier,
-      functionArgs: Seq[Expression],
-      outputNames: Seq[String]): UnresolvedTableValuedFunction = {
-    UnresolvedTableValuedFunction(name.asMultipart, functionArgs, outputNames)
+    UnresolvedTableValuedFunction(FunctionIdentifier(name), functionArgs, outputNames)
   }
 }
 
@@ -374,7 +386,7 @@ case class UnresolvedStar(target: Option[Seq[String]]) extends Star with Unevalu
     if (target.isEmpty) return input.output
 
     // If there is a table specified, use hidden input attributes as well
-    val hiddenOutput = input.metadataOutput.filter(_.qualifiedAccessOnly)
+    val hiddenOutput = input.metadataOutput.filter(_.supportsQualifiedStar)
     val expandedAttributes = (hiddenOutput ++ input.output).filter(
       matchedQualifier(_, target.get, resolver))
 
@@ -602,7 +614,7 @@ case class GetViewColumnByNameAndOrdinal(
   override def dataType: DataType = throw new UnresolvedException("dataType")
   override def nullable: Boolean = throw new UnresolvedException("nullable")
   override lazy val resolved = false
-  override def stringArgs: Iterator[Any] = super.stringArgs.toSeq.dropRight(1).iterator
+  override def stringArgs: Iterator[Any] = super.stringArgs.toSeq.dropRight(1).toIterator
 }
 
 /**
@@ -656,5 +668,4 @@ case class TempResolvedColumn(child: Expression, nameParts: Seq[String]) extends
   override def dataType: DataType = child.dataType
   override protected def withNewChildInternal(newChild: Expression): Expression =
     copy(child = newChild)
-  override def sql: String = child.sql
 }

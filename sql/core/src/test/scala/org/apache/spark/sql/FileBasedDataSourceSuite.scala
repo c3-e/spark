@@ -30,10 +30,10 @@ import org.apache.hadoop.fs.{LocalFileSystem, Path}
 import org.apache.spark.SparkException
 import org.apache.spark.scheduler.{SparkListener, SparkListenerTaskEnd}
 import org.apache.spark.sql.TestingUDT.{IntervalUDT, NullData, NullUDT}
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, GreaterThan, Literal}
+import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.catalyst.expressions.IntegralLiteralTestUtils.{negativeInt, positiveInt}
 import org.apache.spark.sql.catalyst.plans.logical.Filter
-import org.apache.spark.sql.execution.{FileSourceScanLike, SimpleMode}
+import org.apache.spark.sql.execution.SimpleMode
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.datasources.FilePartition
 import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, FileScan}
@@ -53,7 +53,7 @@ class FileBasedDataSourceSuite extends QueryTest
 
   override def beforeAll(): Unit = {
     super.beforeAll()
-    spark.conf.set(SQLConf.ORC_IMPLEMENTATION, "native")
+    spark.sessionState.conf.setConf(SQLConf.ORC_IMPLEMENTATION, "native")
   }
 
   override def afterAll(): Unit = {
@@ -181,7 +181,7 @@ class FileBasedDataSourceSuite extends QueryTest
 
   allFileBasedDataSources.foreach { format =>
     testQuietly(s"Enabling/disabling ignoreMissingFiles using $format") {
-      def testIgnoreMissingFiles(options: Map[String, String]): Unit = {
+      def testIgnoreMissingFiles(): Unit = {
         withTempDir { dir =>
           val basePath = dir.getCanonicalPath
 
@@ -197,7 +197,7 @@ class FileBasedDataSourceSuite extends QueryTest
             fs.listStatus(p).filter(_.isFile).map(_.getPath)
           }
 
-          val df = spark.read.options(options).format(format).load(
+          val df = spark.read.format(format).load(
             new Path(basePath, "first").toString,
             new Path(basePath, "second").toString,
             new Path(basePath, "third").toString,
@@ -214,27 +214,20 @@ class FileBasedDataSourceSuite extends QueryTest
         }
       }
 
-      // Test set ignoreMissingFiles via SQL Conf and Data Source reader options
       for {
-        (ignore, options, sqlConf) <- Seq(
-          // Set via SQL Conf: leave options empty
-          ("true", Map.empty[String, String], "true"),
-          ("false", Map.empty[String, String], "false"),
-          // Set via reader options: explicitly set SQL Conf to opposite
-          ("true", Map("ignoreMissingFiles" -> "true"), "false"),
-          ("false", Map("ignoreMissingFiles" -> "false"), "true"))
+        ignore <- Seq("true", "false")
         sources <- Seq("", format)
       } {
-        withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> sources,
-          SQLConf.IGNORE_MISSING_FILES.key -> sqlConf) {
-          if (ignore.toBoolean) {
-            testIgnoreMissingFiles(options)
-          } else {
-            val exception = intercept[SparkException] {
-              testIgnoreMissingFiles(options)
+        withSQLConf(SQLConf.IGNORE_MISSING_FILES.key -> ignore,
+          SQLConf.USE_V1_SOURCE_LIST.key -> sources) {
+            if (ignore.toBoolean) {
+              testIgnoreMissingFiles()
+            } else {
+              val exception = intercept[SparkException] {
+                testIgnoreMissingFiles()
+              }
+              assert(exception.getMessage().contains("does not exist"))
             }
-            assert(exception.getMessage().contains("does not exist"))
-          }
         }
       }
     }
@@ -257,44 +250,38 @@ class FileBasedDataSourceSuite extends QueryTest
   // Text file format only supports string type
   test("SPARK-24691 error handling for unsupported types - text") {
     withTempDir { dir =>
-      def validateErrorMessage(msg: String, column: String, dt: String, format: String): Unit = {
-        val excepted = s"Column `$column` has a data type of $dt, " +
-          s"which is not supported by $format."
-        assert(msg.contains(excepted))
-      }
-
       // write path
       val textDir = new File(dir, "text").getCanonicalPath
       var msg = intercept[AnalysisException] {
         Seq(1).toDF.write.text(textDir)
       }.getMessage
-      validateErrorMessage(msg, "value", "int", "Text")
+      assert(msg.contains("Text data source does not support int data type"))
 
       msg = intercept[AnalysisException] {
         Seq(1.2).toDF.write.text(textDir)
       }.getMessage
-      validateErrorMessage(msg, "value", "double", "Text")
+      assert(msg.contains("Text data source does not support double data type"))
 
       msg = intercept[AnalysisException] {
         Seq(true).toDF.write.text(textDir)
       }.getMessage
-      validateErrorMessage(msg, "value", "boolean", "Text")
+      assert(msg.contains("Text data source does not support boolean data type"))
 
       msg = intercept[AnalysisException] {
         Seq(1).toDF("a").selectExpr("struct(a)").write.text(textDir)
       }.getMessage
-      validateErrorMessage(msg, "struct(a)", "struct<a:int>", "Text")
+      assert(msg.contains("Text data source does not support struct<a:int> data type"))
 
       msg = intercept[AnalysisException] {
         Seq((Map("Tesla" -> 3))).toDF("cars").write.mode("overwrite").text(textDir)
       }.getMessage
-      validateErrorMessage(msg, "cars", "map<string,int>", "Text")
+      assert(msg.contains("Text data source does not support map<string,int> data type"))
 
       msg = intercept[AnalysisException] {
         Seq((Array("Tesla", "Chevy", "Ford"))).toDF("brands")
           .write.mode("overwrite").text(textDir)
       }.getMessage
-      validateErrorMessage(msg, "brands", "array<string>", "Text")
+      assert(msg.contains("Text data source does not support array<string> data type"))
 
       // read path
       Seq("aaa").toDF.write.mode("overwrite").text(textDir)
@@ -302,19 +289,19 @@ class FileBasedDataSourceSuite extends QueryTest
         val schema = StructType(StructField("a", IntegerType, true) :: Nil)
         spark.read.schema(schema).text(textDir).collect()
       }.getMessage
-      validateErrorMessage(msg, "a", "int", "Text")
+      assert(msg.contains("Text data source does not support int data type"))
 
       msg = intercept[AnalysisException] {
         val schema = StructType(StructField("a", DoubleType, true) :: Nil)
         spark.read.schema(schema).text(textDir).collect()
       }.getMessage
-      validateErrorMessage(msg, "a", "double", "Text")
+      assert(msg.contains("Text data source does not support double data type"))
 
       msg = intercept[AnalysisException] {
         val schema = StructType(StructField("a", BooleanType, true) :: Nil)
         spark.read.schema(schema).text(textDir).collect()
       }.getMessage
-      validateErrorMessage(msg, "a", "boolean", "Text")
+      assert(msg.contains("Text data source does not support boolean data type"))
     }
   }
 
@@ -325,62 +312,56 @@ class FileBasedDataSourceSuite extends QueryTest
   //  parquet -> R/W: Interval, Null
   test("SPARK-24204 error handling for unsupported Array/Map/Struct types - csv") {
     withTempDir { dir =>
-      def validateErrorMessage(msg: String, column: String, dt: String, format: String): Unit = {
-        val excepted = s"Column `$column` has a data type of $dt, " +
-          s"which is not supported by $format."
-        assert(msg.contains(excepted))
-      }
-
       val csvDir = new File(dir, "csv").getCanonicalPath
       var msg = intercept[AnalysisException] {
         Seq((1, "Tesla")).toDF("a", "b").selectExpr("struct(a, b)").write.csv(csvDir)
       }.getMessage
-      validateErrorMessage(msg, "struct(a, b)", "struct<a:int,b:string>", "CSV")
+      assert(msg.contains("CSV data source does not support struct<a:int,b:string> data type"))
 
       msg = intercept[AnalysisException] {
         val schema = StructType.fromDDL("a struct<b: Int>")
         spark.range(1).write.mode("overwrite").csv(csvDir)
         spark.read.schema(schema).csv(csvDir).collect()
       }.getMessage
-      validateErrorMessage(msg, "a", "struct<b:int>", "CSV")
+      assert(msg.contains("CSV data source does not support struct<b:int> data type"))
 
       msg = intercept[AnalysisException] {
         Seq((1, Map("Tesla" -> 3))).toDF("id", "cars").write.mode("overwrite").csv(csvDir)
       }.getMessage
-      validateErrorMessage(msg, "cars", "map<string,int>", "CSV")
+      assert(msg.contains("CSV data source does not support map<string,int> data type"))
 
       msg = intercept[AnalysisException] {
         val schema = StructType.fromDDL("a map<int, int>")
         spark.range(1).write.mode("overwrite").csv(csvDir)
         spark.read.schema(schema).csv(csvDir).collect()
       }.getMessage
-      validateErrorMessage(msg, "a", "map<int,int>", "CSV")
+      assert(msg.contains("CSV data source does not support map<int,int> data type"))
 
       msg = intercept[AnalysisException] {
         Seq((1, Array("Tesla", "Chevy", "Ford"))).toDF("id", "brands")
           .write.mode("overwrite").csv(csvDir)
       }.getMessage
-      validateErrorMessage(msg, "brands", "array<string>", "CSV")
+      assert(msg.contains("CSV data source does not support array<string> data type"))
 
       msg = intercept[AnalysisException] {
          val schema = StructType.fromDDL("a array<int>")
          spark.range(1).write.mode("overwrite").csv(csvDir)
          spark.read.schema(schema).csv(csvDir).collect()
        }.getMessage
-      validateErrorMessage(msg, "a", "array<int>", "CSV")
+      assert(msg.contains("CSV data source does not support array<int> data type"))
 
       msg = intercept[AnalysisException] {
         Seq((1, new TestUDT.MyDenseVector(Array(0.25, 2.25, 4.25)))).toDF("id", "vectors")
           .write.mode("overwrite").csv(csvDir)
       }.getMessage
-      validateErrorMessage(msg, "vectors", "array<double>", "CSV")
+      assert(msg.contains("CSV data source does not support array<double> data type"))
 
       msg = intercept[AnalysisException] {
         val schema = StructType(StructField("a", new TestUDT.MyDenseVectorUDT(), true) :: Nil)
         spark.range(1).write.mode("overwrite").csv(csvDir)
         spark.read.schema(schema).csv(csvDir).collect()
       }.getMessage
-      validateErrorMessage(msg, "a", "array<double>", "CSV")
+      assert(msg.contains("CSV data source does not support array<double> data type."))
     }
   }
 
@@ -394,22 +375,20 @@ class FileBasedDataSourceSuite extends QueryTest
         } else {
           ""
         }
-        def validateErrorMessage(msg: String, format: String): Unit = {
+        def validateErrorMessage(msg: String): Unit = {
           val msg1 = "cannot save interval data type into external storage."
-          val msg2 = s"column `a` has a data type of interval, which is not supported by $format."
+          val msg2 = "data source does not support interval data type."
           assert(msg.toLowerCase(Locale.ROOT).contains(msg1) ||
             msg.toLowerCase(Locale.ROOT).contains(msg2))
         }
 
-        withSQLConf(
-          SQLConf.USE_V1_SOURCE_LIST.key -> useV1List,
-          SQLConf.LEGACY_INTERVAL_ENABLED.key -> "true") {
+        withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> useV1List) {
           // write path
           Seq("csv", "json", "parquet", "orc").foreach { format =>
             val msg = intercept[AnalysisException] {
               sql("select interval 1 days").write.format(format).mode("overwrite").save(tempDir)
             }.getMessage
-            validateErrorMessage(msg, format)
+            validateErrorMessage(msg)
           }
 
           // read path
@@ -419,14 +398,14 @@ class FileBasedDataSourceSuite extends QueryTest
               spark.range(1).write.format(format).mode("overwrite").save(tempDir)
               spark.read.schema(schema).format(format).load(tempDir).collect()
             }.getMessage
-            validateErrorMessage(msg, format)
+            validateErrorMessage(msg)
 
             msg = intercept[AnalysisException] {
               val schema = StructType(StructField("a", new IntervalUDT(), true) :: Nil)
               spark.range(1).write.format(format).mode("overwrite").save(tempDir)
               spark.read.schema(schema).format(format).load(tempDir).collect()
             }.getMessage
-            validateErrorMessage(msg, format)
+            validateErrorMessage(msg)
           }
         }
       }
@@ -441,8 +420,8 @@ class FileBasedDataSourceSuite extends QueryTest
       } else {
         ""
       }
-      def errorMessage(format: String, column: String): String = {
-        s"column `$column` has a data type of void, which is not supported by $format."
+      def errorMessage(format: String): String = {
+        s"$format data source does not support void data type."
       }
       withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> useV1List) {
         withTempDir { dir =>
@@ -454,14 +433,14 @@ class FileBasedDataSourceSuite extends QueryTest
               sql("select null").write.format(format).mode("overwrite").save(tempDir)
             }.getMessage
             assert(msg.toLowerCase(Locale.ROOT)
-              .contains(errorMessage(format, "null")))
+              .contains(errorMessage(format)))
 
             msg = intercept[AnalysisException] {
               spark.udf.register("testType", () => new NullData())
               sql("select testType()").write.format(format).mode("overwrite").save(tempDir)
             }.getMessage
             assert(msg.toLowerCase(Locale.ROOT)
-              .contains(errorMessage(format, "testtype()")))
+              .contains(errorMessage(format)))
 
             // read path
             msg = intercept[AnalysisException] {
@@ -470,7 +449,7 @@ class FileBasedDataSourceSuite extends QueryTest
               spark.read.schema(schema).format(format).load(tempDir).collect()
             }.getMessage
             assert(msg.toLowerCase(Locale.ROOT)
-              .contains(errorMessage(format, "a")))
+              .contains(errorMessage(format)))
 
             msg = intercept[AnalysisException] {
               val schema = StructType(StructField("a", new NullUDT(), true) :: Nil)
@@ -478,7 +457,7 @@ class FileBasedDataSourceSuite extends QueryTest
               spark.read.schema(schema).format(format).load(tempDir).collect()
             }.getMessage
             assert(msg.toLowerCase(Locale.ROOT)
-              .contains(errorMessage(format, "a")))
+              .contains(errorMessage(format)))
           }
         }
       }
@@ -548,64 +527,6 @@ class FileBasedDataSourceSuite extends QueryTest
           assert(bytesReads.sum === 7860)
         } finally {
           sparkContext.removeSparkListener(bytesReadListener)
-        }
-      }
-    }
-  }
-
-  test("SPARK-30362: test input metrics for DSV2") {
-    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
-      Seq("json", "orc", "parquet").foreach { format =>
-        withTempPath { path =>
-          val dir = path.getCanonicalPath
-          spark.range(0, 10).write.format(format).save(dir)
-          val df = spark.read.format(format).load(dir)
-          val bytesReads = new mutable.ArrayBuffer[Long]()
-          val recordsRead = new mutable.ArrayBuffer[Long]()
-          val bytesReadListener = new SparkListener() {
-            override def onTaskEnd(taskEnd: SparkListenerTaskEnd): Unit = {
-              bytesReads += taskEnd.taskMetrics.inputMetrics.bytesRead
-              recordsRead += taskEnd.taskMetrics.inputMetrics.recordsRead
-            }
-          }
-          sparkContext.addSparkListener(bytesReadListener)
-          try {
-            df.collect()
-            sparkContext.listenerBus.waitUntilEmpty()
-            assert(bytesReads.sum > 0)
-            assert(recordsRead.sum == 10)
-          } finally {
-            sparkContext.removeSparkListener(bytesReadListener)
-          }
-        }
-      }
-    }
-  }
-
-  test("SPARK-37585: test input metrics for DSV2 with output limits") {
-    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
-      Seq("json", "orc", "parquet").foreach { format =>
-        withTempPath { path =>
-          val dir = path.getCanonicalPath
-          spark.range(0, 100).write.format(format).save(dir)
-          val df = spark.read.format(format).load(dir)
-          val bytesReads = new mutable.ArrayBuffer[Long]()
-          val recordsRead = new mutable.ArrayBuffer[Long]()
-          val bytesReadListener = new SparkListener() {
-            override def onTaskEnd(taskEnd: SparkListenerTaskEnd): Unit = {
-              bytesReads += taskEnd.taskMetrics.inputMetrics.bytesRead
-              recordsRead += taskEnd.taskMetrics.inputMetrics.recordsRead
-            }
-          }
-          sparkContext.addSparkListener(bytesReadListener)
-          try {
-            df.limit(10).collect()
-            sparkContext.listenerBus.waitUntilEmpty()
-            assert(bytesReads.sum > 0)
-            assert(recordsRead.sum > 0)
-          } finally {
-            sparkContext.removeSparkListener(bytesReadListener)
-          }
         }
       }
     }
@@ -774,7 +695,7 @@ class FileBasedDataSourceSuite extends QueryTest
   test("SPARK-22790,SPARK-27668: spark.sql.sources.compressionFactor takes effect") {
     Seq(1.0, 0.5).foreach { compressionFactor =>
       withSQLConf(SQLConf.FILE_COMPRESSION_FACTOR.key -> compressionFactor.toString,
-        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "457") {
+        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "350") {
         withTempPath { workDir =>
           // the file size is 504 bytes
           val workDirPath = workDir.getAbsolutePath
@@ -810,28 +731,6 @@ class FileBasedDataSourceSuite extends QueryTest
     }
   }
 
-  test("SPARK-36568: FileScan statistics estimation takes read schema into account") {
-    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
-      withTempDir { dir =>
-        spark.range(1000).map(x => (x / 100, x, x)).toDF("k", "v1", "v2").
-          write.partitionBy("k").mode(SaveMode.Overwrite).orc(dir.toString)
-        val dfAll = spark.read.orc(dir.toString)
-        val dfK = dfAll.select("k")
-        val dfV1 = dfAll.select("v1")
-        val dfV2 = dfAll.select("v2")
-        val dfV1V2 = dfAll.select("v1", "v2")
-
-        def sizeInBytes(df: DataFrame): BigInt = df.queryExecution.optimizedPlan.stats.sizeInBytes
-
-        assert(sizeInBytes(dfAll) === BigInt(getLocalDirSize(dir)))
-        assert(sizeInBytes(dfK) < sizeInBytes(dfAll))
-        assert(sizeInBytes(dfV1) < sizeInBytes(dfAll))
-        assert(sizeInBytes(dfV2) === sizeInBytes(dfV1))
-        assert(sizeInBytes(dfV1V2) < sizeInBytes(dfAll))
-      }
-    }
-  }
-
   test("File source v2: support partition pruning") {
     withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
       allFileBasedDataSources.foreach { format =>
@@ -855,13 +754,12 @@ class FileBasedDataSourceSuite extends QueryTest
           }
           assert(filterCondition.isDefined)
           // The partitions filters should be pushed down and no need to be reevaluated.
-          assert(!filterCondition.get.exists {
-            case a: AttributeReference => a.name == "p1" || a.name == "p2"
-            case _ => false
-          })
+          assert(filterCondition.get.collectFirst {
+            case a: AttributeReference if a.name == "p1" || a.name == "p2" => a
+          }.isEmpty)
 
           val fileScan = df.queryExecution.executedPlan collectFirst {
-            case BatchScanExec(_, f: FileScan, _, _, _, _) => f
+            case BatchScanExec(_, f: FileScan, _) => f
           }
           assert(fileScan.nonEmpty)
           assert(fileScan.get.partitionFilters.nonEmpty)
@@ -901,7 +799,7 @@ class FileBasedDataSourceSuite extends QueryTest
           assert(filterCondition.isDefined)
 
           val fileScan = df.queryExecution.executedPlan collectFirst {
-            case BatchScanExec(_, f: FileScan, _, _, _, _) => f
+            case BatchScanExec(_, f: FileScan, _) => f
           }
           assert(fileScan.nonEmpty)
           assert(fileScan.get.partitionFilters.isEmpty)
@@ -987,57 +885,52 @@ class FileBasedDataSourceSuite extends QueryTest
 
           // cases when value == MAX
           var v = Short.MaxValue
-          checkPushedFilters(format, df.where($"id" > v.toInt), Array(), noScan = true)
-          checkPushedFilters(format, df.where($"id" >= v.toInt),
-            Array(sources.IsNotNull("id"), sources.EqualTo("id", v)))
-          checkPushedFilters(format, df.where($"id" === v.toInt),
-            Array(sources.IsNotNull("id"), sources.EqualTo("id", v)))
-          checkPushedFilters(format, df.where($"id" <=> v.toInt),
+          checkPushedFilters(format, df.where('id > v.toInt), Array(), noScan = true)
+          checkPushedFilters(format, df.where('id >= v.toInt), Array(sources.IsNotNull("id"),
+            sources.EqualTo("id", v)))
+          checkPushedFilters(format, df.where('id === v.toInt), Array(sources.IsNotNull("id"),
+            sources.EqualTo("id", v)))
+          checkPushedFilters(format, df.where('id <=> v.toInt),
             Array(sources.EqualNullSafe("id", v)))
-          checkPushedFilters(format, df.where($"id" <= v.toInt),
-            Array(sources.IsNotNull("id")))
-          checkPushedFilters(format, df.where($"id" < v.toInt),
-            Array(sources.IsNotNull("id"), sources.Not(sources.EqualTo("id", v))))
+          checkPushedFilters(format, df.where('id <= v.toInt), Array(sources.IsNotNull("id")))
+          checkPushedFilters(format, df.where('id < v.toInt), Array(sources.IsNotNull("id"),
+            sources.Not(sources.EqualTo("id", v))))
 
           // cases when value > MAX
           var v1: Int = positiveInt
-          checkPushedFilters(format, df.where($"id" > v1), Array(), noScan = true)
-          checkPushedFilters(format, df.where($"id" >= v1), Array(), noScan = true)
-          checkPushedFilters(format, df.where($"id" === v1), Array(), noScan = true)
-          checkPushedFilters(format, df.where($"id" <=> v1), Array(), noScan = true)
-          checkPushedFilters(format, df.where($"id" <= v1), Array(sources.IsNotNull("id")))
-          checkPushedFilters(format, df.where($"id" < v1), Array(sources.IsNotNull("id")))
+          checkPushedFilters(format, df.where('id > v1), Array(), noScan = true)
+          checkPushedFilters(format, df.where('id >= v1), Array(), noScan = true)
+          checkPushedFilters(format, df.where('id === v1), Array(), noScan = true)
+          checkPushedFilters(format, df.where('id <=> v1), Array(), noScan = true)
+          checkPushedFilters(format, df.where('id <= v1), Array(sources.IsNotNull("id")))
+          checkPushedFilters(format, df.where('id < v1), Array(sources.IsNotNull("id")))
 
           // cases when value = MIN
           v = Short.MinValue
-          checkPushedFilters(format, df.where(lit(v.toInt) < $"id"),
-            Array(sources.IsNotNull("id"), sources.Not(sources.EqualTo("id", v))))
-          checkPushedFilters(format, df.where(lit(v.toInt) <= $"id"),
-            Array(sources.IsNotNull("id")))
-          checkPushedFilters(format, df.where(lit(v.toInt) === $"id"),
-            Array(sources.IsNotNull("id"),
+          checkPushedFilters(format, df.where(lit(v.toInt) < 'id), Array(sources.IsNotNull("id"),
+            sources.Not(sources.EqualTo("id", v))))
+          checkPushedFilters(format, df.where(lit(v.toInt) <= 'id), Array(sources.IsNotNull("id")))
+          checkPushedFilters(format, df.where(lit(v.toInt) === 'id), Array(sources.IsNotNull("id"),
             sources.EqualTo("id", v)))
-          checkPushedFilters(format, df.where(lit(v.toInt) <=> $"id"),
+          checkPushedFilters(format, df.where(lit(v.toInt) <=> 'id),
             Array(sources.EqualNullSafe("id", v)))
-          checkPushedFilters(format, df.where(lit(v.toInt) >= $"id"),
-            Array(sources.IsNotNull("id"), sources.EqualTo("id", v)))
-          checkPushedFilters(format, df.where(lit(v.toInt) > $"id"), Array(), noScan = true)
+          checkPushedFilters(format, df.where(lit(v.toInt) >= 'id), Array(sources.IsNotNull("id"),
+            sources.EqualTo("id", v)))
+          checkPushedFilters(format, df.where(lit(v.toInt) > 'id), Array(), noScan = true)
 
           // cases when value < MIN
           v1 = negativeInt
-          checkPushedFilters(format, df.where(lit(v1) < $"id"),
-            Array(sources.IsNotNull("id")))
-          checkPushedFilters(format, df.where(lit(v1) <= $"id"),
-            Array(sources.IsNotNull("id")))
-          checkPushedFilters(format, df.where(lit(v1) === $"id"), Array(), noScan = true)
-          checkPushedFilters(format, df.where(lit(v1) >= $"id"), Array(), noScan = true)
-          checkPushedFilters(format, df.where(lit(v1) > $"id"), Array(), noScan = true)
+          checkPushedFilters(format, df.where(lit(v1) < 'id), Array(sources.IsNotNull("id")))
+          checkPushedFilters(format, df.where(lit(v1) <= 'id), Array(sources.IsNotNull("id")))
+          checkPushedFilters(format, df.where(lit(v1) === 'id), Array(), noScan = true)
+          checkPushedFilters(format, df.where(lit(v1) >= 'id), Array(), noScan = true)
+          checkPushedFilters(format, df.where(lit(v1) > 'id), Array(), noScan = true)
 
           // cases when value is within range (MIN, MAX)
-          checkPushedFilters(format, df.where($"id" > 30), Array(sources.IsNotNull("id"),
+          checkPushedFilters(format, df.where('id > 30), Array(sources.IsNotNull("id"),
             sources.GreaterThan("id", 30)))
-          checkPushedFilters(format, df.where(lit(100) >= $"id"),
-            Array(sources.IsNotNull("id"), sources.LessThanOrEqual("id", 100)))
+          checkPushedFilters(format, df.where(lit(100) >= 'id), Array(sources.IsNotNull("id"),
+            sources.LessThanOrEqual("id", 100)))
         }
       }
     }
@@ -1075,20 +968,24 @@ class FileBasedDataSourceSuite extends QueryTest
     }
   }
 
-  test("SPARK-41017: filter pushdown with nondeterministic predicates") {
-    withTempPath { path =>
-      val pathStr = path.getCanonicalPath
-      spark.range(10).write.parquet(pathStr)
-      Seq("parquet", "").foreach { useV1SourceList =>
-        withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> useV1SourceList) {
-          val scan = spark.read.parquet(pathStr)
-          val df = scan.where(rand() > 0.5 && $"id" > 5)
-          val filters = df.queryExecution.executedPlan.collect {
-            case f: FileSourceScanLike => f.dataFilters
-            case b: BatchScanExec => b.scan.asInstanceOf[FileScan].dataFilters
-          }.flatten
-          assert(filters.contains(GreaterThan(scan.logicalPlan.output.head, Literal(5L))))
-        }
+  test("SPARK-36271: V1 insert should check schema field name too") {
+    withView("v") {
+      spark.range(1).createTempView("v")
+      withTempDir { dir =>
+        val e = intercept[AnalysisException] {
+          sql("SELECT ID, IF(ID=1,1,0) FROM v").write.mode(SaveMode.Overwrite)
+            .format("parquet").save(dir.getCanonicalPath)
+        }.getMessage
+        assert(e.contains("Column name \"(IF((ID = 1), 1, 0))\" contains invalid character(s)."))
+      }
+
+      withTempDir { dir =>
+        val e = intercept[AnalysisException] {
+          sql("SELECT NAMED_STRUCT('(IF((ID = 1), 1, 0))', IF(ID=1,ID,0)) AS col1 FROM v")
+            .write.mode(SaveMode.Overwrite)
+            .format("parquet").save(dir.getCanonicalPath)
+        }.getMessage
+        assert(e.contains("Column name \"(IF((ID = 1), 1, 0))\" contains invalid character(s)."))
       }
     }
   }

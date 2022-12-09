@@ -250,7 +250,12 @@ class ExternalAppendOnlyMap[K, V, C](
       if (!success) {
         // This code path only happens if an exception was thrown above before we set success;
         // close our stuff and let the exception be thrown further
-        writer.closeAndDelete()
+        writer.revertPartialWritesAndClose()
+        if (file.exists()) {
+          if (!file.delete()) {
+            logWarning(s"Error deleting ${file}")
+          }
+        }
       }
     }
 

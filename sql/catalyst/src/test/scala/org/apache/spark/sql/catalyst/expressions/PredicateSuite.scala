@@ -239,10 +239,7 @@ class PredicateSuite extends SparkFunSuite with ExpressionEvalHelper {
     In(map, Seq(map)).checkInputDataTypes() match {
       case TypeCheckResult.TypeCheckFailure(msg) =>
         assert(msg.contains("function in does not support ordering on type map"))
-      case TypeCheckResult.DataTypeMismatch(errorSubClass, messageParameters) =>
-        assert(errorSubClass == "INVALID_ORDERING_TYPE")
-        assert(messageParameters === Map(
-          "functionName" -> "`in`", "dataType" -> "\"MAP<INT, INT>\""))
+      case _ => fail("In should not work on map type")
     }
   }
 
@@ -395,7 +392,7 @@ class PredicateSuite extends SparkFunSuite with ExpressionEvalHelper {
   }
 
   test("BinaryComparison: lessThan") {
-    for (i <- smallValues.indices) {
+    for (i <- 0 until smallValues.length) {
       checkEvaluation(LessThan(smallValues(i), largeValues(i)), true)
       checkEvaluation(LessThan(equalValues1(i), equalValues2(i)), false)
       checkEvaluation(LessThan(largeValues(i), smallValues(i)), false)
@@ -403,7 +400,7 @@ class PredicateSuite extends SparkFunSuite with ExpressionEvalHelper {
   }
 
   test("BinaryComparison: LessThanOrEqual") {
-    for (i <- smallValues.indices) {
+    for (i <- 0 until smallValues.length) {
       checkEvaluation(LessThanOrEqual(smallValues(i), largeValues(i)), true)
       checkEvaluation(LessThanOrEqual(equalValues1(i), equalValues2(i)), true)
       checkEvaluation(LessThanOrEqual(largeValues(i), smallValues(i)), false)
@@ -411,7 +408,7 @@ class PredicateSuite extends SparkFunSuite with ExpressionEvalHelper {
   }
 
   test("BinaryComparison: GreaterThan") {
-    for (i <- smallValues.indices) {
+    for (i <- 0 until smallValues.length) {
       checkEvaluation(GreaterThan(smallValues(i), largeValues(i)), false)
       checkEvaluation(GreaterThan(equalValues1(i), equalValues2(i)), false)
       checkEvaluation(GreaterThan(largeValues(i), smallValues(i)), true)
@@ -419,7 +416,7 @@ class PredicateSuite extends SparkFunSuite with ExpressionEvalHelper {
   }
 
   test("BinaryComparison: GreaterThanOrEqual") {
-    for (i <- smallValues.indices) {
+    for (i <- 0 until smallValues.length) {
       checkEvaluation(GreaterThanOrEqual(smallValues(i), largeValues(i)), false)
       checkEvaluation(GreaterThanOrEqual(equalValues1(i), equalValues2(i)), true)
       checkEvaluation(GreaterThanOrEqual(largeValues(i), smallValues(i)), true)
@@ -427,7 +424,7 @@ class PredicateSuite extends SparkFunSuite with ExpressionEvalHelper {
   }
 
   test("BinaryComparison: EqualTo") {
-    for (i <- smallValues.indices) {
+    for (i <- 0 until smallValues.length) {
       checkEvaluation(EqualTo(smallValues(i), largeValues(i)), false)
       checkEvaluation(EqualTo(equalValues1(i), equalValues2(i)), true)
       checkEvaluation(EqualTo(largeValues(i), smallValues(i)), false)
@@ -435,7 +432,7 @@ class PredicateSuite extends SparkFunSuite with ExpressionEvalHelper {
   }
 
   test("BinaryComparison: EqualNullSafe") {
-    for (i <- smallValues.indices) {
+    for (i <- 0 until smallValues.length) {
       checkEvaluation(EqualNullSafe(smallValues(i), largeValues(i)), false)
       checkEvaluation(EqualNullSafe(equalValues1(i), equalValues2(i)), true)
       checkEvaluation(EqualNullSafe(largeValues(i), smallValues(i)), false)
@@ -531,13 +528,8 @@ class PredicateSuite extends SparkFunSuite with ExpressionEvalHelper {
     checkEvaluation(IsUnknown(Literal.create(null, BooleanType)), true, row0)
     checkEvaluation(IsNotUnknown(Literal.create(null, BooleanType)), false, row0)
     IsUnknown(Literal.create(null, IntegerType)).checkInputDataTypes() match {
-      case TypeCheckResult.DataTypeMismatch(errorSubClass, messageParameters) =>
-        assert(errorSubClass === "UNEXPECTED_INPUT_TYPE")
-        assert(messageParameters === Map(
-          "paramIndex" -> "1",
-          "requiredType" -> "\"BOOLEAN\"",
-          "inputSql" -> "\"NULL\"",
-          "inputType" -> "\"INT\""))
+      case TypeCheckResult.TypeCheckFailure(msg) =>
+        assert(msg.contains("argument 1 requires boolean type"))
     }
   }
 

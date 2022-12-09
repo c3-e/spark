@@ -46,9 +46,10 @@ import static org.apache.spark.unsafe.Platform.BYTE_ARRAY_OFFSET;
 /**
  * An Unsafe implementation of Row which is backed by raw memory instead of Java objects.
  *
- * Each tuple has three parts: [null-tracking bit set] [values] [variable length portion]
+ * Each tuple has three parts: [null bit set] [values] [variable length portion]
  *
- * The null-tracking bit set is aligned to 8-byte word boundaries. It stores one bit per field.
+ * The bit set is used for null tracking and is aligned to 8-byte word boundaries.  It stores
+ * one bit per field.
  *
  * In the `values` region, we store one 8-byte word per field. For fields that hold fixed-length
  * primitive types, such as long, double, or int, we store the value directly in the word. For
@@ -79,7 +80,7 @@ public final class UnsafeRow extends InternalRow implements Externalizable, Kryo
   static {
     mutableFieldTypes = Collections.unmodifiableSet(
       new HashSet<>(
-        Arrays.asList(
+        Arrays.asList(new DataType[] {
           NullType,
           BooleanType,
           ByteType,
@@ -89,9 +90,8 @@ public final class UnsafeRow extends InternalRow implements Externalizable, Kryo
           FloatType,
           DoubleType,
           DateType,
-          TimestampType,
-          TimestampNTZType
-        )));
+          TimestampType
+        })));
   }
 
   public static boolean isFixedLength(DataType dt) {
@@ -321,9 +321,8 @@ public final class UnsafeRow extends InternalRow implements Externalizable, Kryo
       // keep the offset for future update
       Platform.putLong(baseObject, getFieldOffset(ordinal), (cursor << 32) | 16L);
     } else {
-      long longVal =
-        ((long) value.months & 0xFFFFFFFFL) | (((long) value.days << 32) & 0xFFFFFFFF00000000L);
-      Platform.putLong(baseObject, baseOffset + cursor, longVal);
+      Platform.putInt(baseObject, baseOffset + cursor, value.months);
+      Platform.putInt(baseObject, baseOffset + cursor + 4, value.days);
       Platform.putLong(baseObject, baseOffset + cursor + 8, value.microseconds);
       setLong(ordinal, (cursor << 32) | 16L);
     }
@@ -433,9 +432,8 @@ public final class UnsafeRow extends InternalRow implements Externalizable, Kryo
     } else {
       final long offsetAndSize = getLong(ordinal);
       final int offset = (int) (offsetAndSize >> 32);
-      final long monthAndDays = Platform.getLong(baseObject, baseOffset + offset);
-      final int months = (int) (0xFFFFFFFFL & monthAndDays);
-      final int days = (int) ((0xFFFFFFFF00000000L & monthAndDays) >> 32);
+      final int months = Platform.getInt(baseObject, baseOffset + offset);
+      final int days = Platform.getInt(baseObject, baseOffset + offset + 4);
       final long microseconds = Platform.getLong(baseObject, baseOffset + offset + 8);
       return new CalendarInterval(months, days, microseconds);
     }

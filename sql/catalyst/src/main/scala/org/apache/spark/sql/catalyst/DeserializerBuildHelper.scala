@@ -49,9 +49,10 @@ object DeserializerBuildHelper {
       dataType: DataType,
       nullable: Boolean,
       walkedTypePath: WalkedTypePath,
-      funcForCreatingDeserializer: Expression => Expression): Expression = {
+      funcForCreatingDeserializer: (Expression, WalkedTypePath) => Expression): Expression = {
     val casted = upCastToExpectedType(expr, dataType, walkedTypePath)
-    expressionWithNullSafety(funcForCreatingDeserializer(casted), nullable, walkedTypePath)
+    expressionWithNullSafety(funcForCreatingDeserializer(casted, walkedTypePath),
+      nullable, walkedTypePath)
   }
 
   def expressionWithNullSafety(

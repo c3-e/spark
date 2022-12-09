@@ -29,13 +29,14 @@ import scala.util.control.NonFatal
 
 import org.apache.hadoop.fs.Path
 
-import org.apache.spark.sql.catalyst.{InternalRow, SQLConfHelper}
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCoercion
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils.getPartitionValueString
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Cast, Literal}
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, DateFormatter, DateTimeUtils, TimestampFormatter}
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.SchemaUtils
 import org.apache.spark.unsafe.types.UTF8String
@@ -61,7 +62,7 @@ object PartitionSpec {
   val emptySpec = PartitionSpec(StructType(Seq.empty[StructField]), Seq.empty[PartitionPath])
 }
 
-object PartitioningUtils extends SQLConfHelper {
+object PartitioningUtils {
 
   val timestampPartitionPattern = "yyyy-MM-dd HH:mm:ss[.S]"
 
@@ -135,7 +136,7 @@ object PartitioningUtils extends SQLConfHelper {
       Map.empty[String, String]
     }
 
-    val dateFormatter = DateFormatter(DateFormatter.defaultPattern)
+    val dateFormatter = DateFormatter()
     val timestampFormatter = TimestampFormatter(
       timestampPartitionPattern,
       zoneId,
@@ -262,7 +263,7 @@ object PartitioningUtils extends SQLConfHelper {
         // Once we get the string, we try to parse it and find the partition column and value.
         val maybeColumn =
           parsePartitionColumn(currentPath.getName, typeInference, userSpecifiedDataTypes,
-            zoneId, dateFormatter, timestampFormatter)
+            validatePartitionColumns, zoneId, dateFormatter, timestampFormatter)
         maybeColumn.foreach(columns += _)
 
         // Now, we determine if we should stop.
@@ -296,6 +297,7 @@ object PartitioningUtils extends SQLConfHelper {
       columnSpec: String,
       typeInference: Boolean,
       userSpecifiedDataTypes: Map[String, DataType],
+      validatePartitionColumns: Boolean,
       zoneId: ZoneId,
       dateFormatter: DateFormatter,
       timestampFormatter: TimestampFormatter): Option[(String, TypedPartValue)] = {
@@ -350,18 +352,9 @@ object PartitioningUtils extends SQLConfHelper {
    */
   def getPathFragment(spec: TablePartitionSpec, partitionSchema: StructType): String = {
     partitionSchema.map { field =>
-      escapePathName(field.name) + "=" +
-        getPartitionValueString(
-          removeLeadingZerosFromNumberTypePartition(spec(field.name), field.dataType))
+      escapePathName(field.name) + "=" + getPartitionValueString(spec(field.name))
     }.mkString("/")
   }
-
-  def removeLeadingZerosFromNumberTypePartition(value: String, dataType: DataType): String =
-    dataType match {
-      case ByteType | ShortType | IntegerType | LongType | FloatType | DoubleType =>
-        Option(castPartValueToDesiredType(dataType, value, null)).map(_.toString).orNull
-      case _ => value
-    }
 
   def getPathFragment(spec: TablePartitionSpec, partitionColumns: Seq[Attribute]): String = {
     getPathFragment(spec, StructType.fromAttributes(partitionColumns))
@@ -489,7 +482,7 @@ object PartitioningUtils extends SQLConfHelper {
     val timestampTry = Try {
       val unescapedRaw = unescapePathName(raw)
       // the inferred data type is consistent with the default timestamp type
-      val timestampType = conf.timestampType
+      val timestampType = SQLConf.get.timestampType
       // try and parse the date, if no exception occurs this is a candidate to be resolved as
       // TimestampType or TimestampNTZType
       timestampType match {
@@ -530,11 +523,8 @@ object PartitioningUtils extends SQLConfHelper {
     case _ if value == DEFAULT_PARTITION_NAME => null
     case NullType => null
     case StringType => UTF8String.fromString(unescapePathName(value))
-    case ByteType => Integer.parseInt(value).toByte
-    case ShortType => Integer.parseInt(value).toShort
     case IntegerType => Integer.parseInt(value)
     case LongType => JLong.parseLong(value)
-    case FloatType => JDouble.parseDouble(value).toFloat
     case DoubleType => JDouble.parseDouble(value)
     case _: DecimalType => Literal(new JBigDecimal(value)).value
     case DateType =>
@@ -546,10 +536,6 @@ object PartitioningUtils extends SQLConfHelper {
       }.getOrElse {
         Cast(Cast(Literal(value), DateType, Some(zoneId.getId)), dt).eval()
       }
-    case it: AnsiIntervalType =>
-      Cast(Literal(unescapePathName(value)), it).eval()
-    case BinaryType => value.getBytes()
-    case BooleanType => value.toBoolean
     case dt => throw QueryExecutionErrors.typeUnsupportedError(dt)
   }
 
@@ -558,9 +544,10 @@ object PartitioningUtils extends SQLConfHelper {
       partitionColumns: Seq[String],
       caseSensitive: Boolean): Unit = {
 
-    SchemaUtils.checkColumnNameDuplication(partitionColumns, caseSensitive)
+    SchemaUtils.checkColumnNameDuplication(
+      partitionColumns, partitionColumns.mkString(", "), caseSensitive)
 
-    partitionColumnsSchema(schema, partitionColumns).foreach {
+    partitionColumnsSchema(schema, partitionColumns, caseSensitive).foreach {
       field => field.dataType match {
         case _: AtomicType => // OK
         case _ => throw QueryCompilationErrors.cannotUseDataTypeForPartitionColumnError(field)
@@ -574,9 +561,11 @@ object PartitioningUtils extends SQLConfHelper {
 
   def partitionColumnsSchema(
       schema: StructType,
-      partitionColumns: Seq[String]): StructType = {
+      partitionColumns: Seq[String],
+      caseSensitive: Boolean): StructType = {
+    val equality = columnNameEquality(caseSensitive)
     StructType(partitionColumns.map { col =>
-      schema.find(f => conf.resolver(f.name, col)).getOrElse {
+      schema.find(f => equality(f.name, col)).getOrElse {
         val schemaCatalog = schema.catalogString
         throw QueryCompilationErrors.partitionColumnNotFoundInSchemaError(col, schemaCatalog)
       }
@@ -609,6 +598,14 @@ object PartitioningUtils extends SQLConfHelper {
       f.name
     } else {
       f.name.toLowerCase(Locale.ROOT)
+    }
+  }
+
+  private def columnNameEquality(caseSensitive: Boolean): (String, String) => Boolean = {
+    if (caseSensitive) {
+      org.apache.spark.sql.catalyst.analysis.caseSensitiveResolution
+    } else {
+      org.apache.spark.sql.catalyst.analysis.caseInsensitiveResolution
     }
   }
 

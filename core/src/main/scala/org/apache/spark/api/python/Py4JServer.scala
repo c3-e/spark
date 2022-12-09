@@ -21,7 +21,6 @@ import java.net.InetAddress
 import java.util.Locale
 
 import org.apache.spark.SparkConf
-import org.apache.spark.errors.SparkCoreErrors
 import org.apache.spark.internal.Logging
 import org.apache.spark.util.Utils
 
@@ -53,18 +52,18 @@ private[spark] class Py4JServer(sparkConf: SparkConf) extends Logging {
   def start(): Unit = server match {
     case clientServer: py4j.ClientServer => clientServer.startServer()
     case gatewayServer: py4j.GatewayServer => gatewayServer.start()
-    case other => throw SparkCoreErrors.unexpectedPy4JServerError(other)
+    case other => throw new RuntimeException(s"Unexpected Py4J server ${other.getClass}")
   }
 
   def getListeningPort: Int = server match {
     case clientServer: py4j.ClientServer => clientServer.getJavaServer.getListeningPort
     case gatewayServer: py4j.GatewayServer => gatewayServer.getListeningPort
-    case other => throw SparkCoreErrors.unexpectedPy4JServerError(other)
+    case other => throw new RuntimeException(s"Unexpected Py4J server ${other.getClass}")
   }
 
   def shutdown(): Unit = server match {
     case clientServer: py4j.ClientServer => clientServer.shutdown()
     case gatewayServer: py4j.GatewayServer => gatewayServer.shutdown()
-    case other => throw SparkCoreErrors.unexpectedPy4JServerError(other)
+    case other => throw new RuntimeException(s"Unexpected Py4J server ${other.getClass}")
   }
 }

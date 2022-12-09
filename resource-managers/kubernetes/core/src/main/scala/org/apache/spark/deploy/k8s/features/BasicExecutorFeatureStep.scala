@@ -59,20 +59,14 @@ private[spark] class BasicExecutorFeatureStep(
   private val isDefaultProfile = resourceProfile.id == ResourceProfile.DEFAULT_RESOURCE_PROFILE_ID
   private val isPythonApp = kubernetesConf.get(APP_RESOURCE_TYPE) == Some(APP_RESOURCE_TYPE_PYTHON)
   private val disableConfigMap = kubernetesConf.get(KUBERNETES_EXECUTOR_DISABLE_CONFIGMAP)
-  private val memoryOverheadFactor = if (kubernetesConf.contains(EXECUTOR_MEMORY_OVERHEAD_FACTOR)) {
-    kubernetesConf.get(EXECUTOR_MEMORY_OVERHEAD_FACTOR)
-  } else {
-    kubernetesConf.get(MEMORY_OVERHEAD_FACTOR)
-  }
 
   val execResources = ResourceProfile.getResourcesForClusterManager(
     resourceProfile.id,
     resourceProfile.executorResources,
-    memoryOverheadFactor,
+    kubernetesConf.get(MEMORY_OVERHEAD_FACTOR),
     kubernetesConf.sparkConf,
     isPythonApp,
     Map.empty)
-  assert(execResources.cores.nonEmpty)
 
   private val executorMemoryString = s"${execResources.executorMemoryMiB}m"
   // we don't include any kubernetes conf specific requests or limits when using custom
@@ -81,7 +75,7 @@ private[spark] class BasicExecutorFeatureStep(
     if (isDefaultProfile && kubernetesConf.sparkConf.contains(KUBERNETES_EXECUTOR_REQUEST_CORES)) {
       kubernetesConf.get(KUBERNETES_EXECUTOR_REQUEST_CORES).get
     } else {
-      execResources.cores.get.toString
+      execResources.cores.toString
     }
   private val executorLimitCores = kubernetesConf.get(KUBERNETES_EXECUTOR_LIMIT_CORES)
 
@@ -105,12 +99,10 @@ private[spark] class BasicExecutorFeatureStep(
     val confFilesMap = KubernetesClientUtils
       .buildSparkConfDirFilesMap(configMapName, kubernetesConf.sparkConf, Map.empty)
     val keyToPaths = KubernetesClientUtils.buildKeyToPathObjects(confFilesMap)
-    // According to
-    // https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#dns-label-names,
-    // hostname must be no longer than `KUBERNETES_DNS_LABEL_NAME_MAX_LENGTH`(63) characters,
-    // so take the last 63 characters of the pod name as the hostname.
-    // This preserves uniqueness since the end of name contains executorId
-    val hostname = name.substring(Math.max(0, name.length - KUBERNETES_DNS_LABEL_NAME_MAX_LENGTH))
+    // hostname must be no longer than 63 characters, so take the last 63 characters of the pod
+    // name as the hostname.  This preserves uniqueness since the end of name contains
+    // executorId
+    val hostname = name.substring(Math.max(0, name.length - 63))
       // Remove non-word characters from the start of the hostname
       .replaceAll("^[^\\w]+", "")
       // Replace dangerous characters in the remaining string with a safe alternative.
@@ -122,45 +114,61 @@ private[spark] class BasicExecutorFeatureStep(
       buildExecutorResourcesQuantities(execResources.customResources.values.toSet)
 
     val executorEnv: Seq[EnvVar] = {
-      val sparkAuthSecret = Option(secMgr.getSecretKey()).map {
-        case authSecret: String if kubernetesConf.get(AUTH_SECRET_FILE_EXECUTOR).isEmpty =>
-          Seq(SecurityManager.ENV_AUTH_SECRET -> authSecret)
-        case _ => Nil
-      }.getOrElse(Nil)
-
-      val userOpts = kubernetesConf.get(EXECUTOR_JAVA_OPTIONS).toSeq.flatMap { opts =>
-        val subsOpts = Utils.substituteAppNExecIds(opts, kubernetesConf.appId,
-          kubernetesConf.executorId)
-          Utils.splitCommandString(subsOpts)
-      }
-
-      val sparkOpts = Utils.sparkJavaOpts(kubernetesConf.sparkConf,
-        SparkConf.isExecutorStartupConf)
-
-      val allOpts = (userOpts ++ sparkOpts).zipWithIndex.map { case (opt, index) =>
-        (s"$ENV_JAVA_OPT_PREFIX$index", opt)
-      }.toMap
-
-      KubernetesUtils.buildEnvVars(
-        Seq(
-          ENV_DRIVER_URL -> driverUrl,
-          ENV_EXECUTOR_CORES -> execResources.cores.get.toString,
-          ENV_EXECUTOR_MEMORY -> executorMemoryString,
-          ENV_APPLICATION_ID -> kubernetesConf.appId,
+        (Seq(
+          (ENV_DRIVER_URL, driverUrl),
+          (ENV_EXECUTOR_CORES, execResources.cores.toString),
+          (ENV_EXECUTOR_MEMORY, executorMemoryString),
+          (ENV_APPLICATION_ID, kubernetesConf.appId),
           // This is to set the SPARK_CONF_DIR to be /opt/spark/conf
-          ENV_SPARK_CONF_DIR -> SPARK_CONF_DIR_INTERNAL,
-          ENV_EXECUTOR_ID -> kubernetesConf.executorId,
-          ENV_RESOURCE_PROFILE_ID -> resourceProfile.id.toString)
-          ++ kubernetesConf.environment
-          ++ sparkAuthSecret
-          ++ Seq(ENV_CLASSPATH -> kubernetesConf.get(EXECUTOR_CLASS_PATH).orNull)
-          ++ allOpts) ++
-      KubernetesUtils.buildEnvVarsWithFieldRef(
-        Seq(
-          (ENV_EXECUTOR_POD_IP, "v1", "status.podIP"),
-          (ENV_EXECUTOR_POD_NAME, "v1", "metadata.name")
-        ))
-    }
+          (ENV_SPARK_CONF_DIR, SPARK_CONF_DIR_INTERNAL),
+          (ENV_EXECUTOR_ID, kubernetesConf.executorId),
+          (ENV_RESOURCE_PROFILE_ID, resourceProfile.id.toString)
+        ) ++ kubernetesConf.environment).map { case (k, v) =>
+          new EnvVarBuilder()
+            .withName(k)
+            .withValue(v)
+            .build()
+        }
+      } ++ {
+        Seq(new EnvVarBuilder()
+          .withName(ENV_EXECUTOR_POD_IP)
+          .withValueFrom(new EnvVarSourceBuilder()
+            .withNewFieldRef("v1", "status.podIP")
+            .build())
+          .build())
+      } ++ {
+        if (kubernetesConf.get(AUTH_SECRET_FILE_EXECUTOR).isEmpty) {
+          Option(secMgr.getSecretKey()).map { authSecret =>
+            new EnvVarBuilder()
+              .withName(SecurityManager.ENV_AUTH_SECRET)
+              .withValue(authSecret)
+              .build()
+          }
+        } else None
+      } ++ {
+        kubernetesConf.get(EXECUTOR_CLASS_PATH).map { cp =>
+          new EnvVarBuilder()
+            .withName(ENV_CLASSPATH)
+            .withValue(cp)
+            .build()
+        }
+      } ++ {
+        val userOpts = kubernetesConf.get(EXECUTOR_JAVA_OPTIONS).toSeq.flatMap { opts =>
+          val subsOpts = Utils.substituteAppNExecIds(opts, kubernetesConf.appId,
+            kubernetesConf.executorId)
+          Utils.splitCommandString(subsOpts)
+        }
+
+        val sparkOpts = Utils.sparkJavaOpts(kubernetesConf.sparkConf,
+          SparkConf.isExecutorStartupConf)
+
+        (userOpts ++ sparkOpts).zipWithIndex.map { case (opt, index) =>
+          new EnvVarBuilder()
+            .withName(s"$ENV_JAVA_OPT_PREFIX$index")
+            .withValue(opt)
+            .build()
+        }
+      }
     executorEnv.find(_.getName == ENV_EXECUTOR_DIRS).foreach { e =>
       e.setValue(e.getValue
         .replaceAll(ENV_APPLICATION_ID, kubernetesConf.appId)
@@ -201,7 +209,7 @@ private[spark] class BasicExecutorFeatureStep(
         .withValue(Utils.getCurrentUserName())
         .endEnv()
       .addAllToEnv(executorEnv.asJava)
-      .addAllToPorts(requiredPorts.asJava)
+      .withPorts(requiredPorts.asJava)
       .addToArgs("executor")
       .build()
     val executorContainerWithConfVolume = if (disableConfigMap) {
@@ -224,7 +232,7 @@ private[spark] class BasicExecutorFeatureStep(
           .build()
       }.getOrElse(executorContainerWithConfVolume)
     } else {
-      executorContainerWithConfVolume
+      executorContainer
     }
     val containerWithLifecycle =
       if (!kubernetesConf.workerDecommissioning) {
@@ -250,26 +258,17 @@ private[spark] class BasicExecutorFeatureStep(
         .withUid(pod.getMetadata.getUid)
         .build()
     }
-
-    val policy = kubernetesConf.get(KUBERNETES_ALLOCATION_PODS_ALLOCATOR) match {
-      case "statefulset" => "Always"
-      case _ => "Never"
-    }
-    val annotations = kubernetesConf.annotations.map { case (k, v) =>
-      (k, Utils.substituteAppNExecIds(v, kubernetesConf.appId, kubernetesConf.executorId))
-    }
     val executorPodBuilder = new PodBuilder(pod.pod)
       .editOrNewMetadata()
         .withName(name)
         .addToLabels(kubernetesConf.labels.asJava)
-        .addToAnnotations(annotations.asJava)
+        .addToAnnotations(kubernetesConf.annotations.asJava)
         .addToOwnerReferences(ownerReference.toSeq: _*)
         .endMetadata()
       .editOrNewSpec()
         .withHostname(hostname)
-        .withRestartPolicy(policy)
+        .withRestartPolicy("Never")
         .addToNodeSelector(kubernetesConf.nodeSelector.asJava)
-        .addToNodeSelector(kubernetesConf.executorNodeSelector.asJava)
         .addToImagePullSecrets(kubernetesConf.imagePullSecrets: _*)
     val executorPod = if (disableConfigMap) {
       executorPodBuilder.endSpec().build()
@@ -285,7 +284,7 @@ private[spark] class BasicExecutorFeatureStep(
         .endSpec()
       .build()
     }
-    kubernetesConf.schedulerName
+    kubernetesConf.get(KUBERNETES_EXECUTOR_SCHEDULER_NAME)
       .foreach(executorPod.getSpec.setSchedulerName)
 
     SparkPod(executorPod, containerWithLifecycle)

@@ -70,7 +70,7 @@ class CountMinSketchImpl extends CountMinSketch implements Serializable {
       return true;
     }
 
-    if (!(other instanceof CountMinSketchImpl)) {
+    if (other == null || !(other instanceof CountMinSketchImpl)) {
       return false;
     }
 

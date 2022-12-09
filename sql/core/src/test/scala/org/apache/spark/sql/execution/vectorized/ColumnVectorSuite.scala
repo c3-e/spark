@@ -17,15 +17,17 @@
 
 package org.apache.spark.sql.execution.vectorized
 
+import org.scalatest.BeforeAndAfterEach
+
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions.SpecificInternalRow
 import org.apache.spark.sql.execution.columnar.ColumnAccessor
 import org.apache.spark.sql.execution.columnar.compression.ColumnBuilderHelper
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.ColumnarArray
-import org.apache.spark.unsafe.types.UTF8String
+import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
 
-class ColumnVectorSuite extends SparkFunSuite {
+class ColumnVectorSuite extends SparkFunSuite with BeforeAndAfterEach {
   private def withVector(
       vector: WritableColumnVector)(
       block: WritableColumnVector => Unit): Unit = {
@@ -205,44 +207,6 @@ class ColumnVectorSuite extends SparkFunSuite {
       assert(array.get(i, BinaryType) === utf8)
       assert(arrayCopy.get(i, BinaryType) === utf8)
     }
-  }
-
-  DataTypeTestUtils.yearMonthIntervalTypes.foreach {
-    dt =>
-      testVectors(dt.typeName,
-        10,
-        dt) { testVector =>
-        (0 until 10).foreach { i =>
-          testVector.appendInt(i)
-        }
-
-        val array = new ColumnarArray(testVector, 0, 10)
-        val arrayCopy = array.copy()
-
-        (0 until 10).foreach { i =>
-          assert(array.get(i, dt) === i)
-          assert(arrayCopy.get(i, dt) === i)
-        }
-      }
-  }
-
-  DataTypeTestUtils.dayTimeIntervalTypes.foreach {
-    dt =>
-      testVectors(dt.typeName,
-        10,
-        dt) { testVector =>
-        (0 until 10).foreach { i =>
-          testVector.appendLong(i)
-        }
-
-        val array = new ColumnarArray(testVector, 0, 10)
-        val arrayCopy = array.copy()
-
-        (0 until 10).foreach { i =>
-          assert(array.get(i, dt) === i)
-          assert(arrayCopy.get(i, dt) === i)
-        }
-      }
   }
 
   testVectors("mutable ColumnarRow", 10, IntegerType) { testVector =>
@@ -573,35 +537,13 @@ class ColumnVectorSuite extends SparkFunSuite {
     }
   }
 
-  DataTypeTestUtils.yearMonthIntervalTypes.foreach { dt =>
-    val structType = new StructType().add(dt.typeName, dt)
-    testVectors("ColumnarRow " + dt.typeName, 10, structType) { v =>
-      val column = v.getChild(0)
-      (0 until 10).foreach { i =>
-        column.putInt(i, i)
-      }
-      (0 until 10).foreach { i =>
-        val row = v.getStruct(i)
-        val rowCopy = row.copy()
-        assert(row.get(0, dt) === i)
-        assert(rowCopy.get(0, dt) === i)
-      }
-    }
-  }
-  DataTypeTestUtils.dayTimeIntervalTypes.foreach { dt =>
-    val structType = new StructType().add(dt.typeName, dt)
-    testVectors("ColumnarRow " + dt.typeName, 10, structType) { v =>
-      val column = v.getChild(0)
-      (0 until 10).foreach { i =>
-        column.putLong(i, i)
-      }
-      (0 until 10).foreach { i =>
-        val row = v.getStruct(i)
-        val rowCopy = row.copy()
-        assert(row.get(0, dt) === i)
-        assert(rowCopy.get(0, dt) === i)
-      }
-    }
+  test("SPARK-38018: ColumnVectorUtils.populate to handle CalendarIntervalType correctly") {
+    val vector = new OnHeapColumnVector(5, CalendarIntervalType)
+    val row = new SpecificInternalRow(Array(CalendarIntervalType))
+    val interval = new CalendarInterval(3, 5, 1000000)
+    row.setInterval(0, interval)
+    ColumnVectorUtils.populate(vector, row, 0)
+    assert(vector.getInterval(0) === interval)
   }
 }
 

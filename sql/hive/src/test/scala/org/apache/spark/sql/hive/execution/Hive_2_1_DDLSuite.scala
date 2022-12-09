@@ -18,6 +18,7 @@
 package org.apache.spark.sql.hive.execution
 
 import org.apache.hadoop.conf.Configuration
+import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach}
 
 import org.apache.spark.{SparkConf, SparkFunSuite}
 import org.apache.spark.launcher.SparkLauncher
@@ -35,7 +36,8 @@ import org.apache.spark.util.Utils
  */
 @SlowHiveTest
 @ExtendedHiveTest
-class Hive_2_1_DDLSuite extends SparkFunSuite with TestHiveSingleton {
+class Hive_2_1_DDLSuite extends SparkFunSuite with TestHiveSingleton with BeforeAndAfterEach
+  with BeforeAndAfterAll {
 
   // Create a custom HiveExternalCatalog instance with the desired configuration. We cannot
   // use SparkSession here since there's already an active on managed by the TestHive object.

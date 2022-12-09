@@ -19,7 +19,8 @@ package org.apache.spark.sql.connector.catalog;
 
 import java.util.Arrays;
 import java.util.Objects;
-import java.util.StringJoiner;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.google.common.base.Preconditions;
 
@@ -54,26 +55,27 @@ class IdentifierImpl implements Identifier {
 
   @Override
   public String toString() {
-    StringJoiner joiner = new StringJoiner(".");
-    for (String p : namespace) {
-      joiner.add(package$.MODULE$.quoteIfNeeded(p));
-    }
-    joiner.add(package$.MODULE$.quoteIfNeeded(name));
-    return joiner.toString();
+    return Stream.concat(Stream.of(namespace), Stream.of(name))
+      .map(package$.MODULE$::quoteIfNeeded)
+      .collect(Collectors.joining("."));
   }
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (!(o instanceof IdentifierImpl)) return false;
+    if (this == o) {
+      return true;
+    }
+
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+
     IdentifierImpl that = (IdentifierImpl) o;
     return Arrays.equals(namespace, that.namespace) && name.equals(that.name);
   }
 
   @Override
   public int hashCode() {
-    int result = Objects.hash(name);
-    result = 31 * result + Arrays.hashCode(namespace);
-    return result;
+    return Objects.hash(Arrays.hashCode(namespace), name);
   }
 }

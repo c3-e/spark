@@ -19,7 +19,6 @@ package org.apache.spark.sql.hive
 
 import java.io.IOException
 import java.lang.reflect.InvocationTargetException
-import java.net.URI
 import java.util
 import java.util.Locale
 
@@ -47,7 +46,8 @@ import org.apache.spark.sql.execution.datasources.{PartitioningUtils, SourceOpti
 import org.apache.spark.sql.hive.client.HiveClient
 import org.apache.spark.sql.internal.HiveSerDe
 import org.apache.spark.sql.internal.StaticSQLConf._
-import org.apache.spark.sql.types.{AnsiIntervalType, ArrayType, DataType, MapType, StructType, TimestampNTZType}
+import org.apache.spark.sql.types.{DataType, StructType}
+
 
 /**
  * A persistent implementation of the system catalog using Hive.
@@ -284,17 +284,7 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
         // about not case preserving and make Hive serde table and view support mixed-case column
         // names.
         properties = tableDefinition.properties ++ tableMetaToTableProps(tableDefinition))
-      try {
-        client.createTable(tableWithDataSourceProps, ignoreIfExists)
-      } catch {
-        case NonFatal(e) if (tableDefinition.tableType == CatalogTableType.VIEW) =>
-          // If for some reason we fail to store the schema we store it as empty there
-          // since we already store the real schema in the table properties. This try-catch
-          // should only be necessary for Spark views which are incompatible with Hive
-          client.createTable(
-            tableWithDataSourceProps.copy(schema = EMPTY_DATA_SCHEMA),
-            ignoreIfExists)
-      }
+      client.createTable(tableWithDataSourceProps, ignoreIfExists)
     }
   }
 
@@ -367,8 +357,6 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
 
     val qualifiedTableName = table.identifier.quotedString
     val maybeSerde = HiveSerDe.sourceToSerDe(provider)
-    val incompatibleTypes =
-      table.schema.filter(f => !isHiveCompatibleDataType(f.dataType)).map(_.dataType.simpleString)
 
     val (hiveCompatibleTable, logMessage) = maybeSerde match {
       case _ if options.skipHiveMetadata =>
@@ -377,12 +365,6 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
             "Spark SQL specific format, which is NOT compatible with Hive."
         (None, message)
 
-      case _ if incompatibleTypes.nonEmpty =>
-        val message =
-          s"Hive incompatible types found: ${incompatibleTypes.mkString(", ")}. " +
-            s"Persisting data source table $qualifiedTableName into Hive metastore in " +
-            "Spark SQL specific format, which is NOT compatible with Hive."
-        (None, message)
       // our bucketing is un-compatible with hive(different hash function)
       case Some(serde) if table.bucketSpec.nonEmpty =>
         val message =
@@ -721,16 +703,19 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
       table: String,
       stats: Option[CatalogStatistics]): Unit = withClient {
     requireTableExists(db, table)
-    val rawHiveTable = client.getRawHiveTable(db, table)
-    val oldProps = rawHiveTable.hiveTableProps().filterNot(_._1.startsWith(STATISTICS_PREFIX))
-    val newProps =
+    val rawTable = getRawTable(db, table)
+
+    // convert table statistics to properties so that we can persist them through hive client
+    val statsProperties =
       if (stats.isDefined) {
-        oldProps ++ statsToProperties(stats.get)
+        statsToProperties(stats.get)
       } else {
-        oldProps
+        new mutable.HashMap[String, String]()
       }
 
-    client.alterTableProps(rawHiveTable, newProps)
+    val oldTableNonStatsProps = rawTable.properties.filterNot(_._1.startsWith(STATISTICS_PREFIX))
+    val updatedTable = rawTable.copy(properties = oldTableNonStatsProps ++ statsProperties)
+    client.alterTable(updatedTable)
   }
 
   override def getTable(db: String, table: String): CatalogTable = withClient {
@@ -776,7 +761,8 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
     val version: String = table.properties.getOrElse(CREATED_SPARK_VERSION, "2.2 or prior")
 
     // Restore Spark's statistics from information in Metastore.
-    val restoredStats = statsFromProperties(table.properties, table.identifier.table)
+    val restoredStats =
+      statsFromProperties(table.properties, table.identifier.table, table.schema)
     if (restoredStats.isDefined) {
       table = table.copy(stats = restoredStats)
     }
@@ -850,15 +836,10 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
     // source tables. Here we set the table location to `locationUri` field and filter out the
     // path option in storage properties, to avoid exposing this concept externally.
     val storageWithLocation = {
-      val tableLocation = getLocationFromStorageProps(table).map { path =>
-        // Before SPARK-19257, created data source table does not use absolute uri.
-        // This makes Spark can't read these tables across HDFS clusters.
-        // Rewrite table path to absolute uri based on location uri (The location uri has been
-        // rewritten by HiveClientImpl.convertHiveTableToCatalogTable) to fix this issue.
-        toAbsoluteURI(CatalogUtils.stringToURI(path), table.storage.locationUri)
-      }
+      val tableLocation = getLocationFromStorageProps(table)
       // We pass None as `newPath` here, to remove the path option in storage properties.
-      updateLocationInStorageProps(table, newPath = None).copy(locationUri = tableLocation)
+      updateLocationInStorageProps(table, newPath = None).copy(
+        locationUri = tableLocation.map(CatalogUtils.stringToURI(_)))
     }
     val storageWithoutHiveGeneratedProperties = storageWithLocation.copy(properties =
       storageWithLocation.properties.filterKeys(!HIVE_GENERATED_STORAGE_PROPERTIES(_)).toMap)
@@ -1149,7 +1130,8 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
 
   private def statsFromProperties(
       properties: Map[String, String],
-      table: String): Option[CatalogStatistics] = {
+      table: String,
+      schema: StructType): Option[CatalogStatistics] = {
 
     val statsProps = properties.filterKeys(_.startsWith(STATISTICS_PREFIX))
     if (statsProps.isEmpty) {
@@ -1219,7 +1201,8 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
 
     // Restore Spark's statistics from information in Metastore.
     // Note: partition-level statistics were introduced in 2.3.
-    val restoredStats = statsFromProperties(partition.parameters, table.identifier.table)
+    val restoredStats =
+      statsFromProperties(partition.parameters, table.identifier.table, table.schema)
     if (restoredStats.isDefined) {
       partition.copy(
         spec = restoredSpec,
@@ -1293,11 +1276,11 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
       table: String,
       predicates: Seq[Expression],
       defaultTimeZoneId: String): Seq[CatalogTablePartition] = withClient {
-    val rawHiveTable = client.getRawHiveTable(db, table)
-    val catalogTable = restoreTableMetadata(rawHiveTable.toCatalogTable)
+    val rawTable = getRawTable(db, table)
+    val catalogTable = restoreTableMetadata(rawTable)
     val partColNameMap = buildLowerCasePartColNameMap(catalogTable)
     val clientPrunedPartitions =
-      client.getPartitionsByFilter(rawHiveTable, predicates).map { part =>
+      client.getPartitionsByFilter(rawTable, predicates).map { part =>
         part.copy(spec = restorePartitionSpec(part.spec, partColNameMap))
       }
     prunePartitionsByFilter(catalogTable, clientPrunedPartitions, predicates, defaultTimeZoneId)
@@ -1436,28 +1419,4 @@ object HiveExternalCatalog {
     provider.isDefined && provider != Some(DDLUtils.HIVE_PROVIDER)
   }
 
-  private[spark] def isHiveCompatibleDataType(dt: DataType): Boolean = dt match {
-    case _: AnsiIntervalType => false
-    case _: TimestampNTZType => false
-    case s: StructType => s.forall(f => isHiveCompatibleDataType(f.dataType))
-    case a: ArrayType => isHiveCompatibleDataType(a.elementType)
-    case m: MapType =>
-      isHiveCompatibleDataType(m.keyType) && isHiveCompatibleDataType(m.valueType)
-    case _ => true
-  }
-
-  /** Rewrite uri to absolute location. For example:
-   *    uri: /user/hive/warehouse/test_table
-   *    absoluteUri: viewfs://clusterA/user/hive/warehouse/
-   *    The result is: viewfs://clusterA/user/hive/warehouse/test_table
-   */
-  private[spark] def toAbsoluteURI(uri: URI, absoluteUri: Option[URI]): URI = {
-    if (!uri.isAbsolute && absoluteUri.isDefined) {
-      val aUri = absoluteUri.get
-      new URI(aUri.getScheme, aUri.getUserInfo, aUri.getHost, aUri.getPort,
-        uri.getPath, uri.getQuery, uri.getFragment)
-    } else {
-      uri
-    }
-  }
 }

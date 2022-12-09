@@ -18,7 +18,7 @@
 package org.apache.spark.sql.catalyst
 
 import java.sql.{Date, Timestamp}
-import java.time.{Duration, Instant, LocalDate, LocalDateTime, Period}
+import java.time.{Instant, LocalDate}
 
 import scala.language.implicitConversions
 
@@ -55,7 +55,7 @@ import org.apache.spark.unsafe.types.UTF8String
  *  // SQL verbs can be used to construct logical query plans.
  *  scala> import org.apache.spark.sql.catalyst.plans.logical._
  *  scala> import org.apache.spark.sql.catalyst.dsl.plans._
- *  scala> LocalRelation($"key".int, $"value".string).where('key === 1).select('value).analyze
+ *  scala> LocalRelation('key.int, 'value.string).where('key === 1).select('value).analyze
  *  res3: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan =
  *  Project [value#3]
  *   Filter (key#2 = 1)
@@ -92,7 +92,7 @@ package object dsl {
     def <=> (other: Expression): Predicate = EqualNullSafe(expr, other)
     def =!= (other: Expression): Predicate = Not(EqualTo(expr, other))
 
-    def in(list: Expression*): Predicate = list match {
+    def in(list: Expression*): Expression = list match {
       case Seq(l: ListQuery) => expr match {
           case c: CreateNamedStruct => InSubquery(c.valExprs, l)
           case other => InSubquery(Seq(other), l)
@@ -100,22 +100,20 @@ package object dsl {
       case _ => In(expr, list)
     }
 
-    def like(other: Expression, escapeChar: Char = '\\'): Predicate =
+    def like(other: Expression, escapeChar: Char = '\\'): Expression =
       Like(expr, other, escapeChar)
-    def ilike(other: Expression, escapeChar: Char = '\\'): Expression =
-      new ILike(expr, other, escapeChar)
-    def rlike(other: Expression): Predicate = RLike(expr, other)
-    def likeAll(others: Expression*): Predicate =
+    def rlike(other: Expression): Expression = RLike(expr, other)
+    def likeAll(others: Expression*): Expression =
       LikeAll(expr, others.map(_.eval(EmptyRow).asInstanceOf[UTF8String]))
-    def notLikeAll(others: Expression*): Predicate =
+    def notLikeAll(others: Expression*): Expression =
       NotLikeAll(expr, others.map(_.eval(EmptyRow).asInstanceOf[UTF8String]))
-    def likeAny(others: Expression*): Predicate =
+    def likeAny(others: Expression*): Expression =
       LikeAny(expr, others.map(_.eval(EmptyRow).asInstanceOf[UTF8String]))
-    def notLikeAny(others: Expression*): Predicate =
+    def notLikeAny(others: Expression*): Expression =
       NotLikeAny(expr, others.map(_.eval(EmptyRow).asInstanceOf[UTF8String]))
-    def contains(other: Expression): Predicate = Contains(expr, other)
-    def startsWith(other: Expression): Predicate = StartsWith(expr, other)
-    def endsWith(other: Expression): Predicate = EndsWith(expr, other)
+    def contains(other: Expression): Expression = Contains(expr, other)
+    def startsWith(other: Expression): Expression = StartsWith(expr, other)
+    def endsWith(other: Expression): Expression = EndsWith(expr, other)
     def substr(pos: Expression, len: Expression = Literal(Int.MaxValue)): Expression =
       Substring(expr, pos, len)
     def substring(pos: Expression, len: Expression = Literal(Int.MaxValue)): Expression =
@@ -138,21 +136,11 @@ package object dsl {
       }
     }
 
-    def castNullable(): Expression = {
-      if (expr.resolved && expr.nullable) {
-        expr
-      } else {
-        KnownNullable(expr)
-      }
-    }
-
     def asc: SortOrder = SortOrder(expr, Ascending)
     def asc_nullsLast: SortOrder = SortOrder(expr, Ascending, NullsLast, Seq.empty)
     def desc: SortOrder = SortOrder(expr, Descending)
     def desc_nullsFirst: SortOrder = SortOrder(expr, Descending, NullsFirst, Seq.empty)
     def as(alias: String): NamedExpression = Alias(expr, alias)()
-    // TODO: Remove at Spark 4.0.0
-    @deprecated("Use as(alias: String)", "3.4.0")
     def as(alias: Symbol): NamedExpression = Alias(expr, alias.name)()
   }
 
@@ -175,11 +163,8 @@ package object dsl {
     implicit def bigDecimalToLiteral(d: java.math.BigDecimal): Literal = Literal(d)
     implicit def decimalToLiteral(d: Decimal): Literal = Literal(d)
     implicit def timestampToLiteral(t: Timestamp): Literal = Literal(t)
-    implicit def timestampNTZToLiteral(l: LocalDateTime): Literal = Literal(l)
     implicit def instantToLiteral(i: Instant): Literal = Literal(i)
     implicit def binaryToLiteral(a: Array[Byte]): Literal = Literal(a)
-    implicit def periodToLiteral(p: Period): Literal = Literal(p)
-    implicit def durationToLiteral(d: Duration): Literal = Literal(d)
 
     implicit def symbolToUnresolvedAttribute(s: Symbol): analysis.UnresolvedAttribute =
       analysis.UnresolvedAttribute(s.name)
@@ -229,11 +214,6 @@ package object dsl {
       BitOrAgg(e).toAggregateExpression(isDistinct = false, filter = filter)
     def bitXor(e: Expression, filter: Option[Expression] = None): Expression =
       BitXorAgg(e).toAggregateExpression(isDistinct = false, filter = filter)
-    def collectList(e: Expression, filter: Option[Expression] = None): Expression =
-      CollectList(e).toAggregateExpression(isDistinct = false, filter = filter)
-    def collectSet(e: Expression, filter: Option[Expression] = None): Expression =
-      CollectSet(e).toAggregateExpression(isDistinct = false, filter = filter)
-
     def upper(e: Expression): Expression = Upper(e)
     def lower(e: Expression): Expression = Lower(e)
     def coalesce(args: Expression*): Expression = Coalesce(args)
@@ -316,10 +296,6 @@ package object dsl {
 
       /** Creates a new AttributeReference of type timestamp */
       def timestamp: AttributeReference = AttributeReference(s, TimestampType, nullable = true)()
-
-      /** Creates a new AttributeReference of type timestamp without time zone */
-      def timestampNTZ: AttributeReference =
-        AttributeReference(s, TimestampNTZType, nullable = true)()
 
       /** Creates a new AttributeReference of the day-time interval type */
       def dayTimeInterval(startField: Byte, endField: Byte): AttributeReference = {
@@ -404,8 +380,6 @@ package object dsl {
 
       def limit(limitExpr: Expression): LogicalPlan = Limit(limitExpr, logicalPlan)
 
-      def offset(offsetExpr: Expression): LogicalPlan = Offset(offsetExpr, logicalPlan)
-
       def join(
         otherPlan: LogicalPlan,
         joinType: JoinType = Inner,
@@ -444,7 +418,7 @@ package object dsl {
       def groupBy(groupingExprs: Expression*)(aggregateExprs: Expression*): LogicalPlan = {
         val aliasedExprs = aggregateExprs.map {
           case ne: NamedExpression => ne
-          case e => UnresolvedAlias(e)
+          case e => Alias(e, e.toString)()
         }
         Aggregate(groupingExprs, aliasedExprs, logicalPlan)
       }
@@ -463,11 +437,7 @@ package object dsl {
           orderSpec: Seq[SortOrder]): LogicalPlan =
         Window(windowExpressions, partitionSpec, orderSpec, logicalPlan)
 
-      // TODO: Remove at Spark 4.0.0
-      @deprecated("Use subquery(alias: String)", "3.4.0")
       def subquery(alias: Symbol): LogicalPlan = SubqueryAlias(alias.name, logicalPlan)
-      def subquery(alias: String): LogicalPlan = SubqueryAlias(alias, logicalPlan)
-      def as(alias: String): LogicalPlan = SubqueryAlias(alias, logicalPlan)
 
       def except(otherPlan: LogicalPlan, isAll: Boolean): LogicalPlan =
         Except(logicalPlan, otherPlan, isAll)
@@ -495,20 +465,16 @@ package object dsl {
           ifPartitionNotExists: Boolean = false): LogicalPlan =
         InsertIntoStatement(table, partition, Nil, logicalPlan, overwrite, ifPartitionNotExists)
 
+      def as(alias: String): LogicalPlan = SubqueryAlias(alias, logicalPlan)
+
       def coalesce(num: Integer): LogicalPlan =
         Repartition(num, shuffle = false, logicalPlan)
 
       def repartition(num: Integer): LogicalPlan =
         Repartition(num, shuffle = true, logicalPlan)
 
-      def repartition(): LogicalPlan =
-        RepartitionByExpression(Seq.empty, logicalPlan, None)
-
       def distribute(exprs: Expression*)(n: Int): LogicalPlan =
         RepartitionByExpression(exprs, logicalPlan, numPartitions = n)
-
-      def rebalance(exprs: Expression*): LogicalPlan =
-        RebalancePartitions(exprs, logicalPlan)
 
       def analyze: LogicalPlan = {
         val analyzed = analysis.SimpleAnalyzer.execute(logicalPlan)

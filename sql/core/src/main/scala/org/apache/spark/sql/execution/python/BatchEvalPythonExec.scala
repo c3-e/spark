@@ -32,7 +32,7 @@ import org.apache.spark.sql.types.{StructField, StructType}
  * A physical plan that evaluates a [[PythonUDF]]
  */
 case class BatchEvalPythonExec(udfs: Seq[PythonUDF], resultAttrs: Seq[Attribute], child: SparkPlan)
-  extends EvalPythonExec with PythonSQLMetrics {
+  extends EvalPythonExec {
 
   protected override def evaluate(
       funcs: Seq[ChainedPythonFunctions],
@@ -77,8 +77,7 @@ case class BatchEvalPythonExec(udfs: Seq[PythonUDF], resultAttrs: Seq[Attribute]
     }.grouped(100).map(x => pickle.dumps(x.toArray))
 
     // Output iterator for results from Python.
-    val outputIterator =
-      new PythonUDFRunner(funcs, PythonEvalType.SQL_BATCHED_UDF, argOffsets, pythonMetrics)
+    val outputIterator = new PythonUDFRunner(funcs, PythonEvalType.SQL_BATCHED_UDF, argOffsets)
       .compute(inputIterator, context.partitionId(), context)
 
     val unpickle = new Unpickler
@@ -95,7 +94,6 @@ case class BatchEvalPythonExec(udfs: Seq[PythonUDF], resultAttrs: Seq[Attribute]
       val unpickledBatch = unpickle.loads(pickedResult)
       unpickledBatch.asInstanceOf[java.util.ArrayList[Any]].asScala
     }.map { result =>
-      pythonMetrics("pythonNumRowsReceived") += 1
       if (udfs.length == 1) {
         // fast path for single UDF
         mutableRow(0) = fromJava(result)

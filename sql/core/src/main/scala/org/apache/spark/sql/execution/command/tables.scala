@@ -27,7 +27,7 @@ import org.apache.hadoop.fs.{FileContext, FsConstants, Path}
 import org.apache.hadoop.fs.permission.{AclEntry, AclEntryScope, AclEntryType, FsAction, FsPermission}
 
 import org.apache.spark.sql.{Row, SparkSession}
-import org.apache.spark.sql.catalyst.{SQLConfHelper, TableIdentifier}
+import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.catalog._
 import org.apache.spark.sql.catalyst.catalog.CatalogTableType._
@@ -35,8 +35,7 @@ import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.DescribeCommandSchema
 import org.apache.spark.sql.catalyst.plans.logical._
-import org.apache.spark.sql.catalyst.util.{escapeSingleQuotedString, quoteIfNeeded, CaseInsensitiveMap, CharVarcharUtils, DateTimeUtils, ResolveDefaultColumns}
-import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.TableIdentifierHelper
+import org.apache.spark.sql.catalyst.util.{escapeSingleQuotedString, quoteIdentifier, CaseInsensitiveMap, CharVarcharUtils}
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
 import org.apache.spark.sql.execution.datasources.DataSource
 import org.apache.spark.sql.execution.datasources.csv.CSVFileFormat
@@ -95,10 +94,10 @@ case class CreateTableLikeCommand(
         DataSource.lookupDataSource(provider.get, sparkSession.sessionState.conf)
       }
       provider
-    } else if (fileFormat.inputFormat.isDefined) {
-      Some(DDLUtils.HIVE_PROVIDER)
     } else if (sourceTableDesc.tableType == CatalogTableType.VIEW) {
       Some(sparkSession.sessionState.conf.defaultDataSourceName)
+    } else if (fileFormat.inputFormat.isDefined) {
+      Some(DDLUtils.HIVE_PROVIDER)
     } else {
       sourceTableDesc.provider
     }
@@ -117,8 +116,7 @@ case class CreateTableLikeCommand(
       CatalogTableType.EXTERNAL
     }
 
-    val newTableSchema = CharVarcharUtils.getRawSchema(
-      sourceTableDesc.schema, sparkSession.sessionState.conf)
+    val newTableSchema = CharVarcharUtils.getRawSchema(sourceTableDesc.schema)
     val newTableDesc =
       CatalogTable(
         identifier = targetTable,
@@ -230,19 +228,18 @@ case class AlterTableAddColumnsCommand(
   override def run(sparkSession: SparkSession): Seq[Row] = {
     val catalog = sparkSession.sessionState.catalog
     val catalogTable = verifyAlterTableAddColumn(sparkSession.sessionState.conf, catalog, table)
-    val colsWithProcessedDefaults =
-      constantFoldCurrentDefaultsToExistDefaults(sparkSession, catalogTable.provider)
 
     CommandUtils.uncacheTableOrView(sparkSession, table.quotedString)
     catalog.refreshTable(table)
 
     SchemaUtils.checkColumnNameDuplication(
-      (colsWithProcessedDefaults ++ catalogTable.schema).map(_.name),
+      (colsToAdd ++ catalogTable.schema).map(_.name),
+      "in the table definition of " + table.identifier,
       conf.caseSensitiveAnalysis)
-    DDLUtils.checkTableColumns(catalogTable, StructType(colsWithProcessedDefaults))
+    DDLUtils.checkDataColNames(catalogTable, StructType(colsToAdd))
 
     val existingSchema = CharVarcharUtils.getRawSchema(catalogTable.dataSchema)
-    catalog.alterTableDataSchema(table, StructType(existingSchema ++ colsWithProcessedDefaults))
+    catalog.alterTableDataSchema(table, StructType(existingSchema ++ colsToAdd))
     Seq.empty[Row]
   }
 
@@ -277,24 +274,6 @@ case class AlterTableAddColumnsCommand(
       }
     }
     catalogTable
-  }
-
-  /**
-   * ALTER TABLE ADD COLUMNS commands may optionally specify a DEFAULT expression for any column.
-   * In that case, this method evaluates its originally specified value and then stores the result
-   * in a separate column metadata entry, then returns the updated column definitions.
-   */
-  private def constantFoldCurrentDefaultsToExistDefaults(
-      sparkSession: SparkSession, tableProvider: Option[String]): Seq[StructField] = {
-    colsToAdd.map { col: StructField =>
-      if (col.metadata.contains(ResolveDefaultColumns.CURRENT_DEFAULT_COLUMN_METADATA_KEY)) {
-        val foldedStructType = ResolveDefaultColumns.constantFoldCurrentDefaultsToExistDefaults(
-          StructType(Array(col)), tableProvider, "ALTER TABLE ADD COLUMNS", true)
-        foldedStructType.fields(0)
-      } else {
-        col
-      }
-    }
   }
 }
 
@@ -793,10 +772,8 @@ case class DescribeColumnCommand(
     )
     if (isExtended) {
       // Show column stats when EXTENDED or FORMATTED is specified.
-      buffer += Row("min", cs.flatMap(_.min.map(
-        toZoneAwareExternalString(_, field.name, field.dataType))).getOrElse("NULL"))
-      buffer += Row("max", cs.flatMap(_.max.map(
-        toZoneAwareExternalString(_, field.name, field.dataType))).getOrElse("NULL"))
+      buffer += Row("min", cs.flatMap(_.min.map(_.toString)).getOrElse("NULL"))
+      buffer += Row("max", cs.flatMap(_.max.map(_.toString)).getOrElse("NULL"))
       buffer += Row("num_nulls", cs.flatMap(_.nullCount.map(_.toString)).getOrElse("NULL"))
       buffer += Row("distinct_count",
         cs.flatMap(_.distinctCount.map(_.toString)).getOrElse("NULL"))
@@ -809,27 +786,6 @@ case class DescribeColumnCommand(
       buffer ++= histDesc.getOrElse(Seq(Row("histogram", "NULL")))
     }
     buffer.toSeq
-  }
-
-  private def toZoneAwareExternalString(
-      valueStr: String,
-      name: String,
-      dataType: DataType): String = {
-    dataType match {
-      case TimestampType =>
-        // When writing to metastore, we always format timestamp value in the default UTC time zone.
-        // So here we need to first convert to internal value, then format it using the current
-        // time zone.
-        val internalValue =
-          CatalogColumnStat.fromExternalString(valueStr, name, dataType, CatalogColumnStat.VERSION)
-        val curZoneId = DateTimeUtils.getZoneId(SQLConf.get.sessionLocalTimeZone)
-        CatalogColumnStat
-          .getTimestampFormatter(
-            isParsing = false, format = "yyyy-MM-dd HH:mm:ss.SSSSSS Z", zoneId = curZoneId)
-          .format(internalValue.asInstanceOf[Long])
-      case _ =>
-        valueStr
-    }
   }
 
   private def histogramDescription(histogram: Histogram): Seq[Row] = {
@@ -927,10 +883,10 @@ case class ShowTablePropertiesCommand(
       Seq.empty[Row]
     } else {
       val catalogTable = catalog.getTableMetadata(table)
-      val properties = conf.redactOptions(catalogTable.properties)
       propertyKey match {
         case Some(p) =>
-          val propValue = properties
+          val propValue = catalogTable
+            .properties
             .getOrElse(p, s"Table ${catalogTable.qualifiedName} does not have property: $p")
           if (output.length == 1) {
             Seq(Row(propValue))
@@ -938,8 +894,8 @@ case class ShowTablePropertiesCommand(
             Seq(Row(p, propValue))
           }
         case None =>
-          properties.filterKeys(!_.startsWith(CatalogTable.VIEW_PREFIX))
-            .toSeq.sortBy(_._1).map(p => Row(p._1, p._2))
+          catalogTable.properties.filterKeys(!_.startsWith(CatalogTable.VIEW_PREFIX))
+            .map(p => Row(p._1, p._2)).toSeq
       }
     }
   }
@@ -1027,7 +983,7 @@ case class ShowPartitionsCommand(
 /**
  * Provides common utilities between `ShowCreateTableCommand` and `ShowCreateTableAsSparkCommand`.
  */
-trait ShowCreateTableCommandBase extends SQLConfHelper {
+trait ShowCreateTableCommandBase {
 
   protected val table: TableIdentifier
 
@@ -1048,11 +1004,9 @@ trait ShowCreateTableCommandBase extends SQLConfHelper {
 
   protected def showTableProperties(metadata: CatalogTable, builder: StringBuilder): Unit = {
     if (metadata.properties.nonEmpty) {
-      val props =
-        conf.redactOptions(metadata.properties)
-          .toSeq.sortBy(_._1).map { case (key, value) =>
-          s"'${escapeSingleQuotedString(key)}' = '${escapeSingleQuotedString(value)}'"
-        }
+      val props = metadata.properties.map { case (key, value) =>
+        s"'${escapeSingleQuotedString(key)}' = '${escapeSingleQuotedString(value)}'"
+      }
 
       builder ++= "TBLPROPERTIES "
       builder ++= concatByMultiLines(props)
@@ -1079,7 +1033,7 @@ trait ShowCreateTableCommandBase extends SQLConfHelper {
           .map(" COMMENT '" + _ + "'")
 
         // view columns shouldn't have data type info
-        s"${quoteIfNeeded(f.name)}${comment.getOrElse("")}"
+        s"${quoteIdentifier(f.name)}${comment.getOrElse("")}"
       }
       builder ++= concatByMultiLines(viewColumns)
     }
@@ -1088,7 +1042,7 @@ trait ShowCreateTableCommandBase extends SQLConfHelper {
   private def showViewProperties(metadata: CatalogTable, builder: StringBuilder): Unit = {
     val viewProps = metadata.properties.filterKeys(!_.startsWith(CatalogTable.VIEW_PREFIX))
     if (viewProps.nonEmpty) {
-      val props = viewProps.toSeq.sortBy(_._1).map { case (key, value) =>
+      val props = viewProps.map { case (key, value) =>
         s"'${escapeSingleQuotedString(key)}' = '${escapeSingleQuotedString(value)}'"
       }
 
@@ -1146,15 +1100,15 @@ case class ShowCreateTableCommand(
         }
       }
 
-      val builder = new StringBuilder
+      val builder = StringBuilder.newBuilder
 
       val stmt = if (tableMetadata.tableType == VIEW) {
-        builder ++= s"CREATE VIEW ${table.quoted} "
+        builder ++= s"CREATE VIEW ${table.quotedString} "
         showCreateView(metadata, builder)
 
         builder.toString()
       } else {
-        builder ++= s"CREATE TABLE ${table.quoted} "
+        builder ++= s"CREATE TABLE ${table.quotedString} "
 
         showCreateDataSourceTable(metadata, builder)
         builder.toString()
@@ -1174,7 +1128,7 @@ case class ShowCreateTableCommand(
     // TODO: some Hive fileformat + row serde might be mapped to Spark data source, e.g. CSV.
     val source = HiveSerDe.serdeToSource(hiveSerde)
     if (source.isEmpty) {
-      val builder = new StringBuilder
+      val builder = StringBuilder.newBuilder
       hiveSerde.serde.foreach { serde =>
         builder ++= s" SERDE: $serde"
       }
@@ -1203,9 +1157,8 @@ case class ShowCreateTableCommand(
     // If it is a Hive table, we already convert its metadata and fill in a provider.
     builder ++= s"USING ${metadata.provider.get}\n"
 
-    val dataSourceOptions = conf.redactOptions(metadata.storage.properties).toSeq.sortBy(_._1).map {
-      case (key, value) =>
-        s"'${escapeSingleQuotedString(key)}' = '${escapeSingleQuotedString(value)}'"
+    val dataSourceOptions = conf.redactOptions(metadata.storage.properties).map {
+      case (key, value) => s"${quoteIdentifier(key)} '${escapeSingleQuotedString(value)}'"
     }
 
     if (dataSourceOptions.nonEmpty) {
@@ -1281,7 +1234,7 @@ case class ShowCreateTableAsSerdeCommand(
       reportUnsupportedError(metadata.unsupportedFeatures)
     }
 
-    val builder = new StringBuilder
+    val builder = StringBuilder.newBuilder
 
     val tableTypeString = metadata.tableType match {
       case EXTERNAL => " EXTERNAL TABLE"
@@ -1292,7 +1245,7 @@ case class ShowCreateTableAsSerdeCommand(
           s"Unknown table type is found at showCreateHiveTable: $t")
     }
 
-    builder ++= s"CREATE$tableTypeString ${table.quoted} "
+    builder ++= s"CREATE$tableTypeString ${table.quotedString}"
 
     if (metadata.tableType == VIEW) {
       showCreateView(metadata, builder)
@@ -1341,7 +1294,7 @@ case class ShowCreateTableAsSerdeCommand(
     storage.serde.foreach { serde =>
       builder ++= s"ROW FORMAT SERDE '$serde'\n"
 
-      val serdeProps = conf.redactOptions(metadata.storage.properties).toSeq.sortBy(_._1).map {
+      val serdeProps = conf.redactOptions(metadata.storage.properties).map {
         case (key, value) =>
           s"'${escapeSingleQuotedString(key)}' = '${escapeSingleQuotedString(value)}'"
       }

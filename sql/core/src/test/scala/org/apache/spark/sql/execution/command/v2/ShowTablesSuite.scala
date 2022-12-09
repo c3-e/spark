@@ -18,7 +18,6 @@
 package org.apache.spark.sql.execution.command.v2
 
 import org.apache.spark.sql.{AnalysisException, Row}
-import org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException
 import org.apache.spark.sql.execution.command
 
 /**
@@ -89,14 +88,5 @@ class ShowTablesSuite extends command.ShowTablesSuiteBase with CommandSuiteBase 
       }.getMessage
       assert(errMsg.contains("SHOW TABLE EXTENDED is not supported for v2 tables"))
     }
-  }
-
-  test("show table in a not existing namespace") {
-    val e = intercept[NoSuchNamespaceException] {
-      runShowTablesSql(s"SHOW TABLES IN $catalog.unknown", Seq())
-    }
-    checkError(e,
-      errorClass = "SCHEMA_NOT_FOUND",
-      parameters = Map("schemaName" -> "`unknown`"))
   }
 }

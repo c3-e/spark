@@ -23,9 +23,8 @@ import com.google.common.primitives.{Doubles, Ints, Longs}
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{FunctionRegistry, TypeCheckResult}
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.{DataTypeMismatch, TypeCheckSuccess}
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.{TypeCheckFailure, TypeCheckSuccess}
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.Cast._
 import org.apache.spark.sql.catalyst.expressions.aggregate.ApproximatePercentile.PercentileDigest
 import org.apache.spark.sql.catalyst.trees.TernaryLike
 import org.apache.spark.sql.catalyst.util.{ArrayData, GenericArrayData}
@@ -50,16 +49,15 @@ import org.apache.spark.sql.types._
  *                           yields better accuracy, the default value is
  *                           DEFAULT_PERCENTILE_ACCURACY.
  */
-// scalastyle:off line.size.limit
 @ExpressionDescription(
   usage = """
-    _FUNC_(col, percentage [, accuracy]) - Returns the approximate `percentile` of the numeric or
-      ansi interval column `col` which is the smallest value in the ordered `col` values (sorted
-      from least to greatest) such that no more than `percentage` of `col` values is less than
-      the value or equal to that value. The value of percentage must be between 0.0 and 1.0.
-      The `accuracy` parameter (default: 10000) is a positive numeric literal which controls
-      approximation accuracy at the cost of memory. Higher value of `accuracy` yields better
-      accuracy, `1.0/accuracy` is the relative error of the approximation.
+    _FUNC_(col, percentage [, accuracy]) - Returns the approximate `percentile` of the numeric
+      column `col` which is the smallest value in the ordered `col` values (sorted from least to
+      greatest) such that no more than `percentage` of `col` values is less than the value
+      or equal to that value. The value of percentage must be between 0.0 and 1.0. The `accuracy`
+      parameter (default: 10000) is a positive numeric literal which controls approximation accuracy
+      at the cost of memory. Higher value of `accuracy` yields better accuracy, `1.0/accuracy` is
+      the relative error of the approximation.
       When `percentage` is an array, each value of the percentage array must be between 0.0 and 1.0.
       In this case, returns the approximate percentile array of column `col` at the given
       percentage array.
@@ -70,14 +68,9 @@ import org.apache.spark.sql.types._
        [1,1,0]
       > SELECT _FUNC_(col, 0.5, 100) FROM VALUES (0), (6), (7), (9), (10) AS tab(col);
        7
-      > SELECT _FUNC_(col, 0.5, 100) FROM VALUES (INTERVAL '0' MONTH), (INTERVAL '1' MONTH), (INTERVAL '2' MONTH), (INTERVAL '10' MONTH) AS tab(col);
-       0-1
-      > SELECT _FUNC_(col, array(0.5, 0.7), 100) FROM VALUES (INTERVAL '0' SECOND), (INTERVAL '1' SECOND), (INTERVAL '2' SECOND), (INTERVAL '10' SECOND) AS tab(col);
-       [0 00:00:01.000000000,0 00:00:02.000000000]
   """,
   group = "agg_funcs",
   since = "2.1.0")
-// scalastyle:on line.size.limit
 case class ApproximatePercentile(
     child: Expression,
     percentageExpression: Expression,
@@ -101,8 +94,7 @@ case class ApproximatePercentile(
   override def inputTypes: Seq[AbstractDataType] = {
     // Support NumericType, DateType, TimestampType and TimestampNTZType since their internal types
     // are all numeric, and can be easily cast to double for processing.
-    Seq(TypeCollection(NumericType, DateType, TimestampType, TimestampNTZType,
-      YearMonthIntervalType, DayTimeIntervalType),
+    Seq(TypeCollection(NumericType, DateType, TimestampType, TimestampNTZType),
       TypeCollection(DoubleType, ArrayType(DoubleType, containsNull = false)), IntegralType)
   }
 
@@ -119,46 +111,17 @@ case class ApproximatePercentile(
     val defaultCheck = super.checkInputDataTypes()
     if (defaultCheck.isFailure) {
       defaultCheck
-    } else if (!percentageExpression.foldable) {
-      DataTypeMismatch(
-        errorSubClass = "NON_FOLDABLE_INPUT",
-        messageParameters = Map(
-          "inputName" -> "percentage",
-          "inputType" -> toSQLType(percentageExpression.dataType),
-          "inputExpr" -> toSQLExpr(percentageExpression)
-        )
-      )
-    } else if (!accuracyExpression.foldable) {
-      DataTypeMismatch(
-        errorSubClass = "NON_FOLDABLE_INPUT",
-        messageParameters = Map(
-          "inputName" -> "accuracy",
-          "inputType" -> toSQLType(accuracyExpression.dataType),
-          "inputExpr" -> toSQLExpr(accuracyExpression)
-        )
-      )
+    } else if (!percentageExpression.foldable || !accuracyExpression.foldable) {
+      TypeCheckFailure(s"The accuracy or percentage provided must be a constant literal")
     } else if (accuracy <= 0 || accuracy > Int.MaxValue) {
-      DataTypeMismatch(
-        errorSubClass = "VALUE_OUT_OF_RANGE",
-        messageParameters = Map(
-          "exprName" -> "accuracy",
-          "valueRange" -> s"(0, ${Int.MaxValue}]",
-          "currentValue" -> toSQLValue(accuracy, LongType)
-        )
-      )
+      TypeCheckFailure(s"The accuracy provided must be a literal between (0, ${Int.MaxValue}]" +
+        s" (current value = $accuracy)")
     } else if (percentages == null) {
-      DataTypeMismatch(
-        errorSubClass = "UNEXPECTED_NULL",
-        messageParameters = Map("exprName" -> "percentage"))
+      TypeCheckFailure("Percentage value must not be null")
     } else if (percentages.exists(percentage => percentage < 0.0D || percentage > 1.0D)) {
-      DataTypeMismatch(
-        errorSubClass = "VALUE_OUT_OF_RANGE",
-        messageParameters = Map(
-          "exprName" -> "percentage",
-          "valueRange" -> "[0.0, 1.0]",
-          "currentValue" -> percentages.map(toSQLValue(_, DoubleType)).mkString(",")
-        )
-      )
+      TypeCheckFailure(
+        s"All percentage values must be between 0.0 and 1.0 " +
+          s"(current = ${percentages.mkString(", ")})")
     } else {
       TypeCheckSuccess
     }
@@ -175,9 +138,8 @@ case class ApproximatePercentile(
     if (value != null) {
       // Convert the value to a double value
       val doubleValue = child.dataType match {
-        case DateType | _: YearMonthIntervalType => value.asInstanceOf[Int].toDouble
-        case TimestampType | TimestampNTZType | _: DayTimeIntervalType =>
-          value.asInstanceOf[Long].toDouble
+        case DateType => value.asInstanceOf[Int].toDouble
+        case TimestampType | TimestampNTZType => value.asInstanceOf[Long].toDouble
         case n: NumericType => n.numeric.toDouble(value.asInstanceOf[n.InternalType])
         case other: DataType =>
           throw QueryExecutionErrors.dataTypeUnexpectedError(other)
@@ -195,8 +157,8 @@ case class ApproximatePercentile(
   override def eval(buffer: PercentileDigest): Any = {
     val doubleResult = buffer.getPercentiles(percentages)
     val result = child.dataType match {
-      case DateType | _: YearMonthIntervalType => doubleResult.map(_.toInt)
-      case TimestampType | TimestampNTZType | _: DayTimeIntervalType => doubleResult.map(_.toLong)
+      case DateType => doubleResult.map(_.toInt)
+      case TimestampType | TimestampNTZType => doubleResult.map(_.toLong)
       case ByteType => doubleResult.map(_.toByte)
       case ShortType => doubleResult.map(_.toShort)
       case IntegerType => doubleResult.map(_.toInt)

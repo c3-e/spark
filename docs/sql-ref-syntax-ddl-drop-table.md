@@ -31,7 +31,7 @@ If the table is cached, the command uncaches the table and all its dependents.
 ### Syntax
 
 ```sql
-DROP TABLE [ IF EXISTS ] table_identifier [ PURGE ]
+DROP TABLE [ IF EXISTS ] table_identifier
 ```
 
 ### Parameter
@@ -45,10 +45,6 @@ DROP TABLE [ IF EXISTS ] table_identifier [ PURGE ]
     Specifies the table name to be dropped. The table name may be optionally qualified with a database name.
 
     **Syntax:** `[ database_name. ] table_name`
-
-* **PURGE**
-
-    If specified, completely purge the table skipping trash while dropping table(Note: PURGE available in Hive Metastore 0.14.0 and later).
 
 ### Examples
 
@@ -68,9 +64,6 @@ Error: org.apache.spark.sql.AnalysisException: Table or view not found: employee
 -- Assumes a table named `employeetable` does not exist,Try with IF EXISTS
 -- this time it will not throw exception
 DROP TABLE IF EXISTS employeetable;
-
--- Completely purge the table skipping trash.
-DROP TABLE employeetable PURGE;
 ```
 
 ### Related Statements

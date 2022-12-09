@@ -46,7 +46,6 @@
       "taskId" : 10,
       "index" : 2,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2015-02-03T16:43:05.830GMT",
       "duration" : 456,
       "executorId" : "driver",
@@ -97,7 +96,6 @@
       "taskId" : 14,
       "index" : 6,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2015-02-03T16:43:05.832GMT",
       "duration" : 450,
       "executorId" : "driver",
@@ -148,7 +146,6 @@
       "taskId" : 9,
       "index" : 1,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2015-02-03T16:43:05.830GMT",
       "duration" : 454,
       "executorId" : "driver",
@@ -199,7 +196,6 @@
       "taskId" : 13,
       "index" : 5,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2015-02-03T16:43:05.831GMT",
       "duration" : 452,
       "executorId" : "driver",
@@ -250,7 +246,6 @@
       "taskId" : 12,
       "index" : 4,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2015-02-03T16:43:05.831GMT",
       "duration" : 454,
       "executorId" : "driver",
@@ -301,7 +296,6 @@
       "taskId" : 11,
       "index" : 3,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2015-02-03T16:43:05.830GMT",
       "duration" : 454,
       "executorId" : "driver",
@@ -352,7 +346,6 @@
       "taskId" : 8,
       "index" : 0,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2015-02-03T16:43:05.829GMT",
       "duration" : 454,
       "executorId" : "driver",
@@ -403,7 +396,6 @@
       "taskId" : 15,
       "index" : 7,
       "attempt" : 0,
-      "partitionId": -1,
       "launchTime" : "2015-02-03T16:43:05.833GMT",
       "duration" : 450,
       "executorId" : "driver",
@@ -488,8 +480,7 @@
         "MinorGCCount" : 0,
         "MinorGCTime" : 0,
         "MajorGCCount" : 0,
-        "MajorGCTime" : 0,
-        "TotalGCTime" : 0
+        "MajorGCTime" : 0
       },
       "isExcludedForStage" : false
     }
@@ -516,7 +507,6 @@
     "MinorGCCount" : 0,
     "MinorGCTime" : 0,
     "MajorGCCount" : 0,
-    "MajorGCTime" : 0,
-    "TotalGCTime" : 0
+    "MajorGCTime" : 0
   }
 } ]

@@ -23,243 +23,234 @@ from typing import (
     NewType,
     Tuple,
     Type,
-    TypeVar,
     Union,
 )
 from typing_extensions import Protocol, Literal
 from types import FunctionType
 
 from pyspark.sql._typing import LiteralType
-from pyspark.sql.streaming.state import GroupState
-from pandas.core.frame import DataFrame as PandasDataFrame
-from pandas.core.series import Series as PandasSeries
-from numpy import ndarray as NDArray
+from pyspark.sql.pandas._typing.protocols.frame import DataFrameLike as DataFrameLike
+from pyspark.sql.pandas._typing.protocols.series import SeriesLike as SeriesLike
 
-import pyarrow
+import pandas.core.frame  # type: ignore[import]
+import pandas.core.series  # type: ignore[import]
 
-ArrayLike = NDArray
-DataFrameLike = PandasDataFrame
-SeriesLike = PandasSeries
+# POC compatibility annotations
+PandasDataFrame: Type[DataFrameLike] = pandas.core.frame.DataFrame
+PandasSeries: Type[SeriesLike] = pandas.core.series.Series
+
 DataFrameOrSeriesLike = Union[DataFrameLike, SeriesLike]
-DataFrameOrSeriesLike_ = TypeVar("DataFrameOrSeriesLike_", bound=DataFrameOrSeriesLike)
 
 # UDF annotations
 PandasScalarUDFType = Literal[200]
-PandasGroupedMapUDFType = Literal[201]
-PandasGroupedAggUDFType = Literal[202]
-PandasWindowAggUDFType = Literal[203]
 PandasScalarIterUDFType = Literal[204]
-PandasMapIterUDFType = Literal[205]
+PandasGroupedMapUDFType = Literal[201]
 PandasCogroupedMapUDFType = Literal[206]
-ArrowMapIterUDFType = Literal[207]
-PandasGroupedMapUDFWithStateType = Literal[208]
+PandasGroupedAggUDFType = Literal[202]
+PandasMapIterUDFType = Literal[205]
 
 class PandasVariadicScalarToScalarFunction(Protocol):
-    def __call__(self, *_: DataFrameOrSeriesLike_) -> DataFrameOrSeriesLike_: ...
+    def __call__(self, *_: DataFrameOrSeriesLike) -> SeriesLike: ...
 
 PandasScalarToScalarFunction = Union[
     PandasVariadicScalarToScalarFunction,
-    Callable[[DataFrameOrSeriesLike_], DataFrameOrSeriesLike_],
-    Callable[[DataFrameOrSeriesLike_, DataFrameOrSeriesLike_], DataFrameOrSeriesLike_],
+    Callable[[DataFrameOrSeriesLike], SeriesLike],
+    Callable[[DataFrameOrSeriesLike, DataFrameOrSeriesLike], SeriesLike],
     Callable[
-        [DataFrameOrSeriesLike_, DataFrameOrSeriesLike_, DataFrameOrSeriesLike_],
-        DataFrameOrSeriesLike_,
+        [DataFrameOrSeriesLike, DataFrameOrSeriesLike, DataFrameOrSeriesLike],
+        SeriesLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         SeriesLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         SeriesLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         SeriesLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         SeriesLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         SeriesLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         SeriesLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         SeriesLike,
     ],
 ]
 
 class PandasVariadicScalarToStructFunction(Protocol):
-    def __call__(self, *_: DataFrameOrSeriesLike_) -> DataFrameLike: ...
+    def __call__(self, *_: DataFrameOrSeriesLike) -> DataFrameLike: ...
 
 PandasScalarToStructFunction = Union[
     PandasVariadicScalarToStructFunction,
-    Callable[[DataFrameOrSeriesLike_], DataFrameLike],
-    Callable[[DataFrameOrSeriesLike_, DataFrameOrSeriesLike_], DataFrameLike],
+    Callable[[DataFrameOrSeriesLike], DataFrameLike],
+    Callable[[DataFrameOrSeriesLike, DataFrameOrSeriesLike], DataFrameLike],
     Callable[
-        [DataFrameOrSeriesLike_, DataFrameOrSeriesLike_, DataFrameOrSeriesLike_],
+        [DataFrameOrSeriesLike, DataFrameOrSeriesLike, DataFrameOrSeriesLike],
         DataFrameLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         DataFrameLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         DataFrameLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         DataFrameLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         DataFrameLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         DataFrameLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         DataFrameLike,
     ],
     Callable[
         [
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
-            DataFrameOrSeriesLike_,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
+            DataFrameOrSeriesLike,
         ],
         DataFrameLike,
     ],
 ]
 
-PandasScalarIterFunction = Union[
-    Callable[[Iterable[DataFrameOrSeriesLike_]], Iterable[SeriesLike]],
-    Callable[[Tuple[DataFrameOrSeriesLike_, ...]], Iterable[SeriesLike]],
+PandasScalarIterFunction = Callable[
+    [Iterable[Union[DataFrameOrSeriesLike, Tuple[DataFrameOrSeriesLike, ...]]]],
+    Iterable[SeriesLike],
 ]
 
 PandasGroupedMapFunction = Union[
     Callable[[DataFrameLike], DataFrameLike],
     Callable[[Any, DataFrameLike], DataFrameLike],
-]
-
-PandasGroupedMapFunctionWithState = Callable[
-    [Any, Iterable[DataFrameLike], GroupState], Iterable[DataFrameLike]
 ]
 
 class PandasVariadicGroupedAggFunction(Protocol):
@@ -334,11 +325,14 @@ PandasGroupedAggFunction = Union[
 
 PandasMapIterFunction = Callable[[Iterable[DataFrameLike]], Iterable[DataFrameLike]]
 
-ArrowMapIterFunction = Callable[[Iterable[pyarrow.RecordBatch]], Iterable[pyarrow.RecordBatch]]
+PandasCogroupedMapFunction = Callable[[DataFrameLike, DataFrameLike], DataFrameLike]
 
-PandasCogroupedMapFunction = Union[
-    Callable[[DataFrameLike, DataFrameLike], DataFrameLike],
-    Callable[[Any, DataFrameLike, DataFrameLike], DataFrameLike],
-]
-
-GroupedMapPandasUserDefinedFunction = NewType("GroupedMapPandasUserDefinedFunction", FunctionType)
+MapIterPandasUserDefinedFunction = NewType(
+    "MapIterPandasUserDefinedFunction", FunctionType
+)
+GroupedMapPandasUserDefinedFunction = NewType(
+    "GroupedMapPandasUserDefinedFunction", FunctionType
+)
+CogroupedMapPandasUserDefinedFunction = NewType(
+    "CogroupedMapPandasUserDefinedFunction", FunctionType
+)

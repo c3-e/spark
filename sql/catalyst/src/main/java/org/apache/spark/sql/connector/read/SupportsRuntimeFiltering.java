@@ -19,9 +19,7 @@ package org.apache.spark.sql.connector.read;
 
 import org.apache.spark.annotation.Experimental;
 import org.apache.spark.sql.connector.expressions.NamedReference;
-import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.sources.Filter;
-import org.apache.spark.sql.internal.connector.PredicateUtils;
 
 /**
  * A mix-in interface for {@link Scan}. Data sources can implement this interface if they can
@@ -32,7 +30,7 @@ import org.apache.spark.sql.internal.connector.PredicateUtils;
  * @since 3.2.0
  */
 @Experimental
-public interface SupportsRuntimeFiltering extends SupportsRuntimeV2Filtering {
+public interface SupportsRuntimeFiltering extends Scan {
   /**
    * Returns attributes this scan can be filtered by at runtime.
    * <p>
@@ -59,8 +57,4 @@ public interface SupportsRuntimeFiltering extends SupportsRuntimeV2Filtering {
    * @param filters data source filters used to filter the scan at runtime
    */
   void filter(Filter[] filters);
-
-  default void filter(Predicate[] predicates) {
-    this.filter(PredicateUtils.toV1(predicates));
-  }
 }

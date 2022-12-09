@@ -49,24 +49,20 @@ class JdbcUtilsSuite extends SparkFunSuite {
       JdbcUtils.getCustomSchema(tableSchema, "c1 DATE, c1 STRING", caseInsensitive) ===
         StructType(Seq(StructField("c1", DateType, false), StructField("c1", StringType, false)))
     }
-    checkError(
-      exception = duplicate,
-      errorClass = "COLUMN_ALREADY_EXISTS",
-      parameters = Map("columnName" -> "`c1`"))
+    assert(duplicate.getMessage.contains(
+      "Found duplicate column(s) in the customSchema option value"))
 
     // Throw ParseException
-    checkError(
-      exception = intercept[ParseException]{
-        JdbcUtils.getCustomSchema(tableSchema, "c3 DATEE, C2 STRING", caseInsensitive)
-      },
-      errorClass = "UNSUPPORTED_DATATYPE",
-      parameters = Map("typeName" -> "\"DATEE\""))
+    val dataTypeNotSupported = intercept[ParseException]{
+      JdbcUtils.getCustomSchema(tableSchema, "c3 DATEE, C2 STRING", caseInsensitive) ===
+        StructType(Seq(StructField("c3", DateType, false), StructField("C2", StringType, false)))
+    }
+    assert(dataTypeNotSupported.getMessage.contains("DataType datee is not supported"))
 
-    checkError(
-      exception = intercept[ParseException]{
-        JdbcUtils.getCustomSchema(tableSchema, "c3 DATE. C2 STRING", caseInsensitive)
-      },
-      errorClass = "PARSE_SYNTAX_ERROR",
-      parameters = Map("error" -> "'.'", "hint" -> ""))
+    val mismatchedInput = intercept[ParseException]{
+      JdbcUtils.getCustomSchema(tableSchema, "c3 DATE. C2 STRING", caseInsensitive) ===
+        StructType(Seq(StructField("c3", DateType, false), StructField("C2", StringType, false)))
+    }
+    assert(mismatchedInput.getMessage.contains("mismatched input '.' expecting"))
   }
 }

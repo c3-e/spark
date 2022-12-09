@@ -10,21 +10,16 @@ plotly
 mlflow>=1.0
 sklearn
 matplotlib<3.3.0
-memory-profiler==0.60.0
 
 # PySpark test dependencies
-unittest-xml-reporting
-openpyxl
+xmlrunner
 
 # PySpark test dependencies (optional)
 coverage
 
 # Linter
-mypy==0.920
-pytest-mypy-plugins==1.9.3
-flake8==3.9.0
-# See SPARK-38680.
-pandas-stubs<1.2.0.54
+mypy
+flake8
 
 # Documentation (SQL)
 mkdocs
@@ -38,19 +33,10 @@ jinja2<3.0.0
 sphinx<3.1.0
 sphinx-plotly-directive
 docutils<0.18.0
-# See SPARK-38279.
-markupsafe==2.0.1
 
 # Development scripts
 jira
 PyGithub
 
 # pandas API on Spark Code formatter.
-black==22.6.0
-
-# Spark Connect (required)
-grpcio==1.48.1
-protobuf==3.19.5
-
-# Spark Connect python proto generation plugin (optional)
-mypy-protobuf==3.3.0
+black

@@ -30,9 +30,6 @@ jobs:
   label:
     name: Label pull requests
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
     # In order to get back the negated matches like in the old config,
     # we need the actinons/labeler concept of `all` and `any` which matches
@@ -47,7 +44,7 @@ jobs:
     #
     # However, these are not in a published release and the current `main` branch
     # has some issues upon testing.
-    - uses: actions/labeler@v4
+    - uses: actions/labeler@2.2.0
       with:
         repo-token: "${{ secrets.GITHUB_TOKEN }}"
         sync-labels: true

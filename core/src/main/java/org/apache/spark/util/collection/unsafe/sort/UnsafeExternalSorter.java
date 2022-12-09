@@ -18,7 +18,6 @@
 package org.apache.spark.util.collection.unsafe.sort;
 
 import javax.annotation.Nullable;
-import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.util.LinkedList;
@@ -27,14 +26,13 @@ import java.util.Queue;
 import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
-import org.apache.commons.io.IOUtils;
+import org.apache.spark.memory.SparkOutOfMemoryError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.spark.TaskContext;
 import org.apache.spark.executor.ShuffleWriteMetrics;
 import org.apache.spark.memory.MemoryConsumer;
-import org.apache.spark.memory.SparkOutOfMemoryError;
 import org.apache.spark.memory.TaskMemoryManager;
 import org.apache.spark.memory.TooLargePageException;
 import org.apache.spark.serializer.SerializerManager;
@@ -795,7 +793,7 @@ public final class UnsafeExternalSorter extends MemoryConsumer {
   /**
    * Chain multiple UnsafeSorterIterator together as single one.
    */
-  static class ChainedIterator extends UnsafeSorterIterator implements Closeable {
+  static class ChainedIterator extends UnsafeSorterIterator {
 
     private final Queue<UnsafeSorterIterator> iterators;
     private UnsafeSorterIterator current;
@@ -848,23 +846,5 @@ public final class UnsafeExternalSorter extends MemoryConsumer {
 
     @Override
     public long getKeyPrefix() { return current.getKeyPrefix(); }
-
-    @Override
-    public void close() throws IOException {
-      if (iterators != null && !iterators.isEmpty()) {
-        for (UnsafeSorterIterator iterator : iterators) {
-          closeIfPossible(iterator);
-        }
-      }
-      if (current != null) {
-        closeIfPossible(current);
-      }
-    }
-
-    private void closeIfPossible(UnsafeSorterIterator iterator) {
-      if (iterator instanceof Closeable) {
-        IOUtils.closeQuietly(((Closeable) iterator));
-      }
-    }
   }
 }

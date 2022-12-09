@@ -24,9 +24,8 @@ import java.util.Arrays
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.runtime.universe.TypeTag
 
-import org.apache.spark.{SparkArithmeticException, SparkRuntimeException}
 import org.apache.spark.sql.{Encoder, Encoders}
-import org.apache.spark.sql.catalyst.{FooClassWithEnum, FooEnum, OptionalData, PrimitiveData, ScroogeLikeExample}
+import org.apache.spark.sql.catalyst.{FooClassWithEnum, FooEnum, OptionalData, PrimitiveData}
 import org.apache.spark.sql.catalyst.analysis.AnalysisTest
 import org.apache.spark.sql.catalyst.dsl.plans._
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
@@ -116,26 +115,6 @@ object ReferenceValueClass {
   case class Container(data: Int)
 }
 case class IntAndString(i: Int, s: String)
-
-case class StringWrapper(s: String) extends AnyVal
-case class ValueContainer(
-                           a: Int,
-                           b: StringWrapper) // a string column
-case class IntWrapper(i: Int) extends AnyVal
-case class ComplexValueClassContainer(
-                                       a: Int,
-                                       b: ValueContainer,
-                                       c: IntWrapper)
-case class SeqOfValueClass(s: Seq[StringWrapper])
-case class MapOfValueClassKey(m: Map[IntWrapper, String])
-case class MapOfValueClassValue(m: Map[String, StringWrapper])
-case class OptionOfValueClassValue(o: Option[StringWrapper])
-case class CaseClassWithGeneric[T](generic: T, value: IntWrapper)
-case class NestedGeneric[T](generic: CaseClassWithGeneric[T])
-case class SeqNestedGeneric[T](list: Seq[T])
-case class OptionNestedGeneric[T](list: Option[T])
-case class MapNestedGenericKey[T](list: Map[T, Int])
-case class MapNestedGenericValue[T](list: Map[Int, T])
 
 class ExpressionEncoderSuite extends CodegenInterpretedPlanTest with AnalysisTest {
   OuterScopes.addOuterScope(this)
@@ -412,73 +391,16 @@ class ExpressionEncoderSuite extends CodegenInterpretedPlanTest with AnalysisTes
     ExpressionEncoder.tuple(intEnc, ExpressionEncoder.tuple(intEnc, longEnc))
   }
 
-  // test for value classes
   encodeDecodeTest(
     PrimitiveValueClass(42), "primitive value class")
 
   encodeDecodeTest(
     ReferenceValueClass(ReferenceValueClass.Container(1)), "reference value class")
 
-  encodeDecodeTest(StringWrapper("a"), "string value class")
-  encodeDecodeTest(ValueContainer(1, StringWrapper("b")), "nested value class")
-  encodeDecodeTest(ValueContainer(1, StringWrapper(null)), "nested value class with null")
-  encodeDecodeTest(ComplexValueClassContainer(1, ValueContainer(2, StringWrapper("b")),
-    IntWrapper(3)), "complex value class")
-  encodeDecodeTest(
-    Array(IntWrapper(1), IntWrapper(2), IntWrapper(3)),
-    "array of value class")
-  encodeDecodeTest(Array.empty[IntWrapper], "empty array of value class")
-  encodeDecodeTest(
-    Seq(IntWrapper(1), IntWrapper(2), IntWrapper(3)),
-    "seq of value class")
-  encodeDecodeTest(Seq.empty[IntWrapper], "empty seq of value class")
-  encodeDecodeTest(
-    Map(IntWrapper(1) -> StringWrapper("a"), IntWrapper(2) -> StringWrapper("b")),
-    "map with value class")
-
-  // test for nested value class collections
-  encodeDecodeTest(
-    MapOfValueClassKey(Map(IntWrapper(1)-> "a")),
-    "case class with map of value class key")
-  encodeDecodeTest(
-    MapOfValueClassValue(Map("a"-> StringWrapper("b"))),
-    "case class with map of value class value")
-  encodeDecodeTest(
-    SeqOfValueClass(Seq(StringWrapper("a"))),
-    "case class with seq of class value")
-  encodeDecodeTest(
-    OptionOfValueClassValue(Some(StringWrapper("a"))),
-    "case class with option of class value")
-  encodeDecodeTest((StringWrapper("a_1"), StringWrapper("a_2")),
-    "tuple2 of class value")
-  encodeDecodeTest((StringWrapper("a_1"), StringWrapper("a_2"), StringWrapper("a_3")),
-    "tuple3 of class value")
-  encodeDecodeTest(((StringWrapper("a_1"), StringWrapper("a_2")), StringWrapper("b_2")),
-    "nested tuple._1 of class value")
-  encodeDecodeTest((StringWrapper("a_1"), (StringWrapper("b_1"), StringWrapper("b_2"))),
-    "nested tuple._2 of class value")
-  encodeDecodeTest(CaseClassWithGeneric(IntWrapper(1), IntWrapper(2)),
-    "case class with value class in generic parameter")
-  encodeDecodeTest(NestedGeneric(CaseClassWithGeneric(IntWrapper(1), IntWrapper(2))),
-    "case class with nested generic parameter")
-  encodeDecodeTest(SeqNestedGeneric(List(2)),
-    "case class with nested generic parameter seq")
-  encodeDecodeTest(SeqNestedGeneric(List(IntWrapper(2))),
-    "case class with value class and nested generic parameter seq")
-  encodeDecodeTest(OptionNestedGeneric(Some(2)),
-    "case class with nested generic option")
-  encodeDecodeTest(MapNestedGenericKey(Map(1 -> 2)),
-    "case class with nested generic map key ")
-  encodeDecodeTest(MapNestedGenericValue(Map(1 -> 2)),
-    "case class with nested generic map value")
-
   encodeDecodeTest(Option(31), "option of int")
   encodeDecodeTest(Option.empty[Int], "empty option of int")
   encodeDecodeTest(Option("abc"), "option of string")
   encodeDecodeTest(Option.empty[String], "empty option of string")
-
-  encodeDecodeTest(ScroogeLikeExample(1),
-    "SPARK-40385 class with only a companion object constructor")
 
   productTest(("UDT", new ExamplePoint(0.1, 0.2)))
 
@@ -539,24 +461,14 @@ class ExpressionEncoderSuite extends CodegenInterpretedPlanTest with AnalysisTes
 
   test("null check for map key: String") {
     val toRow = ExpressionEncoder[Map[String, Int]]().createSerializer()
-    val e = intercept[SparkRuntimeException](toRow(Map(("a", 1), (null, 2))))
-    assert(e.getCause.isInstanceOf[SparkRuntimeException])
-    checkError(
-      exception = e.getCause.asInstanceOf[SparkRuntimeException],
-      errorClass = "NULL_MAP_KEY",
-      parameters = Map.empty
-    )
+    val e = intercept[RuntimeException](toRow(Map(("a", 1), (null, 2))))
+    assert(e.getMessage.contains("Cannot use null as map key"))
   }
 
   test("null check for map key: Integer") {
     val toRow = ExpressionEncoder[Map[Integer, String]]().createSerializer()
-    val e = intercept[SparkRuntimeException](toRow(Map((1, "a"), (null, "b"))))
-    assert(e.getCause.isInstanceOf[SparkRuntimeException])
-    checkError(
-      exception = e.getCause.asInstanceOf[SparkRuntimeException],
-      errorClass = "NULL_MAP_KEY",
-      parameters = Map.empty
-    )
+    val e = intercept[RuntimeException](toRow(Map((1, "a"), (null, "b"))))
+    assert(e.getMessage.contains("Cannot use null as map key"))
   }
 
   test("throw exception for tuples with more than 22 elements") {
@@ -645,7 +557,7 @@ class ExpressionEncoderSuite extends CodegenInterpretedPlanTest with AnalysisTes
               toRow(bigNumeric)
             }
             assert(e.getMessage.contains("Error while encoding"))
-            assert(e.getCause.getClass === classOf[SparkArithmeticException])
+            assert(e.getCause.getClass === classOf[ArithmeticException])
           }
         }
       }

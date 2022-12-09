@@ -20,8 +20,11 @@ package org.apache.spark.network.crypto;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
 import java.security.GeneralSecurityException;
+import java.util.Arrays;
+import java.util.Map;
 import java.util.Random;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.crypto.tink.subtle.Hex;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -61,9 +64,10 @@ public class AuthEngineSuite {
 
   @Test
   public void testAuthEngine() throws Exception {
+    AuthEngine client = new AuthEngine("appId", "secret", conf);
+    AuthEngine server = new AuthEngine("appId", "secret", conf);
 
-    try (AuthEngine client = new AuthEngine("appId", "secret", conf);
-         AuthEngine server = new AuthEngine("appId", "secret", conf)) {
+    try {
       AuthMessage clientChallenge = client.challenge();
       AuthMessage serverResponse = server.response(clientChallenge);
       client.deriveSessionCipher(clientChallenge, serverResponse);
@@ -71,13 +75,16 @@ public class AuthEngineSuite {
       TransportCipher serverCipher = server.sessionCipher();
       TransportCipher clientCipher = client.sessionCipher();
 
-      assertArrayEquals(serverCipher.getInputIv(), clientCipher.getOutputIv());
-      assertArrayEquals(serverCipher.getOutputIv(), clientCipher.getInputIv());
+      assertTrue(Arrays.equals(serverCipher.getInputIv(), clientCipher.getOutputIv()));
+      assertTrue(Arrays.equals(serverCipher.getOutputIv(), clientCipher.getInputIv()));
       assertEquals(serverCipher.getKey(), clientCipher.getKey());
+    } finally {
+      client.close();
+      server.close();
     }
   }
 
-  @Test
+  @Test(expected = IllegalArgumentException.class)
   public void testCorruptChallengeAppId() throws Exception {
 
     try (AuthEngine client = new AuthEngine("appId", "secret", conf);
@@ -85,33 +92,33 @@ public class AuthEngineSuite {
       AuthMessage clientChallenge = client.challenge();
       AuthMessage corruptChallenge =
               new AuthMessage("junk", clientChallenge.salt, clientChallenge.ciphertext);
-      assertThrows(IllegalArgumentException.class, () -> server.response(corruptChallenge));
+      AuthMessage serverResponse = server.response(corruptChallenge);
     }
   }
 
-  @Test
+  @Test(expected = GeneralSecurityException.class)
   public void testCorruptChallengeSalt() throws Exception {
 
     try (AuthEngine client = new AuthEngine("appId", "secret", conf);
          AuthEngine server = new AuthEngine("appId", "secret", conf)) {
       AuthMessage clientChallenge = client.challenge();
       clientChallenge.salt[0] ^= 1;
-      assertThrows(GeneralSecurityException.class, () -> server.response(clientChallenge));
+      AuthMessage serverResponse = server.response(clientChallenge);
     }
   }
 
-  @Test
+  @Test(expected = GeneralSecurityException.class)
   public void testCorruptChallengeCiphertext() throws Exception {
 
     try (AuthEngine client = new AuthEngine("appId", "secret", conf);
          AuthEngine server = new AuthEngine("appId", "secret", conf)) {
       AuthMessage clientChallenge = client.challenge();
       clientChallenge.ciphertext[0] ^= 1;
-      assertThrows(GeneralSecurityException.class, () -> server.response(clientChallenge));
+      AuthMessage serverResponse = server.response(clientChallenge);
     }
   }
 
-  @Test
+  @Test(expected = IllegalArgumentException.class)
   public void testCorruptResponseAppId() throws Exception {
 
     try (AuthEngine client = new AuthEngine("appId", "secret", conf);
@@ -120,12 +127,11 @@ public class AuthEngineSuite {
       AuthMessage serverResponse = server.response(clientChallenge);
       AuthMessage corruptResponse =
               new AuthMessage("junk", serverResponse.salt, serverResponse.ciphertext);
-      assertThrows(IllegalArgumentException.class,
-        () -> client.deriveSessionCipher(clientChallenge, corruptResponse));
+      client.deriveSessionCipher(clientChallenge, corruptResponse);
     }
   }
 
-  @Test
+  @Test(expected = GeneralSecurityException.class)
   public void testCorruptResponseSalt() throws Exception {
 
     try (AuthEngine client = new AuthEngine("appId", "secret", conf);
@@ -133,12 +139,11 @@ public class AuthEngineSuite {
       AuthMessage clientChallenge = client.challenge();
       AuthMessage serverResponse = server.response(clientChallenge);
       serverResponse.salt[0] ^= 1;
-      assertThrows(GeneralSecurityException.class,
-        () -> client.deriveSessionCipher(clientChallenge, serverResponse));
+      client.deriveSessionCipher(clientChallenge, serverResponse);
     }
   }
 
-  @Test
+  @Test(expected = GeneralSecurityException.class)
   public void testCorruptServerCiphertext() throws Exception {
 
     try (AuthEngine client = new AuthEngine("appId", "secret", conf);
@@ -146,8 +151,7 @@ public class AuthEngineSuite {
       AuthMessage clientChallenge = client.challenge();
       AuthMessage serverResponse = server.response(clientChallenge);
       serverResponse.ciphertext[0] ^= 1;
-      assertThrows(GeneralSecurityException.class,
-        () -> client.deriveSessionCipher(clientChallenge, serverResponse));
+      client.deriveSessionCipher(clientChallenge, serverResponse);
     }
   }
 
@@ -158,7 +162,7 @@ public class AuthEngineSuite {
               AuthMessage.decodeMessage(ByteBuffer.wrap(Hex.decode(clientChallengeHex)));
       // This tests that the server will accept an old challenge as expected. However,
       // it will generate a fresh ephemeral keypair, so we can't replay an old session.
-      server.response(clientChallenge);
+      AuthMessage freshServerResponse = server.response(clientChallenge);
     }
   }
 
@@ -180,19 +184,33 @@ public class AuthEngineSuite {
     }
   }
 
-  @Test
+  @Test(expected = GeneralSecurityException.class)
   public void testMismatchedSecret() throws Exception {
     try (AuthEngine client = new AuthEngine("appId", "secret", conf);
          AuthEngine server = new AuthEngine("appId", "different_secret", conf)) {
       AuthMessage clientChallenge = client.challenge();
-      assertThrows(GeneralSecurityException.class, () -> server.response(clientChallenge));
+      server.response(clientChallenge);
+    }
+  }
+
+  @Test(expected = AssertionError.class)
+  public void testBadKeySize() throws Exception {
+    Map<String, String> mconf = ImmutableMap.of("spark.network.crypto.keyLength", "42");
+    TransportConf conf = new TransportConf("rpc", new MapConfigProvider(mconf));
+
+    try (AuthEngine engine = new AuthEngine("appId", "secret", conf)) {
+      engine.challenge();
+      fail("Should have failed to create challenge message.");
+      // Call close explicitly to make sure it's idempotent.
+      engine.close();
     }
   }
 
   @Test
   public void testEncryptedMessage() throws Exception {
-    try (AuthEngine client = new AuthEngine("appId", "secret", conf);
-         AuthEngine server = new AuthEngine("appId", "secret", conf)) {
+    AuthEngine client = new AuthEngine("appId", "secret", conf);
+    AuthEngine server = new AuthEngine("appId", "secret", conf);
+    try {
       AuthMessage clientChallenge = client.challenge();
       AuthMessage serverResponse = server.response(clientChallenge);
       client.deriveSessionCipher(clientChallenge, serverResponse);
@@ -210,13 +228,17 @@ public class AuthEngineSuite {
         emsg.transferTo(channel, emsg.transferred());
       }
       assertEquals(data.length, channel.length());
+    } finally {
+      client.close();
+      server.close();
     }
   }
 
   @Test
   public void testEncryptedMessageWhenTransferringZeroBytes() throws Exception {
-    try (AuthEngine client = new AuthEngine("appId", "secret", conf);
-         AuthEngine server = new AuthEngine("appId", "secret", conf)) {
+    AuthEngine client = new AuthEngine("appId", "secret", conf);
+    AuthEngine server = new AuthEngine("appId", "secret", conf);
+    try {
       AuthMessage clientChallenge = client.challenge();
       AuthMessage serverResponse = server.response(clientChallenge);
       client.deriveSessionCipher(clientChallenge, serverResponse);
@@ -252,6 +274,9 @@ public class AuthEngineSuite {
       assertEquals(testDataLength, emsg.transferTo(channel, emsg.transferred()));
       assertEquals(emsg.transferred(), emsg.count());
       assertEquals(4, channel.length());
+    } finally {
+      client.close();
+      server.close();
     }
   }
 }

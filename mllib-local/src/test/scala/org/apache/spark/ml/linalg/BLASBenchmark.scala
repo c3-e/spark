@@ -17,10 +17,9 @@
 
 package org.apache.spark.ml.linalg
 
+import dev.ludovic.netlib.{BLAS => NetlibBLAS}
+import dev.ludovic.netlib.blas.F2jBLAS
 import scala.concurrent.duration._
-import scala.util.control.NonFatal
-
-import dev.ludovic.netlib.blas.{BLAS => NetlibBLAS, JavaBLAS}
 
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
 
@@ -29,34 +28,19 @@ import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
  * To run this benchmark:
  * {{{
  * 1. without sbt: bin/spark-submit --class <this class> <spark mllib test jar>
- * 2. build/sbt "mllib-local/Test/runMain <this class>"
- * 3. generate result: SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt "mllib/Test/runMain <this class>"
+ * 2. build/sbt "mllib-local/test:runMain <this class>"
+ * 3. generate result: SPARK_GENERATE_BENCHMARK_FILES=1 build/sbt "mllib/test:runMain <this class>"
  *    Results will be written to "benchmarks/BLASBenchmark-results.txt".
  * }}}
  */
 object BLASBenchmark extends BenchmarkBase {
-
-  private def getF2jBLAS(): Option[JavaBLAS] = {
-    try {
-      // scalastyle:off classforname
-      val f2jBLASClazz = Class.forName("dev.ludovic.netlib.blas.F2jBLAS")
-      // scalastyle:on classforname
-      val getInstanceMethod = f2jBLASClazz.getDeclaredMethod("getInstance")
-      getInstanceMethod.setAccessible(true)
-      val f2jBLAS = getInstanceMethod.invoke(null).asInstanceOf[JavaBLAS]
-      Some(f2jBLAS)
-    } catch {
-      case NonFatal(_) =>
-        None
-    }
-  }
 
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
 
     val iters = 1e2.toInt
     val rnd = new scala.util.Random(0)
 
-    val f2jBLAS = getF2jBLAS.getOrElse(throw new RuntimeException("can't load F2jBLAS"))
+    val f2jBLAS = F2jBLAS.getInstance
     val javaBLAS = BLAS.javaBLAS
     val nativeBLAS = BLAS.nativeBLAS
 
@@ -310,7 +294,7 @@ object BLASBenchmark extends BenchmarkBase {
       val ldb = k
       val beta = rnd.nextDouble
       val c = Array.fill(m * n) { rnd.nextDouble }
-      val ldc = m
+      var ldc = m
 
       runBLASBenchmark("dgemm[N,N]", m * n * k) { impl =>
         impl.dgemm("N", "N", m, n, k, alpha, a, lda, b, ldb, beta, c.clone, ldc)
@@ -328,7 +312,7 @@ object BLASBenchmark extends BenchmarkBase {
       val ldb = n
       val beta = rnd.nextDouble
       val c = Array.fill(m * n) { rnd.nextDouble }
-      val ldc = m
+      var ldc = m
 
       runBLASBenchmark("dgemm[N,T]", m * n * k) { impl =>
         impl.dgemm("N", "T", m, n, k, alpha, a, lda, b, ldb, beta, c.clone, ldc)
@@ -346,7 +330,7 @@ object BLASBenchmark extends BenchmarkBase {
       val ldb = k
       val beta = rnd.nextDouble
       val c = Array.fill(m * n) { rnd.nextDouble }
-      val ldc = m
+      var ldc = m
 
       runBLASBenchmark("dgemm[T,N]", m * n * k) { impl =>
         impl.dgemm("T", "N", m, n, k, alpha, a, lda, b, ldb, beta, c.clone, ldc)
@@ -364,7 +348,7 @@ object BLASBenchmark extends BenchmarkBase {
       val ldb = n
       val beta = rnd.nextDouble
       val c = Array.fill(m * n) { rnd.nextDouble }
-      val ldc = m
+      var ldc = m
 
       runBLASBenchmark("dgemm[T,T]", m * n * k) { impl =>
         impl.dgemm("T", "T", m, n, k, alpha, a, lda, b, ldb, beta, c.clone, ldc)
@@ -382,7 +366,7 @@ object BLASBenchmark extends BenchmarkBase {
       val ldb = k
       val beta = rnd.nextFloat
       val c = Array.fill(m * n) { rnd.nextFloat }
-      val ldc = m
+      var ldc = m
 
       runBLASBenchmark("sgemm[N,N]", m * n * k) { impl =>
         impl.sgemm("N", "N", m, n, k, alpha, a, lda, b, ldb, beta, c.clone, ldc)
@@ -400,7 +384,7 @@ object BLASBenchmark extends BenchmarkBase {
       val ldb = n
       val beta = rnd.nextFloat
       val c = Array.fill(m * n) { rnd.nextFloat }
-      val ldc = m
+      var ldc = m
 
       runBLASBenchmark("sgemm[N,T]", m * n * k) { impl =>
         impl.sgemm("N", "T", m, n, k, alpha, a, lda, b, ldb, beta, c.clone, ldc)
@@ -418,7 +402,7 @@ object BLASBenchmark extends BenchmarkBase {
       val ldb = k
       val beta = rnd.nextFloat
       val c = Array.fill(m * n) { rnd.nextFloat }
-      val ldc = m
+      var ldc = m
 
       runBLASBenchmark("sgemm[T,N]", m * n * k) { impl =>
         impl.sgemm("T", "N", m, n, k, alpha, a, lda, b, ldb, beta, c.clone, ldc)
@@ -436,7 +420,7 @@ object BLASBenchmark extends BenchmarkBase {
       val ldb = n
       val beta = rnd.nextFloat
       val c = Array.fill(m * n) { rnd.nextFloat }
-      val ldc = m
+      var ldc = m
 
       runBLASBenchmark("sgemm[T,T]", m * n * k) { impl =>
         impl.sgemm("T", "T", m, n, k, alpha, a, lda, b, ldb, beta, c.clone, ldc)

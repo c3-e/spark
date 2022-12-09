@@ -261,8 +261,7 @@ case class CachedRDDBuilder(
   }
 
   private def buildBuffers(): RDD[CachedBatch] = {
-    val cb = if (cachedPlan.supportsColumnar &&
-        serializer.supportsColumnarInput(cachedPlan.output)) {
+    val cb = if (cachedPlan.supportsColumnar) {
       serializer.convertColumnarBatchToCachedBatch(
         cachedPlan.executeColumnar(),
         cachedPlan.output,
@@ -394,7 +393,7 @@ case class InMemoryRelation(
       newColStats: Map[Attribute, ColumnStat]): Unit = this.synchronized {
     val newStats = statsOfPlanToCache.copy(
       rowCount = Some(rowCount),
-      attributeStats = AttributeMap(statsOfPlanToCache.attributeStats ++ newColStats)
+      attributeStats = AttributeMap((statsOfPlanToCache.attributeStats ++ newColStats).toSeq)
     )
     statsOfPlanToCache = newStats
   }

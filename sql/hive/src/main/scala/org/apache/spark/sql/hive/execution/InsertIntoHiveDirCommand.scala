@@ -61,6 +61,7 @@ case class InsertIntoHiveDirCommand(
     assert(storage.locationUri.nonEmpty)
     SchemaUtils.checkColumnNameDuplication(
       outputColumnNames,
+      s"when inserting into ${storage.locationUri.get}",
       sparkSession.sessionState.conf.caseSensitiveAnalysis)
 
     val table = CatalogTable(
@@ -70,7 +71,7 @@ case class InsertIntoHiveDirCommand(
       storage = storage,
       schema = outputColumns.toStructType
     )
-    DDLUtils.checkTableColumns(table)
+    DDLUtils.checkDataColNames(table)
 
     val hiveTable = HiveClientImpl.toHiveTable(table)
     hiveTable.getMetadata.put(serdeConstants.SERIALIZATION_LIB,

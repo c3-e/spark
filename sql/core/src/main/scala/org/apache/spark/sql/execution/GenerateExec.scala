@@ -142,8 +142,8 @@ case class GenerateExec(
       case (attr, _) => requiredAttrSet.contains(attr)
     }.map(_._2)
     boundGenerator match {
-      case e: CollectionGenerator => codeGenCollection(ctx, e, requiredInput)
-      case g => codeGenTraversableOnce(ctx, g, requiredInput)
+      case e: CollectionGenerator => codeGenCollection(ctx, e, requiredInput, row)
+      case g => codeGenTraversableOnce(ctx, g, requiredInput, row)
     }
   }
 
@@ -153,7 +153,8 @@ case class GenerateExec(
   private def codeGenCollection(
       ctx: CodegenContext,
       e: CollectionGenerator,
-      input: Seq[ExprCode]): String = {
+      input: Seq[ExprCode],
+      row: ExprCode): String = {
 
     // Generate code for the generator.
     val data = e.genCode(ctx)
@@ -240,7 +241,8 @@ case class GenerateExec(
   private def codeGenTraversableOnce(
       ctx: CodegenContext,
       e: Expression,
-      requiredInput: Seq[ExprCode]): String = {
+      requiredInput: Seq[ExprCode],
+      row: ExprCode): String = {
 
     // Generate the code for the generator
     val data = e.genCode(ctx)

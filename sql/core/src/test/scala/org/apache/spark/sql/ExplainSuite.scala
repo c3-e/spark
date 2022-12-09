@@ -106,7 +106,7 @@ class ExplainSuite extends ExplainSuiteHelper with DisableAdaptiveExecutionSuite
       keywords = "InMemoryRelation", "StorageLevel(disk, memory, deserialized, 1 replicas)")
   }
 
-  test("optimized plan should show the rewritten expression") {
+  test("optimized plan should show the rewritten aggregate expression") {
     withTempView("test_agg") {
       sql(
         """
@@ -124,13 +124,6 @@ class ExplainSuite extends ExplainSuiteHelper with DisableAdaptiveExecutionSuite
       checkKeywordsExistsInExplain(df,
         "Aggregate [k#x], [k#x, every(v#x) AS every(v)#x, some(v#x) AS some(v)#x, " +
           "any(v#x) AS any(v)#x]")
-    }
-
-    withTable("t") {
-      sql("CREATE TABLE t(col TIMESTAMP) USING parquet")
-      val df = sql("SELECT date_part('month', col) FROM t")
-      checkKeywordsExistsInExplain(df,
-        "Project [month(cast(col#x as date)) AS date_part(month, col)#x]")
     }
   }
 
@@ -224,8 +217,8 @@ class ExplainSuite extends ExplainSuiteHelper with DisableAdaptiveExecutionSuite
     // AND                                               conjunction
     // OR                                                disjunction
     // ---------------------------------------------------------------------------------------
-    checkKeywordsExistsInExplain(sql("select '1' || 1 + 2"),
-      "Project [13", " AS (concat(1, 1) + 2)#x")
+    checkKeywordsExistsInExplain(sql("select 'a' || 1 + 2"),
+      "Project [null AS (concat(a, 1) + 2)#x]")
     checkKeywordsExistsInExplain(sql("select 1 - 2 || 'b'"),
       "Project [-1b AS concat((1 - 2), b)#x]")
     checkKeywordsExistsInExplain(sql("select 2 * 4  + 3 || 'b'"),
@@ -239,11 +232,12 @@ class ExplainSuite extends ExplainSuiteHelper with DisableAdaptiveExecutionSuite
   }
 
   test("explain for these functions; use range to avoid constant folding") {
-    val df = sql("select ifnull(id, 1), nullif(id, 1), nvl(id, 1), nvl2(id, 1, 2) " +
+    val df = sql("select ifnull(id, 'x'), nullif(id, 'x'), nvl(id, 'x'), nvl2(id, 'x', 'y') " +
       "from range(2)")
     checkKeywordsExistsInExplain(df,
-      "Project [id#xL AS ifnull(id, 1)#xL, if ((id#xL = 1)) null " +
-        "else id#xL AS nullif(id, 1)#xL, id#xL AS nvl(id, 1)#xL, 1 AS nvl2(id, 1, 2)#x]")
+      "Project [coalesce(cast(id#xL as string), x) AS ifnull(id, x)#x, " +
+        "id#xL AS nullif(id, x)#xL, coalesce(cast(id#xL as string), x) AS nvl(id, x)#x, " +
+        "x AS nvl2(id, x, y)#x]")
   }
 
   test("SPARK-26659: explain of DataWritingCommandExec should not contain duplicate cmd.nodeName") {
@@ -474,7 +468,7 @@ class ExplainSuite extends ExplainSuiteHelper with DisableAdaptiveExecutionSuite
         )
         val expected_plan_fragment1 =
           s"""
-             |\\(1\\) BatchScan $fmt file:$basePath
+             |\\(1\\) BatchScan
              |Output \\[2\\]: \\[value#x, id#x\\]
              |DataFilters: \\[isnotnull\\(value#x\\), \\(value#x > 2\\)\\]
              |Format: $fmt
@@ -526,21 +520,6 @@ class ExplainSuite extends ExplainSuiteHelper with DisableAdaptiveExecutionSuite
       checkKeywordsExistsInExplain(
         sql("CREATE TEMPORARY VIEW test AS SELECT 1"),
         "== Analyzed Logical Plan ==\nCreateViewCommand")
-    }
-  }
-
-  test("SPARK-39112: UnsupportedOperationException if explain cost command using v2 command") {
-    withTempDir { dir =>
-      sql("EXPLAIN COST CREATE DATABASE tmp")
-      sql("EXPLAIN COST DESC DATABASE tmp")
-      sql(s"EXPLAIN COST ALTER DATABASE tmp SET LOCATION '${dir.toURI.toString}'")
-      sql("EXPLAIN COST USE tmp")
-      sql("EXPLAIN COST CREATE TABLE t(c1 int) USING PARQUET")
-      sql("EXPLAIN COST SHOW TABLES")
-      sql("EXPLAIN COST SHOW CREATE TABLE t")
-      sql("EXPLAIN COST SHOW TBLPROPERTIES t")
-      sql("EXPLAIN COST DROP TABLE t")
-      sql("EXPLAIN COST DROP DATABASE tmp")
     }
   }
 }
@@ -599,7 +578,6 @@ class ExplainSuiteAE extends ExplainSuiteHelper with EnableAdaptiveExecutionSuit
         |(16) BroadcastHashJoin
         |Left keys [1]: [k#x]
         |Right keys [1]: [k#x]
-        |Join type: Inner
         |Join condition: None
         |""".stripMargin,
       """
@@ -616,7 +594,7 @@ class ExplainSuiteAE extends ExplainSuiteHelper with EnableAdaptiveExecutionSuit
   }
 
   test("SPARK-35884: Explain should only display one plan before AQE takes effect") {
-    val df = (0 to 10).toDF("id").where($"id" > 5)
+    val df = (0 to 10).toDF("id").where('id > 5)
     val modes = Seq(SimpleMode, ExtendedMode, CostMode, FormattedMode)
     modes.foreach { mode =>
       checkKeywordsExistsInExplain(df, mode, "AdaptiveSparkPlan")
@@ -631,8 +609,7 @@ class ExplainSuiteAE extends ExplainSuiteHelper with EnableAdaptiveExecutionSuit
 
   test("SPARK-35884: Explain formatted with subquery") {
     withTempView("t1", "t2") {
-      spark.range(100).select($"id" % 10 as "key", $"id" as "value")
-        .createOrReplaceTempView("t1")
+      spark.range(100).select('id % 10 as "key", 'id as "value").createOrReplaceTempView("t1")
       spark.range(10).createOrReplaceTempView("t2")
       val query =
         """
@@ -687,7 +664,7 @@ class ExplainSuiteAE extends ExplainSuiteHelper with EnableAdaptiveExecutionSuit
           assert(normalizedOutput.contains(expectedNoCodegenText))
         }
 
-        val aggDf = df.groupBy($"key").agg(max($"value"))
+        val aggDf = df.groupBy('key).agg(max('value))
         withNormalizedExplain(aggDf, CodegenMode) { normalizedOutput =>
           assert(normalizedOutput.contains(expectedNoCodegenText))
         }
@@ -698,33 +675,6 @@ class ExplainSuiteAE extends ExplainSuiteHelper with EnableAdaptiveExecutionSuit
           assert(normalizedOutput.contains(expectedCodegenText))
         }
       }
-    }
-  }
-
-  test("SPARK-32986: Bucketed scan info should be a part of explain string") {
-    withTable("t1", "t2") {
-      Seq((1, 2), (2, 3)).toDF("i", "j").write.bucketBy(8, "i").saveAsTable("t1")
-      Seq(2, 3).toDF("i").write.bucketBy(8, "i").saveAsTable("t2")
-      val df1 = spark.table("t1")
-      val df2 = spark.table("t2")
-
-      withSQLConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "0") {
-        checkKeywordsExistsInExplain(
-          df1.join(df2, df1("i") === df2("i")),
-          "Bucketed: true")
-      }
-
-      withSQLConf(SQLConf.BUCKETING_ENABLED.key -> "false") {
-        checkKeywordsExistsInExplain(
-          df1.join(df2, df1("i") === df2("i")),
-          "Bucketed: false (disabled by configuration)")
-      }
-
-      checkKeywordsExistsInExplain(df1, "Bucketed: false (disabled by query planner)" )
-
-      checkKeywordsExistsInExplain(
-        df1.select("j"),
-        "Bucketed: false (bucket column(s) not read)")
     }
   }
 
@@ -745,35 +695,6 @@ class ExplainSuiteAE extends ExplainSuiteHelper with EnableAdaptiveExecutionSuit
 
       assert(inMemoryRelationNodeId != columnarToRowNodeId)
     }
-  }
-
-  test("SPARK-38232: Explain formatted does not collect subqueries under query stage in AQE") {
-    withTable("t") {
-      sql("CREATE TABLE t USING PARQUET AS SELECT 1 AS c")
-      val expected =
-        "Subquery:1 Hosting operator id = 2 Hosting Expression = Subquery subquery#x, [id=#x]"
-      val df = sql("SELECT count(s) FROM (SELECT (SELECT c FROM t) as s)")
-      df.collect()
-      withNormalizedExplain(df, FormattedMode) { output =>
-        assert(output.contains(expected))
-      }
-    }
-  }
-
-  test("SPARK-38322: Support query stage show runtime statistics in formatted explain mode") {
-    val df = Seq(1, 2).toDF("c").distinct()
-    val statistics = "Statistics(sizeInBytes=32.0 B, rowCount=2)"
-
-    checkKeywordsNotExistsInExplain(
-      df,
-      FormattedMode,
-      statistics)
-
-    df.collect()
-    checkKeywordsExistsInExplain(
-      df,
-      FormattedMode,
-      statistics)
   }
 }
 

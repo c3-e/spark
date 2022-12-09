@@ -79,11 +79,7 @@ private[spark] class NettyBlockTransferService(
     server = createServer(serverBootstrap.toList)
     appId = conf.getAppId
 
-    if (hostName.equals(bindAddress)) {
-      logger.info(s"Server created on $hostName:${server.getPort}")
-    } else {
-      logger.info(s"Server created on $hostName $bindAddress:${server.getPort}")
-    }
+    logger.info(s"Server created on $hostName:${server.getPort}")
   }
 
   /** Creates and binds the TransportServer, possibly trying multiple ports. */

@@ -18,8 +18,7 @@
 package org.apache.spark.sql.execution.datasources.parquet
 
 import java.time.ZoneId
-import java.util
-import java.util.{Locale, Map => JMap, UUID}
+import java.util.{Locale, Map => JMap}
 
 import scala.collection.JavaConverters._
 
@@ -86,9 +85,42 @@ class ParquetReadSupport(
       StructType.fromString(schemaString)
     }
 
-    val parquetRequestedSchema = ParquetReadSupport.getRequestedSchema(
-      context.getFileSchema, catalystRequestedSchema, conf, enableVectorizedReader)
-    new ReadContext(parquetRequestedSchema, new util.HashMap[String, String]())
+    val caseSensitive = conf.getBoolean(SQLConf.CASE_SENSITIVE.key,
+      SQLConf.CASE_SENSITIVE.defaultValue.get)
+    val schemaPruningEnabled = conf.getBoolean(SQLConf.NESTED_SCHEMA_PRUNING_ENABLED.key,
+      SQLConf.NESTED_SCHEMA_PRUNING_ENABLED.defaultValue.get)
+    val parquetFileSchema = context.getFileSchema
+    val parquetClippedSchema = ParquetReadSupport.clipParquetSchema(parquetFileSchema,
+      catalystRequestedSchema, caseSensitive)
+
+    // We pass two schema to ParquetRecordMaterializer:
+    // - parquetRequestedSchema: the schema of the file data we want to read
+    // - catalystRequestedSchema: the schema of the rows we want to return
+    // The reader is responsible for reconciling the differences between the two.
+    val parquetRequestedSchema = if (schemaPruningEnabled && !enableVectorizedReader) {
+      // Parquet-MR reader requires that parquetRequestedSchema include only those fields present
+      // in the underlying parquetFileSchema. Therefore, we intersect the parquetClippedSchema
+      // with the parquetFileSchema
+      ParquetReadSupport.intersectParquetGroups(parquetClippedSchema, parquetFileSchema)
+        .map(groupType => new MessageType(groupType.getName, groupType.getFields))
+        .getOrElse(ParquetSchemaConverter.EMPTY_MESSAGE)
+    } else {
+      // Spark's vectorized reader only support atomic types currently. It also skip fields
+      // in parquetRequestedSchema which are not present in the file.
+      parquetClippedSchema
+    }
+    logDebug(
+      s"""Going to read the following fields from the Parquet file with the following schema:
+         |Parquet file schema:
+         |$parquetFileSchema
+         |Parquet clipped schema:
+         |$parquetClippedSchema
+         |Parquet requested schema:
+         |$parquetRequestedSchema
+         |Catalyst requested schema:
+         |${catalystRequestedSchema.treeString}
+       """.stripMargin)
+    new ReadContext(parquetRequestedSchema, Map.empty[String, String].asJava)
   }
 
   /**
@@ -112,79 +144,10 @@ class ParquetReadSupport(
   }
 }
 
-object ParquetReadSupport extends Logging {
+object ParquetReadSupport {
   val SPARK_ROW_REQUESTED_SCHEMA = "org.apache.spark.sql.parquet.row.requested_schema"
 
   val SPARK_METADATA_KEY = "org.apache.spark.sql.parquet.row.metadata"
-
-  def generateFakeColumnName: String = s"_fake_name_${UUID.randomUUID()}"
-
-  def getRequestedSchema(
-      parquetFileSchema: MessageType,
-      catalystRequestedSchema: StructType,
-      conf: Configuration,
-      enableVectorizedReader: Boolean): MessageType = {
-    val caseSensitive = conf.getBoolean(SQLConf.CASE_SENSITIVE.key,
-      SQLConf.CASE_SENSITIVE.defaultValue.get)
-    val schemaPruningEnabled = conf.getBoolean(SQLConf.NESTED_SCHEMA_PRUNING_ENABLED.key,
-      SQLConf.NESTED_SCHEMA_PRUNING_ENABLED.defaultValue.get)
-    val useFieldId = conf.getBoolean(SQLConf.PARQUET_FIELD_ID_READ_ENABLED.key,
-      SQLConf.PARQUET_FIELD_ID_READ_ENABLED.defaultValue.get)
-    val timestampNTZEnabled = conf.getBoolean(SQLConf.PARQUET_TIMESTAMP_NTZ_ENABLED.key,
-      SQLConf.PARQUET_TIMESTAMP_NTZ_ENABLED.defaultValue.get)
-    val ignoreMissingIds = conf.getBoolean(SQLConf.IGNORE_MISSING_PARQUET_FIELD_ID.key,
-      SQLConf.IGNORE_MISSING_PARQUET_FIELD_ID.defaultValue.get)
-
-    if (!ignoreMissingIds &&
-        !containsFieldIds(parquetFileSchema) &&
-        ParquetUtils.hasFieldIds(catalystRequestedSchema)) {
-      throw new RuntimeException(
-        "Spark read schema expects field Ids, " +
-          "but Parquet file schema doesn't contain any field Ids.\n" +
-        "Please remove the field ids from Spark schema or ignore missing ids by " +
-          s"setting `${SQLConf.IGNORE_MISSING_PARQUET_FIELD_ID.key} = true`\n" +
-        s"""
-           |Spark read schema:
-           |${catalystRequestedSchema.prettyJson}
-           |
-           |Parquet file schema:
-           |${parquetFileSchema.toString}
-           |""".stripMargin)
-    }
-    val parquetClippedSchema = ParquetReadSupport.clipParquetSchema(parquetFileSchema,
-      catalystRequestedSchema, caseSensitive, useFieldId, timestampNTZEnabled)
-
-    // We pass two schema to ParquetRecordMaterializer:
-    // - parquetRequestedSchema: the schema of the file data we want to read
-    // - catalystRequestedSchema: the schema of the rows we want to return
-    // The reader is responsible for reconciling the differences between the two.
-    val parquetRequestedSchema = if (schemaPruningEnabled && !enableVectorizedReader) {
-      // Parquet-MR reader requires that parquetRequestedSchema include only those fields present
-      // in the underlying parquetFileSchema. Therefore, we intersect the parquetClippedSchema
-      // with the parquetFileSchema
-      ParquetReadSupport.intersectParquetGroups(parquetClippedSchema, parquetFileSchema)
-        .map(groupType => new MessageType(groupType.getName, groupType.getFields))
-        .getOrElse(ParquetSchemaConverter.EMPTY_MESSAGE)
-    } else {
-      // Spark's vectorized reader only support atomic types currently. It also skip fields
-      // in parquetRequestedSchema which are not present in the file.
-      parquetClippedSchema
-    }
-
-    logDebug(
-      s"""Going to read the following fields from the Parquet file with the following schema:
-         |Parquet file schema:
-         |$parquetFileSchema
-         |Parquet clipped schema:
-         |$parquetClippedSchema
-         |Parquet requested schema:
-         |$parquetRequestedSchema
-         |Catalyst requested schema:
-         |${catalystRequestedSchema.treeString}
-       """.stripMargin)
-
-    parquetRequestedSchema
-  }
 
   /**
    * Tailors `parquetSchema` according to `catalystSchema` by removing column paths don't exist
@@ -193,11 +156,9 @@ object ParquetReadSupport extends Logging {
   def clipParquetSchema(
       parquetSchema: MessageType,
       catalystSchema: StructType,
-      caseSensitive: Boolean,
-      useFieldId: Boolean,
-      timestampNTZEnabled: Boolean): MessageType = {
+      caseSensitive: Boolean = true): MessageType = {
     val clippedParquetFields = clipParquetGroupFields(
-      parquetSchema.asGroupType(), catalystSchema, caseSensitive, useFieldId, timestampNTZEnabled)
+      parquetSchema.asGroupType(), catalystSchema, caseSensitive)
     if (clippedParquetFields.isEmpty) {
       ParquetSchemaConverter.EMPTY_MESSAGE
     } else {
@@ -209,39 +170,25 @@ object ParquetReadSupport extends Logging {
   }
 
   private def clipParquetType(
-      parquetType: Type,
-      catalystType: DataType,
-      caseSensitive: Boolean,
-      useFieldId: Boolean,
-      timestampNTZEnabled: Boolean): Type = {
-    val newParquetType = catalystType match {
+      parquetType: Type, catalystType: DataType, caseSensitive: Boolean): Type = {
+    catalystType match {
       case t: ArrayType if !isPrimitiveCatalystType(t.elementType) =>
         // Only clips array types with nested type as element type.
-        clipParquetListType(parquetType.asGroupType(), t.elementType, caseSensitive, useFieldId,
-          timestampNTZEnabled)
+        clipParquetListType(parquetType.asGroupType(), t.elementType, caseSensitive)
 
       case t: MapType
         if !isPrimitiveCatalystType(t.keyType) ||
            !isPrimitiveCatalystType(t.valueType) =>
         // Only clips map types with nested key type or value type
-        clipParquetMapType(
-          parquetType.asGroupType(), t.keyType, t.valueType, caseSensitive, useFieldId,
-          timestampNTZEnabled)
+        clipParquetMapType(parquetType.asGroupType(), t.keyType, t.valueType, caseSensitive)
 
       case t: StructType =>
-        clipParquetGroup(
-          parquetType.asGroupType(), t, caseSensitive, useFieldId, timestampNTZEnabled)
+        clipParquetGroup(parquetType.asGroupType(), t, caseSensitive)
 
       case _ =>
         // UDTs and primitive types are not clipped.  For UDTs, a clipped version might not be able
         // to be mapped to desired user-space types.  So UDTs shouldn't participate schema merging.
         parquetType
-    }
-
-    if (useFieldId && parquetType.getId != null) {
-      newParquetType.withId(parquetType.getId.intValue())
-    } else {
-      newParquetType
     }
   }
 
@@ -263,11 +210,7 @@ object ParquetReadSupport extends Logging {
    * [[StructType]].
    */
   private def clipParquetListType(
-      parquetList: GroupType,
-      elementType: DataType,
-      caseSensitive: Boolean,
-      useFieldId: Boolean,
-      timestampNTZEnabled: Boolean): Type = {
+      parquetList: GroupType, elementType: DataType, caseSensitive: Boolean): Type = {
     // Precondition of this method, should only be called for lists with nested element types.
     assert(!isPrimitiveCatalystType(elementType))
 
@@ -275,7 +218,7 @@ object ParquetReadSupport extends Logging {
     // list element type is just the group itself.  Clip it.
     if (parquetList.getLogicalTypeAnnotation == null &&
       parquetList.isRepetition(Repetition.REPEATED)) {
-      clipParquetType(parquetList, elementType, caseSensitive, useFieldId, timestampNTZEnabled)
+      clipParquetType(parquetList, elementType, caseSensitive)
     } else {
       assert(
         parquetList.getLogicalTypeAnnotation.isInstanceOf[ListLogicalTypeAnnotation],
@@ -307,31 +250,19 @@ object ParquetReadSupport extends Logging {
         Types
           .buildGroup(parquetList.getRepetition)
           .as(LogicalTypeAnnotation.listType())
-          .addField(
-            clipParquetType(
-              repeatedGroup, elementType, caseSensitive, useFieldId, timestampNTZEnabled))
+          .addField(clipParquetType(repeatedGroup, elementType, caseSensitive))
           .named(parquetList.getName)
       } else {
-        val newRepeatedGroup = Types
-          .repeatedGroup()
-          .addField(
-            clipParquetType(
-              repeatedGroup.getType(0), elementType, caseSensitive, useFieldId,
-              timestampNTZEnabled))
-          .named(repeatedGroup.getName)
-
-        val newElementType = if (useFieldId && repeatedGroup.getId != null) {
-          newRepeatedGroup.withId(repeatedGroup.getId.intValue())
-        } else {
-          newRepeatedGroup
-        }
-
         // Otherwise, the repeated field's type is the element type with the repeated field's
         // repetition.
         Types
           .buildGroup(parquetList.getRepetition)
           .as(LogicalTypeAnnotation.listType())
-          .addField(newElementType)
+          .addField(
+            Types
+              .repeatedGroup()
+              .addField(clipParquetType(repeatedGroup.getType(0), elementType, caseSensitive))
+              .named(repeatedGroup.getName))
           .named(parquetList.getName)
       }
     }
@@ -346,9 +277,7 @@ object ParquetReadSupport extends Logging {
       parquetMap: GroupType,
       keyType: DataType,
       valueType: DataType,
-      caseSensitive: Boolean,
-      useFieldId: Boolean,
-      timestampNTZEnabled: Boolean): GroupType = {
+      caseSensitive: Boolean): GroupType = {
     // Precondition of this method, only handles maps with nested key types or value types.
     assert(!isPrimitiveCatalystType(keyType) || !isPrimitiveCatalystType(valueType))
 
@@ -356,23 +285,13 @@ object ParquetReadSupport extends Logging {
     val parquetKeyType = repeatedGroup.getType(0)
     val parquetValueType = repeatedGroup.getType(1)
 
-    val clippedRepeatedGroup = {
-      val newRepeatedGroup = Types
+    val clippedRepeatedGroup =
+      Types
         .repeatedGroup()
         .as(repeatedGroup.getLogicalTypeAnnotation)
-        .addField(
-          clipParquetType(
-            parquetKeyType, keyType, caseSensitive, useFieldId, timestampNTZEnabled))
-        .addField(
-          clipParquetType(
-            parquetValueType, valueType, caseSensitive, useFieldId, timestampNTZEnabled))
+        .addField(clipParquetType(parquetKeyType, keyType, caseSensitive))
+        .addField(clipParquetType(parquetValueType, valueType, caseSensitive))
         .named(repeatedGroup.getName)
-      if (useFieldId && repeatedGroup.getId != null) {
-        newRepeatedGroup.withId(repeatedGroup.getId.intValue())
-      } else {
-        newRepeatedGroup
-      }
-    }
 
     Types
       .buildGroup(parquetMap.getRepetition)
@@ -390,14 +309,8 @@ object ParquetReadSupport extends Logging {
    *       pruning.
    */
   private def clipParquetGroup(
-      parquetRecord: GroupType,
-      structType: StructType,
-      caseSensitive: Boolean,
-      useFieldId: Boolean,
-      timestampNTZEnabled: Boolean): GroupType = {
-    val clippedParquetFields =
-      clipParquetGroupFields(parquetRecord, structType, caseSensitive, useFieldId,
-        timestampNTZEnabled)
+      parquetRecord: GroupType, structType: StructType, caseSensitive: Boolean): GroupType = {
+    val clippedParquetFields = clipParquetGroupFields(parquetRecord, structType, caseSensitive)
     Types
       .buildGroup(parquetRecord.getRepetition)
       .as(parquetRecord.getLogicalTypeAnnotation)
@@ -411,32 +324,23 @@ object ParquetReadSupport extends Logging {
    * @return A list of clipped [[GroupType]] fields, which can be empty.
    */
   private def clipParquetGroupFields(
-      parquetRecord: GroupType,
-      structType: StructType,
-      caseSensitive: Boolean,
-      useFieldId: Boolean,
-      timestampNTZEnabled: Boolean): Seq[Type] = {
-    val toParquet = new SparkToParquetSchemaConverter(
-      writeLegacyParquetFormat = false,
-      useFieldId = useFieldId,
-      timestampNTZEnabled = timestampNTZEnabled)
-    lazy val caseSensitiveParquetFieldMap =
+      parquetRecord: GroupType, structType: StructType, caseSensitive: Boolean): Seq[Type] = {
+    val toParquet = new SparkToParquetSchemaConverter(writeLegacyParquetFormat = false)
+    if (caseSensitive) {
+      val caseSensitiveParquetFieldMap =
         parquetRecord.getFields.asScala.map(f => f.getName -> f).toMap
-    lazy val caseInsensitiveParquetFieldMap =
-        parquetRecord.getFields.asScala.groupBy(_.getName.toLowerCase(Locale.ROOT))
-    lazy val idToParquetFieldMap =
-        parquetRecord.getFields.asScala.filter(_.getId != null).groupBy(f => f.getId.intValue())
-
-    def matchCaseSensitiveField(f: StructField): Type = {
-      caseSensitiveParquetFieldMap
+      structType.map { f =>
+        caseSensitiveParquetFieldMap
           .get(f.name)
-          .map(clipParquetType(_, f.dataType, caseSensitive, useFieldId, timestampNTZEnabled))
+          .map(clipParquetType(_, f.dataType, caseSensitive))
           .getOrElse(toParquet.convertField(f))
-    }
-
-    def matchCaseInsensitiveField(f: StructField): Type = {
+      }
+    } else {
       // Do case-insensitive resolution only if in case-insensitive mode
-      caseInsensitiveParquetFieldMap
+      val caseInsensitiveParquetFieldMap =
+        parquetRecord.getFields.asScala.groupBy(_.getName.toLowerCase(Locale.ROOT))
+      structType.map { f =>
+        caseInsensitiveParquetFieldMap
           .get(f.name.toLowerCase(Locale.ROOT))
           .map { parquetTypes =>
             if (parquetTypes.size > 1) {
@@ -445,41 +349,9 @@ object ParquetReadSupport extends Logging {
               throw QueryExecutionErrors.foundDuplicateFieldInCaseInsensitiveModeError(
                 f.name, parquetTypesString)
             } else {
-              clipParquetType(
-                parquetTypes.head, f.dataType, caseSensitive, useFieldId, timestampNTZEnabled)
+              clipParquetType(parquetTypes.head, f.dataType, caseSensitive)
             }
           }.getOrElse(toParquet.convertField(f))
-    }
-
-    def matchIdField(f: StructField): Type = {
-      val fieldId = ParquetUtils.getFieldId(f)
-      idToParquetFieldMap
-        .get(fieldId)
-        .map { parquetTypes =>
-          if (parquetTypes.size > 1) {
-            // Need to fail if there is ambiguity, i.e. more than one field is matched
-            val parquetTypesString = parquetTypes.map(_.getName).mkString("[", ", ", "]")
-            throw QueryExecutionErrors.foundDuplicateFieldInFieldIdLookupModeError(
-              fieldId, parquetTypesString)
-          } else {
-            clipParquetType(
-              parquetTypes.head, f.dataType, caseSensitive, useFieldId, timestampNTZEnabled)
-          }
-        }.getOrElse {
-          // When there is no ID match, we use a fake name to avoid a name match by accident
-          // We need this name to be unique as well, otherwise there will be type conflicts
-          toParquet.convertField(f.copy(name = generateFakeColumnName))
-        }
-    }
-
-    val shouldMatchById = useFieldId && ParquetUtils.hasFieldIds(structType)
-    structType.map { f =>
-      if (shouldMatchById && ParquetUtils.hasFieldId(f)) {
-        matchIdField(f)
-      } else if (caseSensitive) {
-        matchCaseSensitiveField(f)
-      } else {
-        matchCaseInsensitiveField(f)
       }
     }
   }
@@ -537,14 +409,5 @@ object ParquetReadSupport extends Logging {
     }
 
     expand(schema).asInstanceOf[StructType]
-  }
-
-  /**
-   * Whether the parquet schema contains any field IDs.
-   */
-  def containsFieldIds(schema: Type): Boolean = schema match {
-    case p: PrimitiveType => p.getId != null
-    // We don't require all fields to have IDs, so we use `exists` here.
-    case g: GroupType => g.getId != null || g.getFields.asScala.exists(containsFieldIds)
   }
 }

@@ -20,7 +20,7 @@ Used to test shipping of code dependencies with SparkContext.addPyFile().
 """
 
 
-class UserClass:
+class UserClass(object):
 
     def hello(self):
         return "Hello World!"

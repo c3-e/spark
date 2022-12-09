@@ -80,15 +80,10 @@ private[sql] class PruneHiveTablePartitions(session: SparkSession)
       val colStats = filteredStats.map(_.attributeStats.map { case (attr, colStat) =>
         (attr.name, colStat.toCatalogColumnStat(attr.name, attr.dataType))
       })
-      val rowCount = if (prunedPartitions.forall(_.stats.flatMap(_.rowCount).exists(_ > 0))) {
-        Option(prunedPartitions.map(_.stats.get.rowCount.get).sum)
-      } else {
-        filteredStats.flatMap(_.rowCount)
-      }
       relation.tableMeta.copy(
         stats = Some(CatalogStatistics(
           sizeInBytes = BigInt(sizeOfPartitions.sum),
-          rowCount = rowCount,
+          rowCount = filteredStats.flatMap(_.rowCount),
           colStats = colStats.getOrElse(Map.empty))))
     } else {
       relation.tableMeta

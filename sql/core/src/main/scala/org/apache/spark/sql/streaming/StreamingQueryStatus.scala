@@ -61,7 +61,7 @@ class StreamingQueryStatus protected[sql](
   }
 
   private[sql] def jsonValue: JValue = {
-    ("message" -> JString(message)) ~
+    ("message" -> JString(message.toString)) ~
     ("isDataAvailable" -> JBool(isDataAvailable)) ~
     ("isTriggerActive" -> JBool(isTriggerActive))
   }

@@ -17,15 +17,13 @@
 
 package org.apache.spark.sql.execution
 
-import java.util.Locale
-
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{execution, AnalysisException, Strategy}
+import org.apache.spark.sql.{execution, Strategy}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
-import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, BuildRight, BuildSide, JoinSelectionHelper, NormalizeFloatingNumbers}
+import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, BuildRight, JoinSelectionHelper, NormalizeFloatingNumbers}
 import org.apache.spark.sql.catalyst.planning._
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
@@ -81,56 +79,26 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
    */
   object SpecialLimits extends Strategy {
     override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-      // Call `planTakeOrdered` first which matches a larger plan.
-      case ReturnAnswer(rootPlan) => planTakeOrdered(rootPlan).getOrElse(rootPlan match {
-        // We should match the combination of limit and offset first, to get the optimal physical
-        // plan, instead of planning limit and offset separately.
-        case LimitAndOffset(limit, offset, child) =>
-          CollectLimitExec(limit = limit, child = planLater(child), offset = offset)
-        case OffsetAndLimit(offset, limit, child) =>
-          // 'Offset a' then 'Limit b' is the same as 'Limit a + b' then 'Offset a'.
-          CollectLimitExec(limit = offset + limit, child = planLater(child), offset = offset)
+      case ReturnAnswer(rootPlan) => rootPlan match {
+        case Limit(IntegerLiteral(limit), Sort(order, true, child))
+            if limit < conf.topKSortFallbackThreshold =>
+          TakeOrderedAndProjectExec(limit, order, child.output, planLater(child)) :: Nil
+        case Limit(IntegerLiteral(limit), Project(projectList, Sort(order, true, child)))
+            if limit < conf.topKSortFallbackThreshold =>
+          TakeOrderedAndProjectExec(limit, order, projectList, planLater(child)) :: Nil
         case Limit(IntegerLiteral(limit), child) =>
-          CollectLimitExec(limit = limit, child = planLater(child))
-        case logical.Offset(IntegerLiteral(offset), child) =>
-          CollectLimitExec(child = planLater(child), offset = offset)
+          CollectLimitExec(limit, planLater(child)) :: Nil
         case Tail(IntegerLiteral(limit), child) =>
-          CollectTailExec(limit, planLater(child))
-        case other => planLater(other)
-      })  :: Nil
-
-      case other => planTakeOrdered(other).toSeq
-    }
-
-    private def planTakeOrdered(plan: LogicalPlan): Option[SparkPlan] = plan match {
-      // We should match the combination of limit and offset first, to get the optimal physical
-      // plan, instead of planning limit and offset separately.
-      case LimitAndOffset(limit, offset, Sort(order, true, child))
-          if limit < conf.topKSortFallbackThreshold =>
-        Some(TakeOrderedAndProjectExec(
-          limit, order, child.output, planLater(child), offset))
-      case LimitAndOffset(limit, offset, Project(projectList, Sort(order, true, child)))
-          if limit < conf.topKSortFallbackThreshold =>
-        Some(TakeOrderedAndProjectExec(
-          limit, order, projectList, planLater(child), offset))
-      // 'Offset a' then 'Limit b' is the same as 'Limit a + b' then 'Offset a'.
-      case OffsetAndLimit(offset, limit, Sort(order, true, child))
-          if offset + limit < conf.topKSortFallbackThreshold =>
-        Some(TakeOrderedAndProjectExec(
-          offset + limit, order, child.output, planLater(child), offset))
-      case OffsetAndLimit(offset, limit, Project(projectList, Sort(order, true, child)))
-          if offset + limit < conf.topKSortFallbackThreshold =>
-        Some(TakeOrderedAndProjectExec(
-          offset + limit, order, projectList, planLater(child), offset))
+          CollectTailExec(limit, planLater(child)) :: Nil
+        case other => planLater(other) :: Nil
+      }
       case Limit(IntegerLiteral(limit), Sort(order, true, child))
           if limit < conf.topKSortFallbackThreshold =>
-        Some(TakeOrderedAndProjectExec(
-          limit, order, child.output, planLater(child)))
+        TakeOrderedAndProjectExec(limit, order, child.output, planLater(child)) :: Nil
       case Limit(IntegerLiteral(limit), Project(projectList, Sort(order, true, child)))
           if limit < conf.topKSortFallbackThreshold =>
-        Some(TakeOrderedAndProjectExec(
-          limit, order, projectList, planLater(child)))
-      case _ => None
+        TakeOrderedAndProjectExec(limit, order, projectList, planLater(child)) :: Nil
+      case _ => Nil
     }
   }
 
@@ -168,41 +136,9 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
    *     Supports both equi-joins and non-equi-joins.
    *     Supports only inner like joins.
    */
-  object JoinSelection extends Strategy with JoinSelectionHelper {
-    private val hintErrorHandler = conf.hintErrorHandler
-
-    private def checkHintBuildSide(
-        onlyLookingAtHint: Boolean,
-        buildSide: Option[BuildSide],
-        joinType: JoinType,
-        hint: JoinHint,
-        isBroadcast: Boolean): Unit = {
-      def invalidBuildSideInHint(hintInfo: HintInfo, buildSide: String): Unit = {
-        hintErrorHandler.joinHintNotSupported(hintInfo,
-          s"build $buildSide for ${joinType.sql.toLowerCase(Locale.ROOT)} join")
-      }
-
-      if (onlyLookingAtHint && buildSide.isEmpty) {
-        if (isBroadcast) {
-          // check broadcast hash join
-          if (hintToBroadcastLeft(hint)) invalidBuildSideInHint(hint.leftHint.get, "left")
-          if (hintToBroadcastRight(hint)) invalidBuildSideInHint(hint.rightHint.get, "right")
-        } else {
-          // check shuffle hash join
-          if (hintToShuffleHashJoinLeft(hint)) invalidBuildSideInHint(hint.leftHint.get, "left")
-          if (hintToShuffleHashJoinRight(hint)) invalidBuildSideInHint(hint.rightHint.get, "right")
-        }
-      }
-    }
-
-    private def checkHintNonEquiJoin(hint: JoinHint): Unit = {
-      if (hintToShuffleHashJoin(hint) || hintToPreferShuffleHashJoin(hint) ||
-          hintToSortMergeJoin(hint)) {
-        assert(hint.leftHint.orElse(hint.rightHint).isDefined)
-        hintErrorHandler.joinHintNotSupported(hint.leftHint.orElse(hint.rightHint).get,
-          "no equi-join keys")
-      }
-    }
+  object JoinSelection extends Strategy
+    with PredicateHelper
+    with JoinSelectionHelper {
 
     def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
 
@@ -225,13 +161,9 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
       //   4. Pick cartesian product if join type is inner like.
       //   5. Pick broadcast nested loop join as the final solution. It may OOM but we don't have
       //      other choice.
-      case j @ ExtractEquiJoinKeys(joinType, leftKeys, rightKeys, nonEquiCond,
-          _, left, right, hint) =>
+      case j @ ExtractEquiJoinKeys(joinType, leftKeys, rightKeys, nonEquiCond, left, right, hint) =>
         def createBroadcastHashJoin(onlyLookingAtHint: Boolean) = {
-          val buildSide = getBroadcastBuildSide(
-            left, right, joinType, hint, onlyLookingAtHint, conf)
-          checkHintBuildSide(onlyLookingAtHint, buildSide, joinType, hint, true)
-          buildSide.map {
+          getBroadcastBuildSide(left, right, joinType, hint, onlyLookingAtHint, conf).map {
             buildSide =>
               Seq(joins.BroadcastHashJoinExec(
                 leftKeys,
@@ -245,10 +177,7 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
         }
 
         def createShuffleHashJoin(onlyLookingAtHint: Boolean) = {
-          val buildSide = getShuffleHashJoinBuildSide(
-            left, right, joinType, hint, onlyLookingAtHint, conf)
-          checkHintBuildSide(onlyLookingAtHint, buildSide, joinType, hint, false)
-          buildSide.map {
+          getShuffleHashJoinBuildSide(left, right, joinType, hint, onlyLookingAtHint, conf).map {
             buildSide =>
               Seq(joins.ShuffledHashJoinExec(
                 leftKeys,
@@ -289,19 +218,15 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
               // This join could be very slow or OOM
               val buildSide = getSmallerSide(left, right)
               Seq(joins.BroadcastNestedLoopJoinExec(
-                planLater(left), planLater(right), buildSide, joinType, j.condition))
+                planLater(left), planLater(right), buildSide, joinType, nonEquiCond))
             }
         }
 
-        if (hint.isEmpty) {
-          createJoinWithoutHint()
-        } else {
-          createBroadcastHashJoin(true)
-            .orElse { if (hintToSortMergeJoin(hint)) createSortMergeJoin() else None }
-            .orElse(createShuffleHashJoin(true))
-            .orElse { if (hintToShuffleReplicateNL(hint)) createCartesianProduct() else None }
-            .getOrElse(createJoinWithoutHint())
-        }
+        createBroadcastHashJoin(true)
+          .orElse { if (hintToSortMergeJoin(hint)) createSortMergeJoin() else None }
+          .orElse(createShuffleHashJoin(true))
+          .orElse { if (hintToShuffleReplicateNL(hint)) createCartesianProduct() else None }
+          .getOrElse(createJoinWithoutHint())
 
       case j @ ExtractSingleColumnNullAwareAntiJoin(leftKeys, rightKeys) =>
         Seq(joins.BroadcastHashJoinExec(leftKeys, rightKeys, LeftAnti, BuildRight,
@@ -324,7 +249,6 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
       //      other choice. It broadcasts the smaller side for inner and full joins, broadcasts the
       //      left side for right join, and broadcasts right side for left join.
       case logical.Join(left, right, joinType, condition, hint) =>
-        checkHintNonEquiJoin(hint)
         val desiredBuildSide = if (joinType.isInstanceOf[InnerLike] || joinType == FullOuter) {
           getSmallerSide(left, right)
         } else {
@@ -370,13 +294,10 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
             }
         }
 
-        if (hint.isEmpty) {
-          createJoinWithoutHint()
-        } else {
-          createBroadcastNLJoin(hintToBroadcastLeft(hint), hintToBroadcastRight(hint))
-            .orElse { if (hintToShuffleReplicateNL(hint)) createCartesianProduct() else None }
-            .getOrElse(createJoinWithoutHint())
-        }
+        createBroadcastNLJoin(hintToBroadcastLeft(hint), hintToBroadcastRight(hint))
+          .orElse { if (hintToShuffleReplicateNL(hint)) createCartesianProduct() else None }
+          .getOrElse(createJoinWithoutHint())
+
 
       // --- Cases where this strategy does not apply ---------------------------------------------
       case _ => Nil
@@ -400,8 +321,7 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
         namedGroupingExpressions, aggregateExpressions, rewrittenResultExpressions, child) =>
 
         if (aggregateExpressions.exists(PythonUDF.isGroupedAggPandasUDF)) {
-          throw new AnalysisException(
-            "Streaming aggregation doesn't support group aggregate pandas UDF")
+          throw QueryCompilationErrors.groupAggPandasUDFUnsupportedByStreamingAggError()
         }
 
         val sessionWindowOption = namedGroupingExpressions.find { p =>
@@ -468,10 +388,7 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
 
       /** Ensures that this plan does not have a streaming aggregate in it. */
       def hasNoStreamingAgg: Boolean = {
-        !plan.exists {
-          case a: Aggregate => a.isStreaming
-          case _ => false
-        }
+        plan.collectFirst { case a: Aggregate if a.isStreaming => a }.isEmpty
       }
 
       // The following cases of limits on a streaming plan has to be executed with a stateful
@@ -500,10 +417,11 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
   object StreamingJoinStrategy extends Strategy {
     override def apply(plan: LogicalPlan): Seq[SparkPlan] = {
       plan match {
-        case ExtractEquiJoinKeys(joinType, leftKeys, rightKeys, otherCondition, _,
-              left, right, _) if left.isStreaming && right.isStreaming =>
+        case ExtractEquiJoinKeys(joinType, leftKeys, rightKeys, condition, left, right, _)
+          if left.isStreaming && right.isStreaming =>
+
           val stateVersion = conf.getConf(SQLConf.STREAMING_JOIN_STATE_FORMAT_VERSION)
-          new StreamingSymmetricHashJoinExec(leftKeys, rightKeys, joinType, otherCondition,
+          new StreamingSymmetricHashJoinExec(leftKeys, rightKeys, joinType, condition,
             stateVersion, planLater(left), planLater(right)) :: Nil
 
         case Join(left, right, _, _, _) if left.isStreaming && right.isStreaming =>
@@ -527,14 +445,12 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
 
         val (functionsWithDistinct, functionsWithoutDistinct) =
           aggregateExpressions.partition(_.isDistinct)
-        val distinctAggChildSets = functionsWithDistinct.map { ae =>
-          ExpressionSet(ae.aggregateFunction.children.filterNot(_.foldable))
-        }.distinct
-        if (distinctAggChildSets.length > 1) {
+        if (functionsWithDistinct.map(
+          _.aggregateFunction.children.filterNot(_.foldable).toSet).distinct.length > 1) {
           // This is a sanity check. We should not reach here when we have multiple distinct
           // column sets. Our `RewriteDistinctAggregates` should take care this case.
-          throw new IllegalStateException(
-            "You hit a query analyzer bug. Please report your query to Spark user mailing list.")
+          sys.error("You hit a query analyzer bug. Please report your query to " +
+              "Spark user mailing list.")
         }
 
         // Ideally this should be done in `NormalizeFloatingNumbers`, but we do it here because
@@ -600,12 +516,9 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
           resultExpressions,
           planLater(child)))
 
-      case PhysicalAggregation(_, aggExpressions, _, _) =>
-        val groupAggPandasUDFNames = aggExpressions
-          .filter(_.isInstanceOf[PythonUDF])
-          .map(_.asInstanceOf[PythonUDF].name)
+      case PhysicalAggregation(_, _, _, _) =>
         // If cannot match the two cases above, then it's an error
-        throw QueryCompilationErrors.invalidPandasUDFPlacementError(groupAggPandasUDFNames.distinct)
+        throw QueryCompilationErrors.cannotUseMixtureOfAggFunctionAndGroupAggPandasUDFError()
 
       case _ => Nil
     }
@@ -650,17 +563,11 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
   object StreamingRelationStrategy extends Strategy {
     def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
       case s: StreamingRelation =>
-        val qualifiedTableName = s.dataSource.catalogTable.map(_.identifier.unquotedString)
-        StreamingRelationExec(s.sourceName, s.output, qualifiedTableName) :: Nil
+        StreamingRelationExec(s.sourceName, s.output) :: Nil
       case s: StreamingExecutionRelation =>
-        val qualifiedTableName = s.catalogTable.map(_.identifier.unquotedString)
-        StreamingRelationExec(s.toString, s.output, qualifiedTableName) :: Nil
+        StreamingRelationExec(s.toString, s.output) :: Nil
       case s: StreamingRelationV2 =>
-        val qualifiedTableName = (s.catalog, s.identifier) match {
-          case (Some(catalog), Some(identifier)) => Some(s"${catalog.name}.${identifier}")
-          case _ => None
-        }
-        StreamingRelationExec(s.sourceName, s.output, qualifiedTableName) :: Nil
+        StreamingRelationExec(s.sourceName, s.output) :: Nil
       case _ => Nil
     }
   }
@@ -678,28 +585,7 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
         val execPlan = FlatMapGroupsWithStateExec(
           func, keyDeser, valueDeser, sDeser, groupAttr, stateGroupAttr, dataAttr, sda, outputAttr,
           None, stateEnc, stateVersion, outputMode, timeout, batchTimestampMs = None,
-          eventTimeWatermarkForLateEvents = None, eventTimeWatermarkForEviction = None,
-          planLater(initialState), hasInitialState, planLater(child)
-        )
-        execPlan :: Nil
-      case _ =>
-        Nil
-    }
-  }
-
-  /**
-   * Strategy to convert [[FlatMapGroupsInPandasWithState]] logical operator to physical operator
-   * in streaming plans. Conversion for batch plans is handled by [[BasicOperators]].
-   */
-  object FlatMapGroupsInPandasWithStateStrategy extends Strategy {
-    override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-      case FlatMapGroupsInPandasWithState(
-        func, groupAttr, outputAttr, stateType, outputMode, timeout, child) =>
-        val stateVersion = conf.getConf(SQLConf.FLATMAPGROUPSWITHSTATE_STATE_FORMAT_VERSION)
-        val execPlan = python.FlatMapGroupsInPandasWithStateExec(
-          func, groupAttr, outputAttr, stateType, None, stateVersion, outputMode, timeout,
-          batchTimestampMs = None, eventTimeWatermarkForLateEvents = None,
-          eventTimeWatermarkForEviction = None, planLater(child)
+          eventTimeWatermark = None, planLater(initialState), hasInitialState, planLater(child)
         )
         execPlan :: Nil
       case _ =>
@@ -795,8 +681,6 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
           func, output, planLater(left), planLater(right)) :: Nil
       case logical.MapInPandas(func, output, child) =>
         execution.python.MapInPandasExec(func, output, planLater(child)) :: Nil
-      case logical.PythonMapInArrow(func, output, child) =>
-        execution.python.PythonMapInArrowExec(func, output, planLater(child)) :: Nil
       case logical.AttachDistributedSequence(attr, child) =>
         execution.python.AttachDistributedSequenceExec(attr, planLater(child)) :: Nil
       case logical.MapElements(f, _, _, objAttr, child) =>
@@ -816,10 +700,6 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
           initialStateGroupAttrs, data, initialStateDataAttrs, output, timeout,
           hasInitialState, planLater(initialState), planLater(child)
         ) :: Nil
-      case _: FlatMapGroupsInPandasWithState =>
-        // TODO(SPARK-40443): support applyInPandasWithState in batch query
-        throw new UnsupportedOperationException(
-          "applyInPandasWithState is unsupported in batch query. Use applyInPandas instead.")
       case logical.CoGroup(f, key, lObj, rObj, lGroup, rGroup, lAttr, rAttr, oAttr, left, right) =>
         execution.CoGroupExec(
           f, key, lObj, rObj, lGroup, rGroup, lAttr, rAttr, oAttr,
@@ -846,19 +726,10 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
       case logical.LocalRelation(output, data, _) =>
         LocalTableScanExec(output, data) :: Nil
       case CommandResult(output, _, plan, data) => CommandResultExec(output, plan, data) :: Nil
-      // We should match the combination of limit and offset first, to get the optimal physical
-      // plan, instead of planning limit and offset separately.
-      case LimitAndOffset(limit, offset, child) =>
-        GlobalLimitExec(limit, planLater(child), offset) :: Nil
-      case OffsetAndLimit(offset, limit, child) =>
-        // 'Offset a' then 'Limit b' is the same as 'Limit a + b' then 'Offset a'.
-        GlobalLimitExec(limit = offset + limit, child = planLater(child), offset = offset) :: Nil
       case logical.LocalLimit(IntegerLiteral(limit), child) =>
         execution.LocalLimitExec(limit, planLater(child)) :: Nil
       case logical.GlobalLimit(IntegerLiteral(limit), child) =>
         execution.GlobalLimitExec(limit, planLater(child)) :: Nil
-      case logical.Offset(IntegerLiteral(offset), child) =>
-        GlobalLimitExec(child = planLater(child), offset = offset) :: Nil
       case union: logical.Union =>
         execution.UnionExec(union.children.map(planLater)) :: Nil
       case g @ logical.Generate(generator, _, outer, _, _, child) =>

@@ -27,7 +27,6 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable
 
 import org.apache.spark._
-import org.apache.spark.errors.SparkCoreErrors
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config.Python._
 import org.apache.spark.security.SocketAuthHelper
@@ -77,7 +76,7 @@ private[spark] class PythonWorkerFactory(pythonExec: String, envVars: Map[String
 
   @GuardedBy("self")
   private var daemon: Process = null
-  val daemonHost = InetAddress.getLoopbackAddress()
+  val daemonHost = InetAddress.getByAddress(Array(127, 0, 0, 1))
   @GuardedBy("self")
   private var daemonPort: Int = 0
   @GuardedBy("self")
@@ -153,7 +152,7 @@ private[spark] class PythonWorkerFactory(pythonExec: String, envVars: Map[String
   private def createSimpleWorker(): (Socket, Option[Int]) = {
     var serverSocket: ServerSocket = null
     try {
-      serverSocket = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+      serverSocket = new ServerSocket(0, 1, InetAddress.getByAddress(Array(127, 0, 0, 1)))
 
       // Create and start the worker
       val pb = new ProcessBuilder(Arrays.asList(pythonExec, "-m", workerModule))
@@ -164,9 +163,6 @@ private[spark] class PythonWorkerFactory(pythonExec: String, envVars: Map[String
       workerEnv.put("PYTHONUNBUFFERED", "YES")
       workerEnv.put("PYTHON_WORKER_FACTORY_PORT", serverSocket.getLocalPort.toString)
       workerEnv.put("PYTHON_WORKER_FACTORY_SECRET", authHelper.secret)
-      if (Utils.preferIPv6) {
-        workerEnv.put("SPARK_PREFER_IPV6", "True")
-      }
       val worker = pb.start()
 
       // Redirect worker stdout and stderr
@@ -214,9 +210,6 @@ private[spark] class PythonWorkerFactory(pythonExec: String, envVars: Map[String
         workerEnv.putAll(envVars.asJava)
         workerEnv.put("PYTHONPATH", pythonPath)
         workerEnv.put("PYTHON_WORKER_FACTORY_SECRET", authHelper.secret)
-        if (Utils.preferIPv6) {
-          workerEnv.put("SPARK_PREFER_IPV6", "True")
-        }
         // This is equivalent to setting the -u flag; we use it because ipython doesn't support -u:
         workerEnv.put("PYTHONUNBUFFERED", "YES")
         daemon = pb.start()
@@ -226,11 +219,12 @@ private[spark] class PythonWorkerFactory(pythonExec: String, envVars: Map[String
           daemonPort = in.readInt()
         } catch {
           case _: EOFException if daemon.isAlive =>
-            throw SparkCoreErrors.eofExceptionWhileReadPortNumberError(
-              daemonModule)
+            throw new SparkException("EOFException occurred while reading the port number " +
+              s"from $daemonModule's stdout")
           case _: EOFException =>
-            throw SparkCoreErrors.
-              eofExceptionWhileReadPortNumberError(daemonModule, Some(daemon.exitValue))
+            throw new SparkException(
+              s"EOFException occurred while reading the port number from $daemonModule's" +
+              s" stdout and terminated with code: ${daemon.exitValue}.")
         }
 
         // test that the returned port number is within a valid range.

@@ -37,9 +37,7 @@ import org.apache.hive.service.cli.RowSet;
 import org.apache.hive.service.cli.RowSetFactory;
 import org.apache.hive.service.cli.TableSchema;
 import org.apache.hive.service.cli.session.HiveSession;
-import org.apache.hive.service.rpc.thrift.TRowSet;
-import org.apache.hive.service.rpc.thrift.TTableSchema;
-import org.apache.logging.log4j.core.Appender;
+import org.apache.log4j.Appender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,7 +46,7 @@ import org.slf4j.LoggerFactory;
  *
  */
 public class OperationManager extends AbstractService {
-  private static final Logger LOG = LoggerFactory.getLogger(OperationManager.class);
+  private final Logger LOG = LoggerFactory.getLogger(OperationManager.class.getName());
 
   private final Map<OperationHandle, Operation> handleToOperation =
       new HashMap<OperationHandle, Operation>();
@@ -83,14 +81,23 @@ public class OperationManager extends AbstractService {
   private void initOperationLogCapture(String loggingMode) {
     // Register another Appender (with the same layout) that talks to us.
     Appender ap = new LogDivertAppender(this, OperationLog.getLoggingLevel(loggingMode));
-    ((org.apache.logging.log4j.core.Logger)org.apache.logging.log4j.LogManager.getRootLogger()).addAppender(ap);
-    ap.start();
+    org.apache.log4j.Logger.getRootLogger().addAppender(ap);
+  }
+
+  public ExecuteStatementOperation newExecuteStatementOperation(HiveSession parentSession,
+      String statement, Map<String, String> confOverlay, boolean runAsync)
+          throws HiveSQLException {
+    ExecuteStatementOperation executeStatementOperation = ExecuteStatementOperation
+        .newExecuteStatementOperation(parentSession, statement, confOverlay, runAsync, 0);
+    addOperation(executeStatementOperation);
+    return executeStatementOperation;
   }
 
   public ExecuteStatementOperation newExecuteStatementOperation(HiveSession parentSession,
       String statement, Map<String, String> confOverlay, boolean runAsync, long queryTimeout)
           throws HiveSQLException {
-      throw new UnsupportedOperationException();
+    return newExecuteStatementOperation(parentSession, statement, confOverlay, runAsync,
+        queryTimeout);
   }
 
   public GetTypeInfoOperation newGetTypeInfoOperation(HiveSession parentSession) {
@@ -222,18 +229,23 @@ public class OperationManager extends AbstractService {
     operation.close();
   }
 
-  public TTableSchema getOperationResultSetSchema(OperationHandle opHandle)
+  public TableSchema getOperationResultSetSchema(OperationHandle opHandle)
       throws HiveSQLException {
     return getOperation(opHandle).getResultSetSchema();
   }
 
-  public TRowSet getOperationNextRowSet(OperationHandle opHandle,
+  public RowSet getOperationNextRowSet(OperationHandle opHandle)
+      throws HiveSQLException {
+    return getOperation(opHandle).getNextRowSet();
+  }
+
+  public RowSet getOperationNextRowSet(OperationHandle opHandle,
       FetchOrientation orientation, long maxRows)
           throws HiveSQLException {
     return getOperation(opHandle).getNextRowSet(orientation, maxRows);
   }
 
-  public TRowSet getOperationLogRowSet(OperationHandle opHandle,
+  public RowSet getOperationLogRowSet(OperationHandle opHandle,
       FetchOrientation orientation, long maxRows)
           throws HiveSQLException {
     // get the OperationLog object from the operation
@@ -259,7 +271,7 @@ public class OperationManager extends AbstractService {
       rowSet.addRow(new String[] {log});
     }
 
-    return rowSet.toTRowSet();
+    return rowSet;
   }
 
   private boolean isFetchFirst(FetchOrientation fetchOrientation) {

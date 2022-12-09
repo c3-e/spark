@@ -22,10 +22,10 @@ import pandas as pd
 from pandas.api.types import CategoricalDtype
 
 import pyspark.pandas as ps
-from pyspark.testing.pandasutils import ComparisonTestBase, TestUtils
+from pyspark.testing.pandasutils import PandasOnSparkTestCase, TestUtils
 
 
-class CategoricalTest(ComparisonTestBase, TestUtils):
+class CategoricalTest(PandasOnSparkTestCase, TestUtils):
     @property
     def pdf(self):
         return pd.DataFrame(
@@ -36,6 +36,10 @@ class CategoricalTest(ComparisonTestBase, TestUtils):
                 ),
             },
         )
+
+    @property
+    def psdf(self):
+        return ps.from_pandas(self.pdf)
 
     @property
     def df_pair(self):
@@ -60,9 +64,6 @@ class CategoricalTest(ComparisonTestBase, TestUtils):
         self.assert_eq(psser.cat.categories, pser.cat.categories)
         self.assert_eq(psser.cat.codes, pser.cat.codes)
         self.assert_eq(psser.cat.ordered, pser.cat.ordered)
-
-        with self.assertRaisesRegex(ValueError, "Cannot call CategoricalAccessor on type int64"):
-            ps.Series([1, 2, 3]).cat
 
     def test_categories_setter(self):
         pdf, psdf = self.df_pair
@@ -436,7 +437,7 @@ class CategoricalTest(ComparisonTestBase, TestUtils):
 
         pdf, psdf = self.df_pair
 
-        def identity(x) -> ps.Series[psdf.b.dtype]:  # type: ignore[name-defined]
+        def identity(x) -> ps.Series[psdf.b.dtype]:  # type: ignore
             return x
 
         self.assert_eq(

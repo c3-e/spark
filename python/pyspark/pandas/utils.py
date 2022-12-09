@@ -19,12 +19,14 @@ Commonly used utils in pandas-on-Spark.
 """
 
 import functools
+from collections import OrderedDict
 from contextlib import contextmanager
 import os
-from typing import (
+from typing import (  # noqa: F401 (SPARK-34943)
     Any,
     Callable,
     Dict,
+    Iterable,
     Iterator,
     List,
     Optional,
@@ -40,19 +42,20 @@ import warnings
 from pyspark.sql import functions as F, Column, DataFrame as SparkDataFrame, SparkSession
 from pyspark.sql.types import DoubleType
 import pandas as pd
-from pandas.api.types import is_list_like  # type: ignore[attr-defined]
+from pandas.api.types import is_list_like
 
 # For running doctests and reference resolution in PyCharm.
 from pyspark import pandas as ps  # noqa: F401
 from pyspark.pandas._typing import Axis, Label, Name, DataFrameOrSeries
+from pyspark.pandas.spark import functions as SF
 from pyspark.pandas.typedef.typehints import as_spark_type
 
 if TYPE_CHECKING:
-    from pyspark.pandas.indexes.base import Index
-    from pyspark.pandas.base import IndexOpsMixin
-    from pyspark.pandas.frame import DataFrame
-    from pyspark.pandas.internal import InternalFrame
-    from pyspark.pandas.series import Series
+    # This is required in old Python 3.5 to prevent circular reference.
+    from pyspark.pandas.base import IndexOpsMixin  # noqa: F401 (SPARK-34943)
+    from pyspark.pandas.frame import DataFrame  # noqa: F401 (SPARK-34943)
+    from pyspark.pandas.internal import InternalFrame  # noqa: F401 (SPARK-34943)
+    from pyspark.pandas.series import Series  # noqa: F401 (SPARK-34943)
 
 
 ERROR_MESSAGE_CANNOT_COMBINE = (
@@ -62,10 +65,6 @@ ERROR_MESSAGE_CANNOT_COMBINE = (
 
 
 SPARK_CONF_ARROW_ENABLED = "spark.sql.execution.arrow.pyspark.enabled"
-
-
-class PandasAPIOnSparkAdviceWarning(Warning):
-    pass
 
 
 def same_anchor(
@@ -107,7 +106,7 @@ def combine_frames(
     this: "DataFrame",
     *args: DataFrameOrSeries,
     how: str = "full",
-    preserve_order_column: bool = False,
+    preserve_order_column: bool = False
 ) -> "DataFrame":
     """
     This method combines `this` DataFrame with a different `that` DataFrame or
@@ -149,9 +148,7 @@ def combine_frames(
     if get_option("compute.ops_on_diff_frames"):
 
         def resolve(internal: InternalFrame, side: str) -> InternalFrame:
-            def rename(col: str) -> str:
-                return "__{}_{}".format(side, col)
-
+            rename = lambda col: "__{}_{}".format(side, col)
             internal = internal.resolved_copy
             sdf = internal.spark_frame
             sdf = internal.spark_frame.select(
@@ -160,7 +157,7 @@ def combine_frames(
                     for col in sdf.columns
                     if col not in HIDDEN_COLUMNS
                 ],
-                *HIDDEN_COLUMNS,
+                *HIDDEN_COLUMNS
             )
             return internal.copy(
                 spark_frame=sdf,
@@ -250,7 +247,7 @@ def combine_frames(
                 scol_for(that_sdf, that_internal.spark_column_name_for(label))
                 for label in that_internal.column_labels
             ),
-            *order_column,
+            *order_column
         )
 
         index_spark_columns = [scol_for(joined_df, col) for col in index_column_names]
@@ -388,11 +385,11 @@ def align_diff_frames(
     # 2. Apply the given function to transform the columns in a batch and keep the new columns.
     combined_column_labels = combined._internal.column_labels
 
-    that_columns_to_apply: List[Label] = []
-    this_columns_to_apply: List[Label] = []
-    additional_that_columns: List[Label] = []
-    columns_to_keep: List[Union[Series, Column]] = []
-    column_labels_to_keep: List[Label] = []
+    that_columns_to_apply = []  # type: List[Label]
+    this_columns_to_apply = []  # type: List[Label]
+    additional_that_columns = []  # type: List[Label]
+    columns_to_keep = []  # type: List[Union[Series, Column]]
+    column_labels_to_keep = []  # type: List[Label]
 
     for combined_label in combined_column_labels:
         for common_label in common_column_labels:
@@ -412,7 +409,7 @@ def align_diff_frames(
                 # is intentional so that `this_columns` and `that_columns` can be paired.
                 additional_that_columns.append(combined_label)
             elif fillna:
-                columns_to_keep.append(F.lit(None).cast(DoubleType()).alias(str(combined_label)))
+                columns_to_keep.append(SF.lit(None).cast(DoubleType()).alias(str(combined_label)))
                 column_labels_to_keep.append(combined_label)
             else:
                 columns_to_keep.append(combined._psser_for(combined_label))
@@ -422,27 +419,25 @@ def align_diff_frames(
 
     # Should extract columns to apply and do it in a batch in case
     # it adds new columns for example.
-    columns_applied: List[Union[Series, Column]]
-    column_labels_applied: List[Label]
     if len(this_columns_to_apply) > 0 or len(that_columns_to_apply) > 0:
         psser_set, column_labels_set = zip(
             *resolve_func(combined, this_columns_to_apply, that_columns_to_apply)
         )
-        columns_applied = list(psser_set)
-        column_labels_applied = list(column_labels_set)
+        columns_applied = list(psser_set)  # type: List[Union[Series, Column]]
+        column_labels_applied = list(column_labels_set)  # type: List[Label]
     else:
         columns_applied = []
         column_labels_applied = []
 
-    applied: DataFrame = DataFrame(
+    applied = DataFrame(
         combined._internal.with_new_columns(
             columns_applied + columns_to_keep,
             column_labels=column_labels_applied + column_labels_to_keep,
         )
-    )
+    )  # type: DataFrame
 
     # 3. Restore the names back and deduplicate columns.
-    this_labels: Dict[Label, Label] = {}
+    this_labels = OrderedDict()
     # Add columns in an order of its original frame.
     for this_label in this_column_labels:
         for new_label in applied._internal.column_labels:
@@ -450,7 +445,7 @@ def align_diff_frames(
                 this_labels[new_label[1:]] = new_label
 
     # After that, we will add the rest columns.
-    other_labels: Dict[Label, Label] = {}
+    other_labels = OrderedDict()
     for new_label in applied._internal.column_labels:
         if new_label[1:] not in this_labels:
             other_labels[new_label[1:]] = new_label
@@ -465,24 +460,21 @@ def is_testing() -> bool:
     return "SPARK_TESTING" in os.environ
 
 
-def default_session() -> SparkSession:
-    spark = SparkSession.getActiveSession()
-    if spark is None:
-        spark = SparkSession.builder.appName("pandas-on-Spark").getOrCreate()
+def default_session(conf: Optional[Dict[str, Any]] = None) -> SparkSession:
+    if conf is None:
+        conf = dict()
 
-    # Turn ANSI off when testing the pandas API on Spark since
-    # the behavior of pandas API on Spark follows pandas, not SQL.
+    builder = SparkSession.builder.appName("pandas-on-Spark")
+    for key, value in conf.items():
+        builder = builder.config(key, value)
+    # Currently, pandas-on-Spark is dependent on such join due to 'compute.ops_on_diff_frames'
+    # configuration. This is needed with Spark 3.0+.
+    builder.config("spark.sql.analyzer.failAmbiguousSelfJoin", False)
+
     if is_testing():
-        spark.conf.set("spark.sql.ansi.enabled", False)  # type: ignore[arg-type]
-    if spark.conf.get("spark.sql.ansi.enabled") == "true":
-        log_advice(
-            "The config 'spark.sql.ansi.enabled' is set to True. "
-            "This can cause unexpected behavior "
-            "from pandas API on Spark since pandas API on Spark follows "
-            "the behavior of pandas, not SQL."
-        )
+        builder.config("spark.executor.allowSparkContext", False)
 
-    return spark
+    return builder.getOrCreate()
 
 
 @contextmanager
@@ -628,9 +620,8 @@ def name_like_string(name: Optional[Name]) -> str:
     >>> name_like_string(name)
     '(a, b, c)'
     """
-    label: Label
     if name is None:
-        label = ("__none__",)
+        label = ("__none__",)  # type: Label
     elif is_list_like(name):
         label = tuple([str(n) for n in name])
     else:
@@ -914,11 +905,11 @@ def spark_column_equals(left: Column, right: Column) -> bool:
     """
     Check both `left` and `right` have the same expressions.
 
-    >>> spark_column_equals(F.lit(0), F.lit(0))
+    >>> spark_column_equals(SF.lit(0), SF.lit(0))
     True
-    >>> spark_column_equals(F.lit(0) + 1, F.lit(0) + 1)
+    >>> spark_column_equals(SF.lit(0) + 1, SF.lit(0) + 1)
     True
-    >>> spark_column_equals(F.lit(0) + 1, F.lit(0) + 2)
+    >>> spark_column_equals(SF.lit(0) + 1, SF.lit(0) + 2)
     False
     >>> sdf1 = ps.DataFrame({"x": ['a', 'b', 'c']}).to_spark()
     >>> spark_column_equals(sdf1["x"] + 1, sdf1["x"] + 1)
@@ -927,7 +918,7 @@ def spark_column_equals(left: Column, right: Column) -> bool:
     >>> spark_column_equals(sdf1["x"] + 1, sdf2["x"] + 1)
     False
     """
-    return left._jc.equals(right._jc)
+    return left._jc.equals(right._jc)  # type: ignore
 
 
 def compare_null_first(
@@ -964,33 +955,6 @@ def compare_allow_null(
     comp: Callable[[Column, Column], Column],
 ) -> Column:
     return left.isNull() | right.isNull() | comp(left, right)
-
-
-def log_advice(message: str) -> None:
-    """
-    Display advisory logs for functions to be aware of when using pandas API on Spark
-    for the existing pandas/PySpark users who may not be familiar with distributed environments
-    or the behavior of pandas.
-    """
-    warnings.warn(message, PandasAPIOnSparkAdviceWarning)
-
-
-def validate_index_loc(index: "Index", loc: int) -> None:
-    """
-    Raises IndexError if index is out of bounds
-    """
-    length = len(index)
-    if loc < 0:
-        loc = loc + length
-        if loc < 0:
-            raise IndexError(
-                "index {} is out of bounds for axis 0 with size {}".format((loc - length), length)
-            )
-    else:
-        if loc > length:
-            raise IndexError(
-                "index {} is out of bounds for axis 0 with size {}".format(loc, length)
-            )
 
 
 def _test() -> None:

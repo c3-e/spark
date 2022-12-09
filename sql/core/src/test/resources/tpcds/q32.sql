@@ -1,4 +1,4 @@
-SELECT sum(cs_ext_discount_amt) AS `excess discount amount`
+SELECT 1 AS `excess discount amount `
 FROM
   catalog_sales, item, date_dim
 WHERE

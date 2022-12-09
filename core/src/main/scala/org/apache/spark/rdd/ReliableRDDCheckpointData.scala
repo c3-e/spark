@@ -22,7 +22,6 @@ import scala.reflect.ClassTag
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark._
-import org.apache.spark.errors.SparkCoreErrors
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config.CLEANER_REFERENCE_TRACKING_CLEAN_CHECKPOINTS
 
@@ -38,7 +37,7 @@ private[spark] class ReliableRDDCheckpointData[T: ClassTag](@transient private v
   private val cpDir: String =
     ReliableRDDCheckpointData.checkpointPath(rdd.context, rdd.id)
       .map(_.toString)
-      .getOrElse { throw SparkCoreErrors.mustSpecifyCheckpointDirError() }
+      .getOrElse { throw new SparkException("Checkpoint dir must be specified.") }
 
   /**
    * Return the directory to which this RDD was checkpointed.
@@ -46,7 +45,7 @@ private[spark] class ReliableRDDCheckpointData[T: ClassTag](@transient private v
    */
   def getCheckpointDir: Option[String] = RDDCheckpointData.synchronized {
     if (isCheckpointed) {
-      Some(cpDir)
+      Some(cpDir.toString)
     } else {
       None
     }

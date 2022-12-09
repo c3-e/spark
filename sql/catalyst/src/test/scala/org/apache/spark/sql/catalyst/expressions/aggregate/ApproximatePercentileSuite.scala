@@ -21,17 +21,16 @@ import java.sql.Date
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.dsl.plans._
 import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference, BoundReference, Cast, CreateArray, DecimalLiteral, GenericInternalRow, Literal}
-import org.apache.spark.sql.catalyst.expressions.Cast._
 import org.apache.spark.sql.catalyst.expressions.aggregate.ApproximatePercentile.{PercentileDigest, PercentileDigestSerializer}
 import org.apache.spark.sql.catalyst.plans.logical.LocalRelation
 import org.apache.spark.sql.catalyst.util.{ArrayData, QuantileSummaries}
 import org.apache.spark.sql.catalyst.util.QuantileSummaries.Stats
-import org.apache.spark.sql.types.{ArrayType, Decimal, DecimalType, DoubleType, FloatType, IntegerType, IntegralType, LongType}
+import org.apache.spark.sql.types.{ArrayType, Decimal, DecimalType, DoubleType, FloatType, IntegerType, IntegralType}
 import org.apache.spark.util.SizeEstimator
 
 class ApproximatePercentileSuite extends SparkFunSuite {
@@ -213,22 +212,14 @@ class ApproximatePercentileSuite extends SparkFunSuite {
 
   test("class ApproximatePercentile, fails analysis if percentage or accuracy is not a constant") {
     val attribute = AttributeReference("a", DoubleType)()
-    val accuracyExpression = AttributeReference("b", IntegerType)()
     val wrongAccuracy = new ApproximatePercentile(
       attribute,
       percentageExpression = Literal(0.5D),
-      accuracyExpression = accuracyExpression)
+      accuracyExpression = AttributeReference("b", IntegerType)())
 
     assertEqual(
       wrongAccuracy.checkInputDataTypes(),
-      DataTypeMismatch(
-        errorSubClass = "NON_FOLDABLE_INPUT",
-        messageParameters = Map(
-          "inputName" -> "accuracy",
-          "inputType" -> toSQLType(accuracyExpression.dataType),
-          "inputExpr" -> toSQLExpr(accuracyExpression)
-        )
-      )
+      TypeCheckFailure("The accuracy or percentage provided must be a constant literal")
     )
 
     val wrongPercentage = new ApproximatePercentile(
@@ -238,34 +229,19 @@ class ApproximatePercentileSuite extends SparkFunSuite {
 
     assertEqual(
       wrongPercentage.checkInputDataTypes(),
-      DataTypeMismatch(
-        errorSubClass = "NON_FOLDABLE_INPUT",
-        messageParameters = Map(
-          "inputName" -> "percentage",
-          "inputType" -> toSQLType(attribute.dataType),
-          "inputExpr" -> toSQLExpr(attribute)
-        )
-      )
+      TypeCheckFailure("The accuracy or percentage provided must be a constant literal")
     )
   }
 
   test("class ApproximatePercentile, fails analysis if parameters are invalid") {
-    val wrongAccuracyExpression = Literal(-1)
     val wrongAccuracy = new ApproximatePercentile(
       AttributeReference("a", DoubleType)(),
       percentageExpression = Literal(0.5D),
-      accuracyExpression = wrongAccuracyExpression)
+      accuracyExpression = Literal(-1))
     assertEqual(
       wrongAccuracy.checkInputDataTypes(),
-      DataTypeMismatch(
-        errorSubClass = "VALUE_OUT_OF_RANGE",
-        messageParameters = Map(
-          "exprName" -> "accuracy",
-          "valueRange" -> s"(0, ${Int.MaxValue}]",
-          "currentValue" ->
-            toSQLValue(wrongAccuracyExpression.eval().asInstanceOf[Number].longValue, LongType))
-      )
-    )
+      TypeCheckFailure(s"The accuracy provided must be a literal between (0, ${Int.MaxValue}]" +
+        " (current value = -1)"))
 
     val correctPercentageExpressions = Seq(
       Literal(0.1f, FloatType),
@@ -297,37 +273,16 @@ class ApproximatePercentileSuite extends SparkFunSuite {
         percentageExpression = percentageExpression,
         accuracyExpression = Literal(100))
 
-      percentageExpression.eval() match {
-        case array: ArrayData =>
-          assertEqual(wrongPercentage.checkInputDataTypes(),
-            DataTypeMismatch(
-              errorSubClass = "VALUE_OUT_OF_RANGE",
-              messageParameters = Map(
-                "exprName" -> "percentage",
-                "valueRange" -> "[0.0, 1.0]",
-                "currentValue" ->
-                  array.toDoubleArray().map(toSQLValue(_, DoubleType)).mkString(",")
-              )
-            )
-          )
-        case other =>
-          assertEqual(wrongPercentage.checkInputDataTypes(),
-            DataTypeMismatch(
-              errorSubClass = "VALUE_OUT_OF_RANGE",
-              messageParameters = Map(
-                "exprName" -> "percentage",
-                "valueRange" -> "[0.0, 1.0]",
-                "currentValue" ->
-                  Array(other).map(toSQLValue(_, DoubleType)).mkString(",")
-              )
-            )
-          )
-      }
+      assert(
+        wrongPercentage.checkInputDataTypes() match {
+          case TypeCheckFailure(msg) if msg.contains("must be between 0.0 and 1.0") => true
+          case _ => false
+      })
     }
   }
 
   test("class ApproximatePercentile, automatically add type casting for parameters") {
-    val testRelation = LocalRelation($"a".int)
+    val testRelation = LocalRelation('a.int)
 
     // accuracy types must be integral, no type casting
     val accuracyExpressions = Seq(
@@ -365,7 +320,7 @@ class ApproximatePercentileSuite extends SparkFunSuite {
     assert(new ApproximatePercentile(
       AttributeReference("a", DoubleType)(),
       percentageExpression = Literal(null, DoubleType)).checkInputDataTypes() ===
-      DataTypeMismatch(errorSubClass = "UNEXPECTED_NULL", Map("exprName" -> "percentage")))
+      TypeCheckFailure("Percentage value must not be null"))
 
     val nullPercentageExprs =
       Seq(CreateArray(Seq(null).map(Literal(_))), CreateArray(Seq(0.1D, null).map(Literal(_))))
@@ -375,16 +330,13 @@ class ApproximatePercentileSuite extends SparkFunSuite {
           AttributeReference("a", DoubleType)(),
           percentageExpression = percentageExpression,
           accuracyExpression = Literal(100))
-        assert(wrongPercentage.checkInputDataTypes() ==
-          DataTypeMismatch(
-            errorSubClass = "UNEXPECTED_INPUT_TYPE",
-            messageParameters = Map(
-              "paramIndex" -> "2",
-              "requiredType" -> "(\"DOUBLE\" or \"ARRAY<DOUBLE>\")",
-              "inputSql" -> toSQLExpr(percentageExpression),
-              "inputType" -> "\"ARRAY<VOID>\"")
-          )
-        )
+        assert(
+          wrongPercentage.checkInputDataTypes() match {
+            case TypeCheckFailure(msg)
+                if msg.contains("argument 2 requires (double or array<double>) type") =>
+              true
+            case _ => false
+          })
     }
   }
 
@@ -395,17 +347,10 @@ class ApproximatePercentileSuite extends SparkFunSuite {
         AttributeReference("a", DoubleType)(),
         percentageExpression = Literal(0.5),
         accuracyExpression = Literal(acc))
-      assert(wrongPercentage.checkInputDataTypes() ==
-        DataTypeMismatch(
-          errorSubClass = "UNEXPECTED_INPUT_TYPE",
-          messageParameters = Map(
-            "paramIndex" -> "3",
-            "requiredType" -> "\"INTEGRAL\"",
-            "inputSql" -> toSQLExpr(Literal(acc)),
-            "inputType" -> toSQLType(Literal(acc).dataType)
-          )
-        )
-      )
+      assert(wrongPercentage.checkInputDataTypes() match {
+        case TypeCheckFailure(msg) if msg.contains("argument 3 requires integral type") => true
+        case _ => false
+      })
     }
   }
 

@@ -18,22 +18,19 @@ from typing import Any, Callable, List, Optional, Union, TYPE_CHECKING, cast
 import warnings
 
 import pandas as pd
-from pandas.api.types import (  # type: ignore[attr-defined]
-    CategoricalDtype,
-    is_dict_like,
-    is_list_like,
-)
+from pandas.api.types import CategoricalDtype, is_dict_like, is_list_like
 
 from pyspark.pandas.internal import InternalField
+from pyspark.pandas.spark import functions as SF
 from pyspark.pandas.data_type_ops.categorical_ops import _to_cat
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructField
 
 if TYPE_CHECKING:
-    import pyspark.pandas as ps
+    import pyspark.pandas as ps  # noqa: F401 (SPARK-34943)
 
 
-class CategoricalAccessor:
+class CategoricalAccessor(object):
     """
     Accessor object for categorical properties of the Series values.
 
@@ -242,9 +239,8 @@ class CategoricalAccessor:
                 FutureWarning,
             )
 
-        categories: List[Any]
         if is_list_like(new_categories):
-            categories = list(new_categories)
+            categories = list(new_categories)  # type: List
         else:
             categories = [new_categories]
 
@@ -437,9 +433,8 @@ class CategoricalAccessor:
                 FutureWarning,
             )
 
-        categories: List[Any]
         if is_list_like(removals):
-            categories = [cat for cat in removals if cat is not None]
+            categories = [cat for cat in removals if cat is not None]  # type: List
         elif removals is None:
             categories = []
         else:
@@ -531,7 +526,7 @@ class CategoricalAccessor:
                 FutureWarning,
             )
 
-        categories = set(self._data.drop_duplicates()._to_pandas())
+        categories = set(self._data.drop_duplicates().to_pandas())
         removals = [cat for cat in self.categories if cat not in categories]
         return self.remove_categories(removals=removals, inplace=inplace)
 
@@ -878,7 +873,7 @@ class CategoricalAccessor:
 
         if rename:
             new_scol = (
-                F.when(scol >= len(new_categories), F.lit(-1).cast(self._data.spark.data_type))
+                F.when(scol >= len(new_categories), SF.lit(-1).cast(self._data.spark.data_type))
                 .otherwise(scol)
                 .alias(self._data._internal.data_spark_column_names[0])
             )

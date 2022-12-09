@@ -17,9 +17,7 @@
 
 package org.apache.spark.sql.execution.command.v1
 
-import org.apache.spark.SparkRuntimeException
 import org.apache.spark.sql.AnalysisException
-import org.apache.spark.sql.errors.QueryErrorsBase
 import org.apache.spark.sql.execution.command
 
 /**
@@ -30,7 +28,7 @@ import org.apache.spark.sql.execution.command
  *   - V1 In-Memory catalog: `org.apache.spark.sql.execution.command.v1.AlterTableRenameSuite`
  *   - V1 Hive External catalog: `org.apache.spark.sql.hive.execution.command.AlterTableRenameSuite`
  */
-trait AlterTableRenameSuiteBase extends command.AlterTableRenameSuiteBase with QueryErrorsBase {
+trait AlterTableRenameSuiteBase extends command.AlterTableRenameSuiteBase {
   test("destination database is different") {
     withNamespaceAndTable("dst_ns", "dst_tbl") { dst =>
       withNamespace("src_ns") {
@@ -68,14 +66,11 @@ trait AlterTableRenameSuiteBase extends command.AlterTableRenameSuiteBase with Q
       withTableDir(dst) { (fs, dst_dir) =>
         sql(s"DROP TABLE $dst")
         fs.mkdirs(dst_dir)
-        checkError(
-          exception = intercept[SparkRuntimeException] {
-            sql(s"ALTER TABLE $src RENAME TO ns.dst_tbl")
-          },
-          errorClass = "LOCATION_ALREADY_EXISTS",
-          parameters = Map(
-            "location" -> s"'$dst_dir'",
-            "identifier" -> toSQLId(dst)))
+        val errMsg = intercept[AnalysisException] {
+          sql(s"ALTER TABLE $src RENAME TO ns.dst_tbl")
+        }.getMessage
+        assert(errMsg.matches("Can not rename the managed table(.+). " +
+          "The associated location(.+) already exists."))
       }
     }
   }

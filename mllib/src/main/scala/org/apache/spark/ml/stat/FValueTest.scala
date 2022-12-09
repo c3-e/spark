@@ -76,7 +76,8 @@ private[ml] object FValueTest {
     if (flatten) {
       resultDF
     } else {
-      resultDF.agg(collect_list(struct("*")))
+      resultDF.groupBy()
+        .agg(collect_list(struct("*")))
         .as[Seq[(Int, Double, Long, Double)]]
         .map { seq =>
           val results = seq.toArray.sortBy(_._1)

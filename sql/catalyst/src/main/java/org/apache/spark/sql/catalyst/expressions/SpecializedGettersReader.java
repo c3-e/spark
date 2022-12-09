@@ -17,7 +17,6 @@
 
 package org.apache.spark.sql.catalyst.expressions;
 
-import org.apache.spark.sql.catalyst.types.*;
 import org.apache.spark.sql.types.*;
 
 public final class SpecializedGettersReader {
@@ -29,55 +28,69 @@ public final class SpecializedGettersReader {
       DataType dataType,
       boolean handleNull,
       boolean handleUserDefinedType) {
-    PhysicalDataType physicalDataType = dataType.physicalDataType();
-    if (handleNull && (obj.isNullAt(ordinal) || physicalDataType instanceof PhysicalNullType)) {
+    if (handleNull && (obj.isNullAt(ordinal) || dataType instanceof NullType)) {
       return null;
     }
-    if (physicalDataType instanceof PhysicalBooleanType) {
+    if (dataType instanceof BooleanType) {
       return obj.getBoolean(ordinal);
     }
-    if (physicalDataType instanceof PhysicalByteType) {
+    if (dataType instanceof ByteType) {
       return obj.getByte(ordinal);
     }
-    if (physicalDataType instanceof PhysicalShortType) {
+    if (dataType instanceof ShortType) {
       return obj.getShort(ordinal);
     }
-    if (physicalDataType instanceof PhysicalIntegerType) {
+    if (dataType instanceof IntegerType) {
       return obj.getInt(ordinal);
     }
-    if (physicalDataType instanceof PhysicalLongType) {
+    if (dataType instanceof LongType) {
       return obj.getLong(ordinal);
     }
-    if (physicalDataType instanceof PhysicalFloatType) {
+    if (dataType instanceof FloatType) {
       return obj.getFloat(ordinal);
     }
-    if (physicalDataType instanceof PhysicalDoubleType) {
+    if (dataType instanceof DoubleType) {
       return obj.getDouble(ordinal);
     }
-    if (physicalDataType instanceof PhysicalStringType) {
+    if (dataType instanceof StringType) {
       return obj.getUTF8String(ordinal);
     }
-    if (physicalDataType instanceof PhysicalDecimalType) {
-      PhysicalDecimalType dt = (PhysicalDecimalType) physicalDataType;
+    if (dataType instanceof DecimalType) {
+      DecimalType dt = (DecimalType) dataType;
       return obj.getDecimal(ordinal, dt.precision(), dt.scale());
     }
-    if (physicalDataType instanceof PhysicalCalendarIntervalType) {
+    if (dataType instanceof DateType) {
+      return obj.getInt(ordinal);
+    }
+    if (dataType instanceof TimestampType) {
+      return obj.getLong(ordinal);
+    }
+    if (dataType instanceof TimestampNTZType) {
+      return obj.getLong(ordinal);
+    }
+    if (dataType instanceof CalendarIntervalType) {
       return obj.getInterval(ordinal);
     }
-    if (physicalDataType instanceof PhysicalBinaryType) {
+    if (dataType instanceof BinaryType) {
       return obj.getBinary(ordinal);
     }
-    if (physicalDataType instanceof PhysicalStructType) {
-      return obj.getStruct(ordinal, ((PhysicalStructType) physicalDataType).fields().length);
+    if (dataType instanceof StructType) {
+      return obj.getStruct(ordinal, ((StructType) dataType).size());
     }
-    if (physicalDataType instanceof PhysicalArrayType) {
+    if (dataType instanceof ArrayType) {
       return obj.getArray(ordinal);
     }
-    if (physicalDataType instanceof PhysicalMapType) {
+    if (dataType instanceof MapType) {
       return obj.getMap(ordinal);
     }
     if (handleUserDefinedType && dataType instanceof UserDefinedType) {
       return obj.get(ordinal, ((UserDefinedType)dataType).sqlType());
+    }
+    if (dataType instanceof DayTimeIntervalType) {
+      return obj.getLong(ordinal);
+    }
+    if (dataType instanceof YearMonthIntervalType) {
+      return obj.getInt(ordinal);
     }
 
     throw new UnsupportedOperationException("Unsupported data type " + dataType.simpleString());

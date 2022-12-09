@@ -17,9 +17,6 @@
 
 package org.apache.spark.sql.streaming
 
-import scala.collection.JavaConverters._
-
-import org.apache.spark.{SparkThrowable, SparkThrowableHelper}
 import org.apache.spark.annotation.Evolving
 
 /**
@@ -37,27 +34,8 @@ class StreamingQueryException private[sql](
     val message: String,
     val cause: Throwable,
     val startOffset: String,
-    val endOffset: String,
-    errorClass: String,
-    messageParameters: Map[String, String])
-  extends Exception(message, cause) with SparkThrowable {
-
-  def this(
-      queryDebugString: String,
-      cause: Throwable,
-      startOffset: String,
-      endOffset: String,
-      errorClass: String,
-      messageParameters: Map[String, String]) = {
-    this(
-      queryDebugString,
-      message = SparkThrowableHelper.getMessage(errorClass, messageParameters),
-      cause,
-      startOffset,
-      endOffset,
-      errorClass,
-      messageParameters)
-  }
+    val endOffset: String)
+  extends Exception(message, cause) {
 
   /** Time when the exception occurred */
   val time: Long = System.currentTimeMillis
@@ -65,8 +43,4 @@ class StreamingQueryException private[sql](
   override def toString(): String =
     s"""${classOf[StreamingQueryException].getName}: ${cause.getMessage}
        |$queryDebugString""".stripMargin
-
-  override def getErrorClass: String = errorClass
-
-  override def getMessageParameters: java.util.Map[String, String] = messageParameters.asJava
 }

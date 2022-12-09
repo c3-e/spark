@@ -23,10 +23,11 @@ from pandas.api.types import CategoricalDtype
 
 from pyspark import pandas as ps
 from pyspark.pandas.config import option_context
-from pyspark.pandas.tests.data_type_ops.testing_utils import OpsTestBase
+from pyspark.pandas.tests.data_type_ops.testing_utils import TestCasesUtils
+from pyspark.testing.pandasutils import PandasOnSparkTestCase
 
 
-class CategoricalOpsTest(OpsTestBase):
+class CategoricalOpsTest(PandasOnSparkTestCase, TestCasesUtils):
     @property
     def pdf(self):
         return pd.DataFrame(
@@ -52,6 +53,10 @@ class CategoricalOpsTest(OpsTestBase):
                 ),
             }
         )
+
+    @property
+    def psdf(self):
+        return ps.from_pandas(self.pdf)
 
     @property
     def pser(self):
@@ -111,11 +116,11 @@ class CategoricalOpsTest(OpsTestBase):
 
     def test_pow(self):
         self.assertRaises(TypeError, lambda: self.psser ** "x")
-        self.assertRaises(TypeError, lambda: self.psser**1)
+        self.assertRaises(TypeError, lambda: self.psser ** 1)
 
         with option_context("compute.ops_on_diff_frames", True):
             for psser in self.pssers:
-                self.assertRaises(TypeError, lambda: self.psser**psser)
+                self.assertRaises(TypeError, lambda: self.psser ** psser)
 
     def test_radd(self):
         self.assertRaises(TypeError, lambda: "x" + self.psser)
@@ -142,7 +147,7 @@ class CategoricalOpsTest(OpsTestBase):
 
     def test_rpow(self):
         self.assertRaises(TypeError, lambda: "x" ** self.psser)
-        self.assertRaises(TypeError, lambda: 1**self.psser)
+        self.assertRaises(TypeError, lambda: 1 ** self.psser)
 
     def test_and(self):
         self.assertRaises(TypeError, lambda: self.psser & True)
@@ -166,7 +171,7 @@ class CategoricalOpsTest(OpsTestBase):
         data = [1, "x", "y"]
         pser = pd.Series(data, dtype="category")
         psser = ps.Series(data, dtype="category")
-        self.assert_eq(pser, psser._to_pandas())
+        self.assert_eq(pser, psser.to_pandas())
         self.assert_eq(ps.from_pandas(pser), psser)
 
     def test_isnull(self):

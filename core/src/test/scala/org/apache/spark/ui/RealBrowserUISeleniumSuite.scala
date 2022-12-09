@@ -18,6 +18,7 @@
 package org.apache.spark.ui
 
 import org.openqa.selenium.{By, JavascriptExecutor, WebDriver}
+import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.Eventually._
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.matchers.should.Matchers._
@@ -34,7 +35,7 @@ import org.apache.spark.util.CallSite
  * Selenium tests for the Spark Web UI with real web browsers.
  */
 abstract class RealBrowserUISeleniumSuite(val driverProp: String)
-  extends SparkFunSuite with WebBrowser with Matchers {
+  extends SparkFunSuite with WebBrowser with Matchers with BeforeAndAfterAll {
 
   implicit var webDriver: WebDriver with JavascriptExecutor
   private val driverPropPrefix = "spark.test."

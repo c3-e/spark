@@ -24,22 +24,20 @@ import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.catalyst.streaming.InternalOutputModes.Update
 import org.apache.spark.sql.execution.streaming.{MemoryStream, StreamingDeduplicateExec}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.streaming.util.StatefulOpClusteredDistributionTestHelper
+import org.apache.spark.sql.streaming.util.HashClusteredDistributionTestHelper
 import org.apache.spark.util.Utils
 
 class StreamingDeduplicationDistributionSuite extends StreamTest
-  with StatefulOpClusteredDistributionTestHelper {
+  with HashClusteredDistributionTestHelper {
 
   import testImplicits._
 
-  test("SPARK-38204: streaming deduplication should require StatefulOpClusteredDistribution " +
+  test("SPARK-38204: streaming deduplication should require HashClusteredDistribution " +
     "from children") {
 
     val input = MemoryStream[Int]
-    val df1 = input.toDF()
-      .select($"value" as Symbol("key1"), $"value" * 2 as Symbol("key2"),
-        $"value" * 3 as Symbol("value"))
-    val dedup = df1.repartition($"key1").dropDuplicates("key1", "key2")
+    val df1 = input.toDF().select('value as 'key1, 'value * 2 as 'key2, 'value * 3 as 'value)
+    val dedup = df1.repartition('key1).dropDuplicates("key1", "key2")
 
     testStream(dedup, OutputMode.Update())(
       AddData(input, 1, 1, 2, 3, 4),
@@ -52,7 +50,7 @@ class StreamingDeduplicationDistributionSuite extends StreamTest
         }
 
         assert(dedupExecs.length === 1)
-        assert(requireStatefulOpClusteredDistribution(
+        assert(requireHashClusteredDistribution(
           dedupExecs.head, Seq(Seq("key1", "key2")), numPartitions))
         assert(hasDesiredHashPartitioningInChildren(
           dedupExecs.head, Seq(Seq("key1", "key2")), numPartitions))
@@ -64,10 +62,8 @@ class StreamingDeduplicationDistributionSuite extends StreamTest
     "from children if the query starts from checkpoint in prior to 3.3") {
 
     val inputData = MemoryStream[Int]
-    val df1 = inputData.toDF()
-      .select($"value" as Symbol("key1"), $"value" * 2 as Symbol("key2"),
-        $"value" * 3 as Symbol("value"))
-    val dedup = df1.repartition($"key1").dropDuplicates("key1", "key2")
+    val df1 = inputData.toDF().select('value as 'key1, 'value * 2 as 'key2, 'value * 3 as 'value)
+    val dedup = df1.repartition('key1).dropDuplicates("key1", "key2")
 
     val resourceUri = this.getClass.getResource(
       "/structured-streaming/checkpoint-version-3.2.0-deduplication-with-repartition/").toURI

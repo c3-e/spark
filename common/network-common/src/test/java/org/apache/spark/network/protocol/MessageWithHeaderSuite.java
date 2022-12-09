@@ -150,7 +150,7 @@ public class MessageWithHeaderSuite {
 
     @Override
     public long count() {
-      return 8L * writeCount;
+      return 8 * writeCount;
     }
 
     @Override
@@ -160,7 +160,7 @@ public class MessageWithHeaderSuite {
 
     @Override
     public long transferred() {
-      return 8L * written;
+      return 8 * written;
     }
 
     @Override
@@ -174,7 +174,7 @@ public class MessageWithHeaderSuite {
         buf.release();
         written++;
       }
-      return 8L * writesPerCall;
+      return 8 * writesPerCall;
     }
 
     @Override

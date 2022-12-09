@@ -29,7 +29,7 @@ RUN mkdir ${SPARK_HOME}/R
 RUN \
   apt-get update && \
   apt install -y r-base r-base-dev && \
-  rm -rf /var/cache/apt/* && rm -rf /var/lib/apt/lists/*
+  rm -rf /var/cache/apt/*
 
 COPY R ${SPARK_HOME}/R
 ENV R_HOME /usr/lib/R

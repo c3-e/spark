@@ -24,7 +24,6 @@ import io.fabric8.kubernetes.api.model._
 
 import org.apache.spark.deploy.k8s.{KubernetesConf, SparkPod}
 import org.apache.spark.deploy.k8s.Config._
-import org.apache.spark.util.Utils.randomize
 
 private[spark] class LocalDirsFeatureStep(
     conf: KubernetesConf,
@@ -34,11 +33,11 @@ private[spark] class LocalDirsFeatureStep(
   private val useLocalDirTmpFs = conf.get(KUBERNETES_LOCAL_DIRS_TMPFS)
 
   override def configurePod(pod: SparkPod): SparkPod = {
-    var localDirs = randomize(pod.container.getVolumeMounts.asScala
+    var localDirs = pod.container.getVolumeMounts.asScala
       .filter(_.getName.startsWith("spark-local-dir-"))
-      .map(_.getMountPath))
-    var localDirVolumes: Seq[Volume] = Seq()
-    var localDirVolumeMounts: Seq[VolumeMount] = Seq()
+      .map(_.getMountPath)
+    var localDirVolumes : Seq[Volume] = Seq()
+    var localDirVolumeMounts : Seq[VolumeMount] = Seq()
 
     if (localDirs.isEmpty) {
       // Cannot use Utils.getConfiguredLocalDirs because that will default to the Java system
@@ -50,8 +49,7 @@ private[spark] class LocalDirsFeatureStep(
         .orElse(conf.getOption("spark.local.dir"))
         .getOrElse(defaultLocalDir)
         .split(",")
-      randomize(resolvedLocalDirs)
-      localDirs = resolvedLocalDirs.toSeq
+      localDirs = resolvedLocalDirs.toBuffer
       localDirVolumes = resolvedLocalDirs
         .zipWithIndex
         .map { case (_, index) =>
@@ -70,7 +68,7 @@ private[spark] class LocalDirsFeatureStep(
             .withName(localDirVolume.getName)
             .withMountPath(localDirPath)
             .build()
-        }
+          }
     }
 
     val podWithLocalDirVolumes = new PodBuilder(pod.pod)

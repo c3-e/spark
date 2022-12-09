@@ -24,7 +24,6 @@ import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
 
 import org.apache.spark.SparkConf
-import org.apache.spark.SparkException
 import org.apache.spark.internal.config._
 import org.apache.spark.internal.config.Kryo._
 import org.apache.spark.memory.{TaskMemoryManager, UnifiedMemoryManager}
@@ -99,7 +98,7 @@ class HashedRelationSuite extends SharedSparkSession {
 
     val os2 = new ByteArrayOutputStream()
     val out2 = new ObjectOutputStream(os2)
-    hashed2.writeExternal(out2)
+    hashed2.asInstanceOf[UnsafeHashedRelation].writeExternal(out2)
     out2.flush()
     // This depends on that the order of items in BytesToBytesMap.iterator() is exactly the same
     // as they are inserted
@@ -535,7 +534,7 @@ class HashedRelationSuite extends SharedSparkSession {
       buffer.append(keyIterator.next().getLong(0))
     }
     // attempt an illegal next() call
-    val caught = intercept[SparkException] {
+    val caught = intercept[NoSuchElementException] {
       keyIterator.next()
     }
     assert(caught.getLocalizedMessage === "End of the iterator")
@@ -633,7 +632,7 @@ class HashedRelationSuite extends SharedSparkSession {
 
   test("EmptyHashedRelation override methods behavior test") {
     val buildKey = Seq(BoundReference(0, LongType, false))
-    val hashed = HashedRelation(Seq.empty[InternalRow].iterator, buildKey, 1, mm)
+    val hashed = HashedRelation(Seq.empty[InternalRow].toIterator, buildKey, 1, mm)
     assert(hashed == EmptyHashedRelation)
 
     val key = InternalRow(1L)

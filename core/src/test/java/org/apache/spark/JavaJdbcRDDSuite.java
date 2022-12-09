@@ -22,7 +22,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.UUID;
 
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
@@ -33,7 +32,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class JavaJdbcRDDSuite implements Serializable {
-  private String dbName = "db_" + UUID.randomUUID().toString().replace('-', '_');
   private transient JavaSparkContext sc;
 
   @Before
@@ -43,7 +41,7 @@ public class JavaJdbcRDDSuite implements Serializable {
     Class.forName("org.apache.derby.jdbc.EmbeddedDriver");
 
     try (Connection connection = DriverManager.getConnection(
-        "jdbc:derby:target/" + dbName + ";create=true")) {
+        "jdbc:derby:target/JavaJdbcRDDSuiteDb;create=true")) {
 
       try (Statement create = connection.createStatement()) {
         create.execute(
@@ -69,7 +67,7 @@ public class JavaJdbcRDDSuite implements Serializable {
   @After
   public void tearDown() throws SQLException {
     try {
-      DriverManager.getConnection("jdbc:derby:target/" + dbName + ";shutdown=true");
+      DriverManager.getConnection("jdbc:derby:target/JavaJdbcRDDSuiteDb;shutdown=true");
     } catch(SQLException e) {
       // Throw if not normal single database shutdown
       // https://db.apache.org/derby/docs/10.2/ref/rrefexcept71493.html
@@ -86,7 +84,7 @@ public class JavaJdbcRDDSuite implements Serializable {
   public void testJavaJdbcRDD() throws Exception {
     JavaRDD<Integer> rdd = JdbcRDD.create(
       sc,
-      () -> DriverManager.getConnection("jdbc:derby:target/" + dbName),
+      () -> DriverManager.getConnection("jdbc:derby:target/JavaJdbcRDDSuiteDb"),
       "SELECT DATA FROM FOO WHERE ? <= ID AND ID <= ?",
       1, 100, 1,
       r -> r.getInt(1)

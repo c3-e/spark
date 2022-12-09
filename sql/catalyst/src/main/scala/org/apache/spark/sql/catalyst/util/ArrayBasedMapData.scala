@@ -19,8 +19,6 @@ package org.apache.spark.sql.catalyst.util
 
 import java.util.{Map => JavaMap}
 
-import org.apache.spark.util.collection.Utils
-
 /**
  * A simple `MapData` implementation which is backed by 2 arrays.
  *
@@ -131,19 +129,20 @@ object ArrayBasedMapData {
   def toScalaMap(map: ArrayBasedMapData): Map[Any, Any] = {
     val keys = map.keyArray.asInstanceOf[GenericArrayData].array
     val values = map.valueArray.asInstanceOf[GenericArrayData].array
-    Utils.toMap(keys, values)
+    keys.zip(values).toMap
   }
 
   def toScalaMap(keys: Array[Any], values: Array[Any]): Map[Any, Any] = {
-    Utils.toMap(keys, values)
+    keys.zip(values).toMap
   }
 
   def toScalaMap(keys: scala.collection.Seq[Any],
       values: scala.collection.Seq[Any]): Map[Any, Any] = {
-    Utils.toMap(keys, values)
+    keys.zip(values).toMap
   }
 
   def toJavaMap(keys: Array[Any], values: Array[Any]): java.util.Map[Any, Any] = {
-    Utils.toJavaMap(keys, values)
+    import scala.collection.JavaConverters._
+    keys.zip(values).toMap.asJava
   }
 }

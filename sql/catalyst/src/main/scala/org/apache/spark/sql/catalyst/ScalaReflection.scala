@@ -19,10 +19,6 @@ package org.apache.spark.sql.catalyst
 
 import javax.lang.model.SourceVersion
 
-import scala.annotation.tailrec
-import scala.reflect.internal.Symbols
-import scala.util.{Failure, Success}
-
 import org.apache.commons.lang3.reflect.ConstructorUtils
 
 import org.apache.spark.internal.Logging
@@ -35,6 +31,7 @@ import org.apache.spark.sql.catalyst.util.{ArrayData, MapData}
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
+import org.apache.spark.util.Utils
 
 
 /**
@@ -172,103 +169,109 @@ object ScalaReflection extends ScalaReflection {
     val clsName = getClassNameFromType(tpe)
     val walkedTypePath = new WalkedTypePath().recordRoot(clsName)
     val Schema(dataType, nullable) = schemaFor(tpe)
-    val deserializerFunc = deserializerFor(tpe, walkedTypePath)
+
     // Assumes we are deserializing the first column of a row.
     deserializerForWithNullSafetyAndUpcast(GetColumnByOrdinal(0, dataType), dataType,
-      nullable = nullable, walkedTypePath, deserializerFunc)
+      nullable = nullable, walkedTypePath,
+      (casted, typePath) => deserializerFor(tpe, casted, typePath))
   }
 
   /**
-   * Returns a function that receives an input expression and turns it to an expression that can be
-   * used to deserialize the input expression to an object of type `T` with a compatible schema.
+   * Returns an expression that can be used to deserialize an input expression to an object of type
+   * `T` with a compatible schema.
    *
    * @param tpe The `Type` of deserialized object.
+   * @param path The expression which can be used to extract serialized value.
    * @param walkedTypePath The paths from top to bottom to access current field when deserializing.
    */
   private def deserializerFor(
       tpe: `Type`,
-      walkedTypePath: WalkedTypePath): Expression => Expression = cleanUpReflectionObjects {
+      path: Expression,
+      walkedTypePath: WalkedTypePath): Expression = cleanUpReflectionObjects {
     baseType(tpe) match {
-      case t if !dataTypeFor(t).isInstanceOf[ObjectType] => identity
+      case t if !dataTypeFor(t).isInstanceOf[ObjectType] => path
 
       case t if isSubtype(t, localTypeOf[Option[_]]) =>
         val TypeRef(_, _, Seq(optType)) = t
         val className = getClassNameFromType(optType)
         val newTypePath = walkedTypePath.recordOption(className)
-        val dataType = dataTypeFor(optType)
-        val deserializerFunc = deserializerFor(optType, newTypePath)
-        path => WrapOption(deserializerFunc(path), dataType)
+        WrapOption(deserializerFor(optType, path, newTypePath), dataTypeFor(optType))
 
       case t if isSubtype(t, localTypeOf[java.lang.Integer]) =>
-        createDeserializerForTypesSupportValueOf(_, classOf[java.lang.Integer])
+        createDeserializerForTypesSupportValueOf(path,
+          classOf[java.lang.Integer])
 
       case t if isSubtype(t, localTypeOf[java.lang.Long]) =>
-        createDeserializerForTypesSupportValueOf(_, classOf[java.lang.Long])
+        createDeserializerForTypesSupportValueOf(path,
+          classOf[java.lang.Long])
 
       case t if isSubtype(t, localTypeOf[java.lang.Double]) =>
-        createDeserializerForTypesSupportValueOf(_, classOf[java.lang.Double])
+        createDeserializerForTypesSupportValueOf(path,
+          classOf[java.lang.Double])
 
       case t if isSubtype(t, localTypeOf[java.lang.Float]) =>
-        createDeserializerForTypesSupportValueOf(_, classOf[java.lang.Float])
+        createDeserializerForTypesSupportValueOf(path,
+          classOf[java.lang.Float])
 
       case t if isSubtype(t, localTypeOf[java.lang.Short]) =>
-        createDeserializerForTypesSupportValueOf(_, classOf[java.lang.Short])
+        createDeserializerForTypesSupportValueOf(path,
+          classOf[java.lang.Short])
 
       case t if isSubtype(t, localTypeOf[java.lang.Byte]) =>
-        createDeserializerForTypesSupportValueOf(_, classOf[java.lang.Byte])
+        createDeserializerForTypesSupportValueOf(path,
+          classOf[java.lang.Byte])
 
       case t if isSubtype(t, localTypeOf[java.lang.Boolean]) =>
-        createDeserializerForTypesSupportValueOf(_, classOf[java.lang.Boolean])
+        createDeserializerForTypesSupportValueOf(path,
+          classOf[java.lang.Boolean])
 
       case t if isSubtype(t, localTypeOf[java.time.LocalDate]) =>
-        createDeserializerForLocalDate
+        createDeserializerForLocalDate(path)
 
       case t if isSubtype(t, localTypeOf[java.sql.Date]) =>
-        createDeserializerForSqlDate
+        createDeserializerForSqlDate(path)
 
       case t if isSubtype(t, localTypeOf[java.time.Instant]) =>
-        createDeserializerForInstant
+        createDeserializerForInstant(path)
 
       case t if isSubtype(t, localTypeOf[java.lang.Enum[_]]) =>
-        // Code touching Scala Reflection should be called outside the returned function to allow
-        // caching the Scala Reflection result
-        val cls = getClassFromType(t)
-        path => createDeserializerForTypesSupportValueOf(
-          Invoke(path, "toString", ObjectType(classOf[String]), returnNullable = false), cls)
+        createDeserializerForTypesSupportValueOf(
+          Invoke(path, "toString", ObjectType(classOf[String]), returnNullable = false),
+          getClassFromType(t))
 
       case t if isSubtype(t, localTypeOf[java.sql.Timestamp]) =>
-        createDeserializerForSqlTimestamp
+        createDeserializerForSqlTimestamp(path)
 
       case t if isSubtype(t, localTypeOf[java.time.LocalDateTime]) =>
-        createDeserializerForLocalDateTime
+        createDeserializerForLocalDateTime(path)
 
       case t if isSubtype(t, localTypeOf[java.time.Duration]) =>
-        createDeserializerForDuration
+        createDeserializerForDuration(path)
 
       case t if isSubtype(t, localTypeOf[java.time.Period]) =>
-        createDeserializerForPeriod
+        createDeserializerForPeriod(path)
 
       case t if isSubtype(t, localTypeOf[java.lang.String]) =>
-        createDeserializerForString(_, returnNullable = false)
+        createDeserializerForString(path, returnNullable = false)
 
       case t if isSubtype(t, localTypeOf[java.math.BigDecimal]) =>
-        createDeserializerForJavaBigDecimal(_, returnNullable = false)
+        createDeserializerForJavaBigDecimal(path, returnNullable = false)
 
       case t if isSubtype(t, localTypeOf[BigDecimal]) =>
-        createDeserializerForScalaBigDecimal(_, returnNullable = false)
+        createDeserializerForScalaBigDecimal(path, returnNullable = false)
 
       case t if isSubtype(t, localTypeOf[java.math.BigInteger]) =>
-        createDeserializerForJavaBigInteger(_, returnNullable = false)
+        createDeserializerForJavaBigInteger(path, returnNullable = false)
 
       case t if isSubtype(t, localTypeOf[scala.math.BigInt]) =>
-        createDeserializerForScalaBigInt
+        createDeserializerForScalaBigInt(path)
 
       case t if isSubtype(t, localTypeOf[Array[_]]) =>
         val TypeRef(_, _, Seq(elementType)) = t
         val Schema(dataType, elementNullable) = schemaFor(elementType)
         val className = getClassNameFromType(elementType)
         val newTypePath = walkedTypePath.recordArray(className)
-        val deserializerFunc = deserializerFor(elementType, newTypePath)
+
         val mapFunction: Expression => Expression = element => {
           // upcast the array element to the data type the encoder expected.
           deserializerForWithNullSafetyAndUpcast(
@@ -276,9 +279,10 @@ object ScalaReflection extends ScalaReflection {
             dataType,
             nullable = elementNullable,
             newTypePath,
-            deserializerFunc)
+            (casted, typePath) => deserializerFor(elementType, casted, typePath))
         }
 
+        val arrayData = UnresolvedMapObjects(mapFunction, path)
         val arrayCls = arrayClassFor(elementType)
 
         val methodName = elementType match {
@@ -292,10 +296,7 @@ object ScalaReflection extends ScalaReflection {
           // non-primitive
           case _ => "array"
         }
-        path => {
-          val arrayData = UnresolvedMapObjects(mapFunction, path)
-          Invoke(arrayData, methodName, arrayCls, returnNullable = false)
-        }
+        Invoke(arrayData, methodName, arrayCls, returnNullable = false)
 
       // We serialize a `Set` to Catalyst array. When we deserialize a Catalyst array
       // to a `Set`, if there are duplicated elements, the elements will be de-duplicated.
@@ -305,14 +306,14 @@ object ScalaReflection extends ScalaReflection {
         val Schema(dataType, elementNullable) = schemaFor(elementType)
         val className = getClassNameFromType(elementType)
         val newTypePath = walkedTypePath.recordArray(className)
-        val deserializerFunc = deserializerFor(elementType, newTypePath)
+
         val mapFunction: Expression => Expression = element => {
           deserializerForWithNullSafetyAndUpcast(
             element,
             dataType,
             nullable = elementNullable,
             newTypePath,
-            deserializerFunc)
+            (casted, typePath) => deserializerFor(elementType, casted, typePath))
         }
 
         val companion = t.dealias.typeSymbol.companion.typeSignature
@@ -322,7 +323,7 @@ object ScalaReflection extends ScalaReflection {
             classOf[scala.collection.Set[_]]
           case _ => mirror.runtimeClass(t.typeSymbol.asClass)
         }
-        UnresolvedMapObjects(mapFunction, _, Some(cls))
+        UnresolvedMapObjects(mapFunction, path, Some(cls))
 
       case t if isSubtype(t, localTypeOf[Map[_, _]]) =>
         val TypeRef(_, _, Seq(keyType, valueType)) = t
@@ -332,12 +333,12 @@ object ScalaReflection extends ScalaReflection {
 
         val newTypePath = walkedTypePath.recordMap(classNameForKey, classNameForValue)
 
-        // Code touching Scala Reflection should be called outside the returned function to allow
-        // caching the Scala Reflection result
-        val keyDeserializerFunc = deserializerFor(keyType, newTypePath)
-        val valueDeserializerFunc = deserializerFor(valueType, newTypePath)
-        val cls = mirror.runtimeClass(t.typeSymbol.asClass)
-        UnresolvedCatalystToExternalMap(_, keyDeserializerFunc, valueDeserializerFunc, cls)
+        UnresolvedCatalystToExternalMap(
+          path,
+          p => deserializerFor(keyType, p, newTypePath),
+          p => deserializerFor(valueType, p, newTypePath),
+          mirror.runtimeClass(t.typeSymbol.asClass)
+        )
 
       case t if t.typeSymbol.annotations.exists(_.tree.tpe =:= typeOf[SQLUserDefinedType]) =>
         val udt = getClassFromType(t).getAnnotation(classOf[SQLUserDefinedType]).udt().
@@ -346,10 +347,7 @@ object ScalaReflection extends ScalaReflection {
           udt.userClass.getAnnotation(classOf[SQLUserDefinedType]).udt(),
           Nil,
           dataType = ObjectType(udt.userClass.getAnnotation(classOf[SQLUserDefinedType]).udt()))
-        // Code touching Scala Reflection should be called outside the returned function to allow
-        // caching the Scala Reflection result
-        val cls = udt.userClass
-        path => Invoke(obj, "deserialize", ObjectType(cls), Seq(path))
+        Invoke(obj, "deserialize", ObjectType(udt.userClass), path :: Nil)
 
       case t if UDTRegistration.exists(getClassNameFromType(t)) =>
         val udt = UDTRegistration.getUDTFor(getClassNameFromType(t)).get.getConstructor().
@@ -358,44 +356,43 @@ object ScalaReflection extends ScalaReflection {
           udt.getClass,
           Nil,
           dataType = ObjectType(udt.getClass))
-        // Code touching Scala Reflection should be called outside the returned function to allow
-        // caching the Scala Reflection result
-        val cls = udt.userClass
-        path => Invoke(obj, "deserialize", ObjectType(cls), Seq(path))
+        Invoke(obj, "deserialize", ObjectType(udt.userClass), path :: Nil)
 
       case t if definedByConstructorParams(t) =>
         val params = getConstructorParameters(t)
 
         val cls = getClassFromType(tpe)
 
-        val arguDeserializerFuncs = params.zipWithIndex.map { case ((fieldName, fieldType), i) =>
+        val arguments = params.zipWithIndex.map { case ((fieldName, fieldType), i) =>
           val Schema(dataType, nullable) = schemaFor(fieldType)
           val clsName = getClassNameFromType(fieldType)
           val newTypePath = walkedTypePath.recordField(clsName, fieldName)
 
           // For tuples, we based grab the inner fields by ordinal instead of name.
-          val newPathFunc = if (cls.getName startsWith "scala.Tuple") {
-            addToPathOrdinal(_, i, dataType, newTypePath)
+          val newPath = if (cls.getName startsWith "scala.Tuple") {
+            deserializerFor(
+              fieldType,
+              addToPathOrdinal(path, i, dataType, newTypePath),
+              newTypePath)
           } else {
-            addToPath(_, fieldName, dataType, newTypePath)
+            deserializerFor(
+              fieldType,
+              addToPath(path, fieldName, dataType, newTypePath),
+              newTypePath)
           }
-          val deserializerFunc = deserializerFor(fieldType, newTypePath)
-          (path: Expression) => expressionWithNullSafety(
-            deserializerFunc(newPathFunc(path)),
+          expressionWithNullSafety(
+            newPath,
             nullable = nullable,
             newTypePath)
         }
 
-        val nullLit = expressions.Literal.create(null, ObjectType(cls))
-        path => {
-          val arguments = arguDeserializerFuncs.map(_(path))
-          val newInstance = NewInstance(cls, arguments, ObjectType(cls), propagateNull = false)
-          expressions.If(
-            IsNull(path),
-            nullLit,
-            newInstance
-          )
-        }
+        val newInstance = NewInstance(cls, arguments, ObjectType(cls), propagateNull = false)
+
+        expressions.If(
+          IsNull(path),
+          expressions.Literal.create(null, ObjectType(cls)),
+          newInstance
+        )
 
       case t if isSubtype(t, localTypeOf[Enumeration#Value]) =>
         // package example
@@ -406,13 +403,10 @@ object ScalaReflection extends ScalaReflection {
         // the fullName of tpe is example.Foo.Foo, but we need example.Foo so that
         // we can call example.Foo.withName to deserialize string to enumeration.
         val parent = t.asInstanceOf[TypeRef].pre.typeSymbol.asClass
-        // Code touching Scala Reflection should be called outside the returned function to allow
-        // caching the Scala Reflection result
-        val parentCls = mirror.runtimeClass(parent)
-        val cls = getClassFromType(t)
-        path => StaticInvoke(
-          parentCls,
-          ObjectType(cls),
+        val cls = mirror.runtimeClass(parent)
+        StaticInvoke(
+          cls,
+          ObjectType(getClassFromType(t)),
           "withName",
           createDeserializerForString(path, false) :: Nil,
           returnNullable = false)
@@ -646,7 +640,7 @@ object ScalaReflection extends ScalaReflection {
   def getConstructorParameters(cls: Class[_]): Seq[(String, Type)] = {
     val m = runtimeMirror(cls.getClassLoader)
     val classSymbol = m.staticClass(cls.getName)
-    val t = selfType(classSymbol)
+    val t = classSymbol.selfType
     getConstructorParameters(t)
   }
 
@@ -660,36 +654,8 @@ object ScalaReflection extends ScalaReflection {
   def getConstructorParameterNames(cls: Class[_]): Seq[String] = {
     val m = runtimeMirror(cls.getClassLoader)
     val classSymbol = m.staticClass(cls.getName)
-    val t = selfType(classSymbol)
+    val t = classSymbol.selfType
     constructParams(t).map(_.name.decodedName.toString)
-  }
-
-  /**
-   * Workaround for [[https://github.com/scala/bug/issues/12190 Scala bug #12190]]
-   *
-   * `ClassSymbol.selfType` can throw an exception in case of cyclic annotation reference
-   * in Java classes. A retry of this operation will succeed as the class which defines the
-   * cycle is now resolved. It can however expose further recursive annotation references, so
-   * we keep retrying until we exhaust our retry threshold. Default threshold is set to 5
-   * to allow for a few level of cyclic references.
-   */
-  @tailrec
-  private def selfType(clsSymbol: ClassSymbol, tries: Int = 5): Type = {
-    scala.util.Try {
-      clsSymbol.selfType
-    } match {
-      case Success(x) => x
-      case Failure(e: Symbols#CyclicReference) if tries > 1 =>
-        // Retry on Symbols#CyclicReference if we haven't exhausted our retry limit
-        selfType(clsSymbol, tries - 1)
-      case Failure(e: RuntimeException)
-        if e.getMessage.contains("illegal cyclic reference") && tries > 1 =>
-        // UnPickler.unpickle wraps the original Symbols#CyclicReference exception into a runtime
-        // exception and does not set the cause, so we inspect the message. The previous case
-        // statement is useful for Java classes while this one is for Scala classes.
-        selfType(clsSymbol, tries - 1)
-      case Failure(e) => throw e
-    }
   }
 
   /**
@@ -787,7 +753,8 @@ object ScalaReflection extends ScalaReflection {
         Schema(TimestampType, nullable = true)
       case t if isSubtype(t, localTypeOf[java.sql.Timestamp]) =>
         Schema(TimestampType, nullable = true)
-      case t if isSubtype(t, localTypeOf[java.time.LocalDateTime]) =>
+      // SPARK-36227: Remove TimestampNTZ type support in Spark 3.2 with minimal code changes.
+      case t if isSubtype(t, localTypeOf[java.time.LocalDateTime]) && Utils.isTesting =>
         Schema(TimestampNTZType, nullable = true)
       case t if isSubtype(t, localTypeOf[java.time.LocalDate]) => Schema(DateType, nullable = true)
       case t if isSubtype(t, localTypeOf[java.sql.Date]) => Schema(DateType, nullable = true)
@@ -844,7 +811,7 @@ object ScalaReflection extends ScalaReflection {
    */
   def findConstructor[T](cls: Class[T], paramTypes: Seq[Class[_]]): Option[Seq[AnyRef] => T] = {
     Option(ConstructorUtils.getMatchingAccessibleConstructor(cls, paramTypes: _*)) match {
-      case Some(c) => Some(x => c.newInstance(x: _*))
+      case Some(c) => Some(x => c.newInstance(x: _*).asInstanceOf[T])
       case None =>
         val companion = mirror.staticClass(cls.getName).companion
         val moduleMirror = mirror.reflectModule(companion.asModule)
@@ -853,8 +820,8 @@ object ScalaReflection extends ScalaReflection {
         applyMethods.find { method =>
           val params = method.typeSignature.paramLists.head
           // Check that the needed params are the same length and of matching types
-          params.size == paramTypes.size &&
-          params.zip(paramTypes).forall { case(ps, pc) =>
+          params.size == paramTypes.tail.size &&
+          params.zip(paramTypes.tail).forall { case(ps, pc) =>
             ps.typeSignature.typeSymbol == mirror.classSymbol(pc)
           }
         }.map { applyMethodSymbol =>
@@ -893,7 +860,9 @@ object ScalaReflection extends ScalaReflection {
     StringType -> classOf[UTF8String],
     DateType -> classOf[DateType.InternalType],
     TimestampType -> classOf[TimestampType.InternalType],
-    TimestampNTZType -> classOf[TimestampNTZType.InternalType],
+    // SPARK-36227: Remove TimestampNTZ type support in Spark 3.2 with minimal code changes.
+    TimestampNTZType ->
+      (if (Utils.isTesting) classOf[TimestampNTZType.InternalType] else classOf[java.lang.Object]),
     BinaryType -> classOf[BinaryType.InternalType],
     CalendarIntervalType -> classOf[CalendarInterval]
   )
@@ -908,7 +877,9 @@ object ScalaReflection extends ScalaReflection {
     DoubleType -> classOf[java.lang.Double],
     DateType -> classOf[java.lang.Integer],
     TimestampType -> classOf[java.lang.Long],
-    TimestampNTZType -> classOf[java.lang.Long]
+    // SPARK-36227: Remove TimestampNTZ type support in Spark 3.2 with minimal code changes.
+    TimestampNTZType ->
+      (if (Utils.isTesting) classOf[java.lang.Long] else classOf[java.lang.Object])
   )
 
   def dataTypeJavaClass(dt: DataType): Class[_] = {
@@ -924,7 +895,6 @@ object ScalaReflection extends ScalaReflection {
     }
   }
 
-  @scala.annotation.tailrec
   def javaBoxedType(dt: DataType): Class[_] = dt match {
     case _: DecimalType => classOf[Decimal]
     case _: DayTimeIntervalType => classOf[java.lang.Long]
@@ -992,15 +962,6 @@ trait ScalaReflection extends Logging {
     tag.in(mirror).tpe.dealias
   }
 
-  private def isValueClass(tpe: Type): Boolean = {
-    tpe.typeSymbol.isClass && tpe.typeSymbol.asClass.isDerivedValueClass
-  }
-
-  /** Returns the name and type of the underlying parameter of value class `tpe`. */
-  private def getUnderlyingTypeOfValueClass(tpe: `Type`): Type = {
-    getConstructorParameters(tpe).head._2
-  }
-
   /**
    * Returns the parameter names and types for the primary constructor of this type.
    *
@@ -1012,13 +973,15 @@ trait ScalaReflection extends Logging {
     val formalTypeArgs = dealiasedTpe.typeSymbol.asClass.typeParams
     val TypeRef(_, _, actualTypeArgs) = dealiasedTpe
     val params = constructParams(dealiasedTpe)
-    params.map { p =>
-      val paramTpe = p.typeSignature
-      if (isValueClass(paramTpe)) {
-        // Replace value class with underlying type
-        p.name.decodedName.toString -> getUnderlyingTypeOfValueClass(paramTpe)
-      } else {
-        p.name.decodedName.toString -> paramTpe.substituteTypes(formalTypeArgs, actualTypeArgs)
+    // if there are type variables to fill in, do the substitution (SomeClass[T] -> SomeClass[Int])
+    if (actualTypeArgs.nonEmpty) {
+      params.map { p =>
+        p.name.decodedName.toString ->
+          p.typeSignature.substituteTypes(formalTypeArgs, actualTypeArgs)
+      }
+    } else {
+      params.map { p =>
+        p.name.decodedName.toString -> p.typeSignature
       }
     }
   }

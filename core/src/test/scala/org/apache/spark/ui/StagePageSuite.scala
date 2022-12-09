@@ -91,7 +91,6 @@ class StagePageSuite extends SparkFunSuite with LocalSparkContext {
         accumulatorUpdates = Seq(new UIAccumulableInfo(0L, "acc", None, "value")),
         tasks = None,
         executorSummary = None,
-        speculationSummary = None,
         killedTasksSummary = Map.empty,
         ResourceProfile.DEFAULT_RESOURCE_PROFILE_ID,
         peakExecutorMetrics = None,
@@ -140,8 +139,8 @@ class StagePageSuite extends SparkFunSuite with LocalSparkContext {
       // Simulate two tasks to test PEAK_EXECUTION_MEMORY correctness
       (1 to 2).foreach {
         taskId =>
-          val taskInfo = new TaskInfo(taskId, taskId, 0, taskId, 0,
-            "0", "localhost", TaskLocality.ANY, false)
+          val taskInfo = new TaskInfo(taskId, taskId, 0, 0, "0", "localhost", TaskLocality.ANY,
+            false)
           listener.onStageSubmitted(SparkListenerStageSubmitted(stageInfo))
           listener.onTaskStart(SparkListenerTaskStart(0, 0, taskInfo))
           taskInfo.markFinished(TaskState.FINISHED, System.currentTimeMillis())

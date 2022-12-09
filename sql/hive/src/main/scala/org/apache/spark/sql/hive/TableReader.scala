@@ -35,6 +35,7 @@ import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{FileInputFormat, InputFormat => oldInputClass, JobConf}
 import org.apache.hadoop.mapreduce.{InputFormat => newInputClass}
 
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.{EmptyRDD, HadoopRDD, NewHadoopRDD, RDD, UnionRDD}
@@ -300,16 +301,6 @@ class HadoopTableReader(
   }
 
   /**
-   * True if the new org.apache.hadoop.mapreduce.InputFormat is implemented (except
-   * HiveHBaseTableInputFormat where although the new interface is implemented by base HBase class
-   * the table inicialization in the Hive layer only happens via the old interface methods -
-   * for more details see SPARK-32380).
-   */
-  private def compatibleWithNewHadoopRDD(inputClass: Class[_ <: oldInputClass[_, _]]): Boolean =
-    classOf[newInputClass[_, _]].isAssignableFrom(inputClass) &&
-      !inputClass.getName.equalsIgnoreCase("org.apache.hadoop.hive.hbase.HiveHBaseTableInputFormat")
-
-  /**
    * The entry of creating a RDD.
    * [SPARK-26630] Using which HadoopRDD will be decided by the input format of tables.
    * The input format of NewHadoopRDD is from `org.apache.hadoop.mapreduce` package while
@@ -317,7 +308,7 @@ class HadoopTableReader(
    */
   private def createHadoopRDD(localTableDesc: TableDesc, inputPathStr: String): RDD[Writable] = {
     val inputFormatClazz = localTableDesc.getInputFileFormatClass
-    if (compatibleWithNewHadoopRDD(inputFormatClazz)) {
+    if (classOf[newInputClass[_, _]].isAssignableFrom(inputFormatClazz)) {
       createNewHadoopRDD(localTableDesc, inputPathStr)
     } else {
       createOldHadoopRDD(localTableDesc, inputPathStr)
@@ -326,7 +317,7 @@ class HadoopTableReader(
 
   private def createHadoopRDD(partitionDesc: PartitionDesc, inputPathStr: String): RDD[Writable] = {
     val inputFormatClazz = partitionDesc.getInputFileFormatClass
-    if (compatibleWithNewHadoopRDD(inputFormatClazz)) {
+    if (classOf[newInputClass[_, _]].isAssignableFrom(inputFormatClazz)) {
       createNewHadoopRDD(partitionDesc, inputPathStr)
     } else {
       createOldHadoopRDD(partitionDesc, inputPathStr)
@@ -361,7 +352,7 @@ class HadoopTableReader(
       initializeJobConfFunc: JobConf => Unit): RDD[Writable] = {
     val rdd = new HadoopRDD(
       sparkSession.sparkContext,
-      _broadcastedHadoopConf,
+      _broadcastedHadoopConf.asInstanceOf[Broadcast[SerializableConfiguration]],
       Some(initializeJobConfFunc),
       inputFormatClass,
       classOf[Writable],

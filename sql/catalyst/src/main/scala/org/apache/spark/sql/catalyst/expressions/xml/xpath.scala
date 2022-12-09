@@ -18,9 +18,8 @@
 package org.apache.spark.sql.catalyst.expressions.xml
 
 import org.apache.spark.sql.catalyst.analysis.{FunctionRegistry, TypeCheckResult}
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.Cast._
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
@@ -43,14 +42,7 @@ abstract class XPathExtract
 
   override def checkInputDataTypes(): TypeCheckResult = {
     if (!path.foldable) {
-      DataTypeMismatch(
-        errorSubClass = "NON_FOLDABLE_INPUT",
-        messageParameters = Map(
-          "inputName" -> "path",
-          "inputType" -> toSQLType(StringType),
-          "inputExpr" -> toSQLExpr(path)
-        )
-      )
+      TypeCheckFailure("path should be a string literal")
     } else {
       super.checkInputDataTypes()
     }
@@ -75,9 +67,10 @@ abstract class XPathExtract
   since = "2.0.0",
   group = "xml_funcs")
 // scalastyle:on line.size.limit
-case class XPathBoolean(xml: Expression, path: Expression) extends XPathExtract with Predicate {
+case class XPathBoolean(xml: Expression, path: Expression) extends XPathExtract {
 
   override def prettyName: String = "xpath_boolean"
+  override def dataType: DataType = BooleanType
 
   override def nullSafeEval(xml: Any, path: Any): Any = {
     xpathUtil.evalBoolean(xml.asInstanceOf[UTF8String].toString, pathString)

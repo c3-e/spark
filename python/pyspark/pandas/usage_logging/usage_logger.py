@@ -37,7 +37,7 @@ def _format_signature(signature):
     )
 
 
-class PandasOnSparkUsageLogger:
+class PandasOnSparkUsageLogger(object):
     """
     The reference implementation of usage logger.
 

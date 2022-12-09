@@ -17,7 +17,6 @@
 
 package org.apache.spark.sql.connector.expressions
 
-import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.types.{DataType, IntegerType, StringType}
@@ -45,12 +44,6 @@ private[sql] object LogicalExpressions {
 
   def bucket(numBuckets: Int, references: Array[NamedReference]): BucketTransform =
     BucketTransform(literal(numBuckets, IntegerType), references)
-
-  def bucket(
-      numBuckets: Int,
-      references: Array[NamedReference],
-      sortedCols: Array[NamedReference]): SortedBucketTransform =
-    SortedBucketTransform(literal(numBuckets, IntegerType), references, sortedCols)
 
   def identity(reference: NamedReference): IdentityTransform = IdentityTransform(reference)
 
@@ -89,7 +82,9 @@ private[sql] abstract class SingleColumnTransform(ref: NamedReference) extends R
 
   override def arguments: Array[Expression] = Array(ref)
 
-  override def toString: String = name + "(" + reference.describe + ")"
+  override def describe: String = name + "(" + reference.describe + ")"
+
+  override def toString: String = describe
 
   protected def withNewRef(ref: NamedReference): Transform
 
@@ -122,52 +117,25 @@ private[sql] final case class BucketTransform(
 }
 
 private[sql] object BucketTransform {
-  def unapply(transform: Transform): Option[(Int, Seq[NamedReference], Seq[NamedReference])] =
+  def unapply(expr: Expression): Option[(Int, FieldReference)] = expr match {
+    case transform: Transform =>
       transform match {
-    case NamedTransform("sorted_bucket", arguments) =>
-      var posOfLit: Int = -1
-      var numOfBucket: Int = -1
-      arguments.zipWithIndex.foreach {
-        case (Lit(value: Int, IntegerType), i) =>
-          numOfBucket = value
-          posOfLit = i
+        case BucketTransform(n, FieldReference(parts)) =>
+          Some((n, FieldReference(parts)))
         case _ =>
+          None
       }
-      Some(numOfBucket, arguments.take(posOfLit).map(_.asInstanceOf[NamedReference]),
-        arguments.drop(posOfLit + 1).map(_.asInstanceOf[NamedReference]))
-    case NamedTransform("bucket", arguments) =>
-      var numOfBucket: Int = -1
-      arguments(0) match {
-        case Lit(value: Int, IntegerType) =>
-          numOfBucket = value
-        case _ => throw new SparkException("The first element in BucketTransform arguments " +
-          "should be an Integer Literal.")
-      }
-      Some(numOfBucket, arguments.drop(1).map(_.asInstanceOf[NamedReference]),
-        Seq.empty[FieldReference])
     case _ =>
       None
   }
-}
 
-private[sql] final case class SortedBucketTransform(
-    numBuckets: Literal[Int],
-    columns: Seq[NamedReference],
-    sortedColumns: Seq[NamedReference] = Seq.empty[NamedReference]) extends RewritableTransform {
-
-  override val name: String = "sorted_bucket"
-
-  override def references: Array[NamedReference] = {
-    arguments.collect { case named: NamedReference => named }
-  }
-
-  override def arguments: Array[Expression] = (columns.toArray :+ numBuckets) ++ sortedColumns
-
-  override def toString: String = s"$name(${arguments.map(_.describe).mkString(", ")})"
-
-  override def withReferences(newReferences: Seq[NamedReference]): Transform = {
-    this.copy(columns = newReferences.take(columns.length),
-      sortedColumns = newReferences.drop(columns.length))
+  def unapply(transform: Transform): Option[(Int, NamedReference)] = transform match {
+    case NamedTransform("bucket", Seq(
+        Lit(value: Int, IntegerType),
+        Ref(seq: Seq[String]))) =>
+      Some((value, FieldReference(seq)))
+    case _ =>
+      None
   }
 }
 
@@ -181,7 +149,9 @@ private[sql] final case class ApplyTransform(
     arguments.collect { case named: NamedReference => named }
   }
 
-  override def toString: String = s"$name(${arguments.map(_.describe).mkString(", ")})"
+  override def describe: String = s"$name(${arguments.map(_.describe).mkString(", ")})"
+
+  override def toString: String = describe
 }
 
 /**
@@ -348,19 +318,21 @@ private[sql] object HoursTransform {
 }
 
 private[sql] final case class LiteralValue[T](value: T, dataType: DataType) extends Literal[T] {
-  override def toString: String = {
+  override def describe: String = {
     if (dataType.isInstanceOf[StringType]) {
       s"'$value'"
     } else {
       s"$value"
     }
   }
+  override def toString: String = describe
 }
 
 private[sql] final case class FieldReference(parts: Seq[String]) extends NamedReference {
   import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.MultipartIdentifierHelper
   override def fieldNames: Array[String] = parts.toArray
-  override def toString: String = parts.quoted
+  override def describe: String = parts.quoted
+  override def toString: String = describe
 }
 
 private[sql] object FieldReference {
@@ -378,7 +350,7 @@ private[sql] final case class SortValue(
     direction: SortDirection,
     nullOrdering: NullOrdering) extends SortOrder {
 
-  override def toString(): String = s"$expression $direction $nullOrdering"
+  override def describe(): String = s"$expression $direction $nullOrdering"
 }
 
 private[sql] object SortValue {

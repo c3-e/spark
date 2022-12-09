@@ -19,17 +19,15 @@ package org.apache.spark.sql.catalyst.expressions
 
 import java.util.Locale
 
-import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{FunctionRegistry, TypeCheckResult, TypeCoercion}
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
-import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateFunction
+import org.apache.spark.sql.catalyst.expressions.aggregate.DeclarativeAggregate
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
-import org.apache.spark.sql.catalyst.trees.{BinaryLike, LeafLike, QuaternaryLike, SQLQueryContext, TernaryLike, TreeNode, UnaryLike}
+import org.apache.spark.sql.catalyst.trees.{BinaryLike, LeafLike, QuaternaryLike, TernaryLike, TreeNode, UnaryLike}
 import org.apache.spark.sql.catalyst.trees.TreePattern.{RUNTIME_REPLACEABLE, TreePattern}
 import org.apache.spark.sql.catalyst.util.truncatedString
-import org.apache.spark.sql.errors.{QueryErrorsBase, QueryExecutionErrors}
+import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -227,30 +225,14 @@ abstract class Expression extends TreeNode[Expression] {
   /**
    * Returns an expression where a best effort attempt has been made to transform `this` in a way
    * that preserves the result but removes cosmetic variations (case sensitivity, ordering for
-   * commutative operations, etc.).
+   * commutative operations, etc.)  See [[Canonicalize]] for more details.
    *
    * `deterministic` expressions where `this.canonicalized == other.canonicalized` will always
    * evaluate to the same result.
-   *
-   * The process of canonicalization is a one pass, bottum-up expression tree computation based on
-   * canonicalizing children before canonicalizing the current node. There is one exception though,
-   * as adjacent, same class [[CommutativeExpression]]s canonicalazion happens in a way that calling
-   * `canonicalized` on the root:
-   *   1. Gathers and canonicalizes the non-commutative (or commutative but not same class) child
-   *      expressions of the adjacent expressions.
-   *   2. Reorder the canonicalized child expressions by their hashcode.
-   * This means that the lazy `cannonicalized` is called and computed only on the root of the
-   * adjacent expressions.
    */
-  lazy val canonicalized: Expression = withCanonicalizedChildren
-
-  /**
-   * The default process of canonicalization. It is a one pass, bottum-up expression tree
-   * computation based oncanonicalizing children before canonicalizing the current node.
-   */
-  final protected def withCanonicalizedChildren: Expression = {
+  lazy val canonicalized: Expression = {
     val canonicalizedChildren = children.map(_.canonicalized)
-    withNewChildren(canonicalizedChildren)
+    Canonicalize.execute(withNewChildren(canonicalizedChildren))
   }
 
   /**
@@ -308,18 +290,8 @@ abstract class Expression extends TreeNode[Expression] {
   }
 
   override def simpleStringWithNodeId(): String = {
-    throw SparkException.internalError(s"$nodeName does not implement simpleStringWithNodeId")
+    throw QueryExecutionErrors.simpleStringWithNodeIdUnsupportedError(nodeName)
   }
-
-  protected def typeSuffix =
-    if (resolved) {
-      dataType match {
-        case LongType => "L"
-        case _ => ""
-      }
-    } else {
-      ""
-    }
 }
 
 
@@ -345,62 +317,65 @@ trait Unevaluable extends Expression {
  * An expression that gets replaced at runtime (currently by the optimizer) into a different
  * expression for evaluation. This is mainly used to provide compatibility with other databases.
  * For example, we use this to support "nvl" by replacing it with "coalesce".
+ *
+ * A RuntimeReplaceable should have the original parameters along with a "child" expression in the
+ * case class constructor, and define a normal constructor that accepts only the original
+ * parameters. For an example, see [[Nvl]]. To make sure the explain plan and expression SQL
+ * works correctly, the implementation should also override flatArguments method and sql method.
  */
-trait RuntimeReplaceable extends Expression {
-  def replacement: Expression
-
-  override val nodePatterns: Seq[TreePattern] = Seq(RUNTIME_REPLACEABLE)
-  override def nullable: Boolean = replacement.nullable
-  override def dataType: DataType = replacement.dataType
+trait RuntimeReplaceable extends UnaryExpression with Unevaluable {
+  override def nullable: Boolean = child.nullable
+  override def dataType: DataType = child.dataType
   // As this expression gets replaced at optimization with its `child" expression,
   // two `RuntimeReplaceable` are considered to be semantically equal if their "child" expressions
   // are semantically equal.
-  override lazy val canonicalized: Expression = replacement.canonicalized
+  override lazy val canonicalized: Expression = child.canonicalized
 
-  final override def eval(input: InternalRow = null): Any =
-    throw QueryExecutionErrors.cannotEvaluateExpressionError(this)
-  final override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
-    throw QueryExecutionErrors.cannotGenerateCodeForExpressionError(this)
-}
+  /**
+   * Only used to generate SQL representation of this expression.
+   *
+   * Implementations should override this with original parameters
+   */
+  def exprsReplaced: Seq[Expression]
 
-/**
- * An add-on of [[RuntimeReplaceable]]. It makes `replacement` the child of the expression, to
- * inherit the analysis rules for it, such as type coercion. The implementation should put
- * `replacement` in the case class constructor, and define a normal constructor that accepts only
- * the original parameters. For an example, see [[TryAdd]]. To make sure the explain plan and
- * expression SQL works correctly, the implementation should also implement the `parameters` method.
- */
-trait InheritAnalysisRules extends UnaryLike[Expression] { self: RuntimeReplaceable =>
-  override def child: Expression = replacement
-  def parameters: Seq[Expression]
-  override def flatArguments: Iterator[Any] = parameters.iterator
-  // This method is used to generate a SQL string with transformed inputs. This is necessary as
-  // the actual inputs are not the children of this expression.
-  def makeSQLString(childrenSQL: Seq[String]): String = {
-    prettyName + childrenSQL.mkString("(", ", ", ")")
+  override def sql: String = mkString(exprsReplaced.map(_.sql))
+
+  final override val nodePatterns: Seq[TreePattern] = Seq(RUNTIME_REPLACEABLE)
+
+  def mkString(childrenString: Seq[String]): String = {
+    prettyName + childrenString.mkString("(", ", ", ")")
   }
-  final override def sql: String = makeSQLString(parameters.map(_.sql))
 }
 
 /**
- * An add-on of [[AggregateFunction]]. This gets rewritten (currently by the optimizer) into a
+ * An aggregate expression that gets rewritten (currently by the optimizer) into a
  * different aggregate expression for evaluation. This is mainly used to provide compatibility
  * with other databases. For example, we use this to support every, any/some aggregates by rewriting
  * them with Min and Max respectively.
  */
-trait RuntimeReplaceableAggregate extends RuntimeReplaceable { self: AggregateFunction =>
-  override def aggBufferSchema: StructType = {
-    throw SparkException.internalError(
-      "RuntimeReplaceableAggregate.aggBufferSchema should not be called")
-  }
-  override def aggBufferAttributes: Seq[AttributeReference] = {
-    throw SparkException.internalError(
-      "RuntimeReplaceableAggregate.aggBufferAttributes should not be called")
-  }
-  override def inputAggBufferAttributes: Seq[AttributeReference] = {
-    throw SparkException.internalError(
-      "RuntimeReplaceableAggregate.inputAggBufferAttributes should not be called")
-  }
+trait UnevaluableAggregate extends DeclarativeAggregate {
+
+  override def nullable: Boolean = true
+
+  override lazy val aggBufferAttributes =
+    throw QueryExecutionErrors.evaluateUnevaluableAggregateUnsupportedError(
+      "aggBufferAttributes", this)
+
+  override lazy val initialValues: Seq[Expression] =
+    throw QueryExecutionErrors.evaluateUnevaluableAggregateUnsupportedError(
+      "initialValues", this)
+
+  override lazy val updateExpressions: Seq[Expression] =
+    throw QueryExecutionErrors.evaluateUnevaluableAggregateUnsupportedError(
+      "updateExpressions", this)
+
+  override lazy val mergeExpressions: Seq[Expression] =
+    throw QueryExecutionErrors.evaluateUnevaluableAggregateUnsupportedError(
+      "mergeExpressions", this)
+
+  override lazy val evaluateExpression: Expression =
+    throw QueryExecutionErrors.evaluateUnevaluableAggregateUnsupportedError(
+      "evaluateExpression", this)
 }
 
 /**
@@ -412,7 +387,6 @@ trait NonSQLExpression extends Expression {
     transform {
       case a: Attribute => new PrettyAttribute(a)
       case a: Alias => PrettyAttribute(a.sql, a.dataType)
-      case p: PythonUDF => PrettyPythonUDF(p.name, p.dataType, p.children)
     }.toString
   }
 }
@@ -451,25 +425,6 @@ trait Nondeterministic extends Expression {
   }
 
   protected def evalInternal(input: InternalRow): Any
-}
-
-/**
- * An expression that contains conditional expression branches, so not all branches will be hit.
- * All optimization should be careful with the evaluation order.
- */
-trait ConditionalExpression extends Expression {
-  final override def foldable: Boolean = children.forall(_.foldable)
-
-  /**
-   * Return the children expressions which can always be hit at runtime.
-   */
-  def alwaysEvaluatedInputs: Seq[Expression]
-
-  /**
-   * Return groups of branches. For each group, at least one branch will be hit at runtime,
-   * so that we can eagerly evaluate the common expressions of a group.
-   */
-  def branchGroups: Seq[Seq[Expression]]
 }
 
 /**
@@ -587,38 +542,6 @@ abstract class UnaryExpression extends Expression with UnaryLike[Expression] {
   }
 }
 
-/**
- * An expression with SQL query context. The context string can be serialized from the Driver
- * to executors. It will also be kept after rule transforms.
- */
-trait SupportQueryContext extends Expression with Serializable {
-  protected var queryContext: Option[SQLQueryContext] = initQueryContext()
-
-  def initQueryContext(): Option[SQLQueryContext]
-
-  def getContextOrNull(): SQLQueryContext = queryContext.getOrElse(null)
-
-  def getContextOrNullCode(ctx: CodegenContext, withErrorContext: Boolean = true): String = {
-    if (withErrorContext && queryContext.isDefined) {
-      ctx.addReferenceObj("errCtx", queryContext.get)
-    } else {
-      "null"
-    }
-  }
-
-  // Note: Even though query contexts are serialized to executors, it will be regenerated from an
-  //       empty "Origin" during rule transforms since "Origin"s are not serialized to executors
-  //       for better performance. Thus, we need to copy the original query context during
-  //       transforms. The query context string is considered as a "tag" on the expression here.
-  override def copyTagsFrom(other: Expression): Unit = {
-    other match {
-      case s: SupportQueryContext =>
-        queryContext = s.queryContext
-      case _ =>
-    }
-    super.copyTagsFrom(other)
-  }
-}
 
 object UnaryExpression {
   def unapply(e: UnaryExpression): Option[Expression] = Some(e.child)
@@ -733,7 +656,7 @@ object BinaryExpression {
  * 2. Two inputs are expected to be of the same type. If the two inputs have different types,
  *    the analyzer will find the tightest common type and do the proper type casting.
  */
-abstract class BinaryOperator extends BinaryExpression with ExpectsInputTypes with QueryErrorsBase {
+abstract class BinaryOperator extends BinaryExpression with ExpectsInputTypes {
 
   /**
    * Expected input type from both left/right child expressions, similar to the
@@ -752,17 +675,11 @@ abstract class BinaryOperator extends BinaryExpression with ExpectsInputTypes wi
   override def checkInputDataTypes(): TypeCheckResult = {
     // First check whether left and right have the same type, then check if the type is acceptable.
     if (!left.dataType.sameType(right.dataType)) {
-      DataTypeMismatch(
-        errorSubClass = "BINARY_OP_DIFF_TYPES",
-        messageParameters = Map(
-          "left" -> toSQLType(left.dataType),
-          "right" -> toSQLType(right.dataType)))
+      TypeCheckResult.TypeCheckFailure(s"differing types in '$sql' " +
+        s"(${left.dataType.catalogString} and ${right.dataType.catalogString}).")
     } else if (!inputType.acceptsType(left.dataType)) {
-      DataTypeMismatch(
-        errorSubClass = "BINARY_OP_WRONG_TYPE",
-        messageParameters = Map(
-          "inputType" -> toSQLType(inputType),
-          "actualDataType" -> toSQLType(left.dataType)))
+      TypeCheckResult.TypeCheckFailure(s"'$sql' requires ${inputType.simpleString} type," +
+        s" not ${left.dataType.catalogString}")
     } else {
       TypeCheckResult.TypeCheckSuccess
     }
@@ -1170,22 +1087,4 @@ trait ComplexTypeMergingExpression extends Expression {
  */
 trait UserDefinedExpression {
   def name: String
-}
-
-trait CommutativeExpression extends Expression {
-  /** Collects adjacent commutative operations. */
-  private def gatherCommutative(
-      e: Expression,
-      f: PartialFunction[CommutativeExpression, Seq[Expression]]): Seq[Expression] = e match {
-    case c: CommutativeExpression if f.isDefinedAt(c) => f(c).flatMap(gatherCommutative(_, f))
-    case other => other.canonicalized :: Nil
-  }
-
-  /**
-   * Reorders adjacent commutative operators such as [[And]] in the expression tree, according to
-   * the `hashCode` of non-commutative nodes, to remove cosmetic variations.
-   */
-  protected def orderCommutative(
-      f: PartialFunction[CommutativeExpression, Seq[Expression]]): Seq[Expression] =
-    gatherCommutative(this, f).sortBy(_.hashCode())
 }

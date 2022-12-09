@@ -16,7 +16,8 @@
 #
 import unittest
 
-from pyspark.resource import ExecutorResourceRequests, ResourceProfileBuilder, TaskResourceRequests
+from pyspark.resource import ExecutorResourceRequests, ResourceProfileBuilder,\
+    TaskResourceRequests
 
 
 class ResourceProfileTests(unittest.TestCase):
@@ -45,7 +46,6 @@ class ResourceProfileTests(unittest.TestCase):
         rp = rpb.require(ereqs).require(treqs).build
         assert_request_contents(rp.executorResources, rp.taskResources)
         from pyspark import SparkContext, SparkConf
-
         sc = SparkContext(conf=SparkConf())
         rdd = sc.parallelize(range(10)).withResources(rp)
         return_rp = rdd.getResourceProfile()
@@ -76,8 +76,7 @@ if __name__ == "__main__":
 
     try:
         import xmlrunner  # type: ignore[import]
-
-        testRunner = xmlrunner.XMLTestRunner(output="target/test-reports", verbosity=2)
+        testRunner = xmlrunner.XMLTestRunner(output='target/test-reports', verbosity=2)
     except ImportError:
         testRunner = None
     unittest.main(testRunner=testRunner, verbosity=2)

@@ -20,8 +20,6 @@ Python package for feature in MLlib.
 """
 import sys
 import warnings
-from typing import Dict, Hashable, Iterable, List, Optional, Tuple, Union, overload, TYPE_CHECKING
-
 from py4j.protocol import Py4JJavaError
 
 from pyspark import since
@@ -30,46 +28,16 @@ from pyspark.mllib.common import callMLlibFunc, JavaModelWrapper
 from pyspark.mllib.linalg import Vectors, _convert_to_vector
 from pyspark.mllib.util import JavaLoader, JavaSaveable
 
-from pyspark.context import SparkContext
-from pyspark.mllib.linalg import Vector
-from pyspark.mllib.regression import LabeledPoint
-from py4j.java_collections import JavaMap
-
-if TYPE_CHECKING:
-    from pyspark.mllib._typing import VectorLike
-    from py4j.java_collections import JavaMap
-
-__all__ = [
-    "Normalizer",
-    "StandardScalerModel",
-    "StandardScaler",
-    "HashingTF",
-    "IDFModel",
-    "IDF",
-    "Word2Vec",
-    "Word2VecModel",
-    "ChiSqSelector",
-    "ChiSqSelectorModel",
-    "ElementwiseProduct",
-]
+__all__ = ['Normalizer', 'StandardScalerModel', 'StandardScaler',
+           'HashingTF', 'IDFModel', 'IDF', 'Word2Vec', 'Word2VecModel',
+           'ChiSqSelector', 'ChiSqSelectorModel', 'ElementwiseProduct']
 
 
-class VectorTransformer:
+class VectorTransformer(object):
     """
     Base class for transformation of a vector or RDD of vector
     """
-
-    @overload
-    def transform(self, vector: "VectorLike") -> Vector:
-        ...
-
-    @overload
-    def transform(self, vector: RDD["VectorLike"]) -> RDD[Vector]:
-        ...
-
-    def transform(
-        self, vector: Union["VectorLike", RDD["VectorLike"]]
-    ) -> Union[Vector, RDD[Vector]]:
+    def transform(self, vector):
         """
         Applies transformation on a vector.
 
@@ -114,22 +82,11 @@ class Normalizer(VectorTransformer):
     >>> nor2.transform(v)
     DenseVector([0.0, 0.5, 1.0])
     """
-
-    def __init__(self, p: float = 2.0):
+    def __init__(self, p=2.0):
         assert p >= 1.0, "p should be greater than 1.0"
         self.p = float(p)
 
-    @overload
-    def transform(self, vector: "VectorLike") -> Vector:
-        ...
-
-    @overload
-    def transform(self, vector: RDD["VectorLike"]) -> RDD[Vector]:
-        ...
-
-    def transform(
-        self, vector: Union["VectorLike", RDD["VectorLike"]]
-    ) -> Union[Vector, RDD[Vector]]:
+    def transform(self, vector):
         """
         Applies unit length normalization on a vector.
 
@@ -158,17 +115,7 @@ class JavaVectorTransformer(JavaModelWrapper, VectorTransformer):
     Wrapper for the model in JVM
     """
 
-    @overload
-    def transform(self, vector: "VectorLike") -> Vector:
-        ...
-
-    @overload
-    def transform(self, vector: RDD["VectorLike"]) -> RDD[Vector]:
-        ...
-
-    def transform(
-        self, vector: Union["VectorLike", RDD["VectorLike"]]
-    ) -> Union[Vector, RDD[Vector]]:
+    def transform(self, vector):
         """
         Applies transformation on a vector or an RDD[Vector].
 
@@ -197,17 +144,7 @@ class StandardScalerModel(JavaVectorTransformer):
     .. versionadded:: 1.2.0
     """
 
-    @overload
-    def transform(self, vector: "VectorLike") -> Vector:
-        ...
-
-    @overload
-    def transform(self, vector: RDD["VectorLike"]) -> RDD[Vector]:
-        ...
-
-    def transform(
-        self, vector: Union["VectorLike", RDD["VectorLike"]]
-    ) -> Union[Vector, RDD[Vector]]:
+    def transform(self, vector):
         """
         Applies standardization transformation on a vector.
 
@@ -233,8 +170,8 @@ class StandardScalerModel(JavaVectorTransformer):
         """
         return JavaVectorTransformer.transform(self, vector)
 
-    @since("1.4.0")
-    def setWithMean(self, withMean: bool) -> "StandardScalerModel":
+    @since('1.4.0')
+    def setWithMean(self, withMean):
         """
         Setter of the boolean which decides
         whether it uses mean or not
@@ -242,8 +179,8 @@ class StandardScalerModel(JavaVectorTransformer):
         self.call("setWithMean", withMean)
         return self
 
-    @since("1.4.0")
-    def setWithStd(self, withStd: bool) -> "StandardScalerModel":
+    @since('1.4.0')
+    def setWithStd(self, withStd):
         """
         Setter of the boolean which decides
         whether it uses std or not
@@ -251,40 +188,40 @@ class StandardScalerModel(JavaVectorTransformer):
         self.call("setWithStd", withStd)
         return self
 
-    @property  # type: ignore[misc]
-    @since("2.0.0")
-    def withStd(self) -> bool:
+    @property
+    @since('2.0.0')
+    def withStd(self):
         """
         Returns if the model scales the data to unit standard deviation.
         """
         return self.call("withStd")
 
-    @property  # type: ignore[misc]
-    @since("2.0.0")
-    def withMean(self) -> bool:
+    @property
+    @since('2.0.0')
+    def withMean(self):
         """
         Returns if the model centers the data before scaling.
         """
         return self.call("withMean")
 
-    @property  # type: ignore[misc]
-    @since("2.0.0")
-    def std(self) -> Vector:
+    @property
+    @since('2.0.0')
+    def std(self):
         """
         Return the column standard deviation values.
         """
         return self.call("std")
 
-    @property  # type: ignore[misc]
-    @since("2.0.0")
-    def mean(self) -> Vector:
+    @property
+    @since('2.0.0')
+    def mean(self):
         """
         Return the column mean values.
         """
         return self.call("mean")
 
 
-class StandardScaler:
+class StandardScaler(object):
     """
     Standardizes features by removing the mean and scaling to unit
     variance using column summary statistics on the samples in the
@@ -321,14 +258,13 @@ class StandardScaler:
     >>> model.withMean
     True
     """
-
-    def __init__(self, withMean: bool = False, withStd: bool = True):
+    def __init__(self, withMean=False, withStd=True):
         if not (withMean or withStd):
             warnings.warn("Both withMean and withStd are false. The model does nothing.")
         self.withMean = withMean
         self.withStd = withStd
 
-    def fit(self, dataset: RDD["VectorLike"]) -> "StandardScalerModel":
+    def fit(self, dataset):
         """
         Computes the mean and variance and stores as a model to be used
         for later scaling.
@@ -357,17 +293,7 @@ class ChiSqSelectorModel(JavaVectorTransformer):
     .. versionadded:: 1.4.0
     """
 
-    @overload
-    def transform(self, vector: "VectorLike") -> Vector:
-        ...
-
-    @overload
-    def transform(self, vector: RDD["VectorLike"]) -> RDD[Vector]:
-        ...
-
-    def transform(
-        self, vector: Union["VectorLike", RDD["VectorLike"]]
-    ) -> Union[Vector, RDD[Vector]]:
+    def transform(self, vector):
         """
         Applies transformation on a vector.
 
@@ -386,7 +312,7 @@ class ChiSqSelectorModel(JavaVectorTransformer):
         return JavaVectorTransformer.transform(self, vector)
 
 
-class ChiSqSelector:
+class ChiSqSelector(object):
     """
     Creates a ChiSquared feature selector.
     The selector supports different selection methods: `numTopFeatures`, `percentile`, `fpr`,
@@ -437,16 +363,8 @@ class ChiSqSelector:
     >>> model.transform(DenseVector([7.0, 9.0, 5.0]))
     DenseVector([7.0])
     """
-
-    def __init__(
-        self,
-        numTopFeatures: int = 50,
-        selectorType: str = "numTopFeatures",
-        percentile: float = 0.1,
-        fpr: float = 0.05,
-        fdr: float = 0.05,
-        fwe: float = 0.05,
-    ):
+    def __init__(self, numTopFeatures=50, selectorType="numTopFeatures", percentile=0.1, fpr=0.05,
+                 fdr=0.05, fwe=0.05):
         self.numTopFeatures = numTopFeatures
         self.selectorType = selectorType
         self.percentile = percentile
@@ -454,8 +372,8 @@ class ChiSqSelector:
         self.fdr = fdr
         self.fwe = fwe
 
-    @since("2.1.0")
-    def setNumTopFeatures(self, numTopFeatures: int) -> "ChiSqSelector":
+    @since('2.1.0')
+    def setNumTopFeatures(self, numTopFeatures):
         """
         set numTopFeature for feature selection by number of top features.
         Only applicable when selectorType = "numTopFeatures".
@@ -463,8 +381,8 @@ class ChiSqSelector:
         self.numTopFeatures = int(numTopFeatures)
         return self
 
-    @since("2.1.0")
-    def setPercentile(self, percentile: float) -> "ChiSqSelector":
+    @since('2.1.0')
+    def setPercentile(self, percentile):
         """
         set percentile [0.0, 1.0] for feature selection by percentile.
         Only applicable when selectorType = "percentile".
@@ -472,8 +390,8 @@ class ChiSqSelector:
         self.percentile = float(percentile)
         return self
 
-    @since("2.1.0")
-    def setFpr(self, fpr: float) -> "ChiSqSelector":
+    @since('2.1.0')
+    def setFpr(self, fpr):
         """
         set FPR [0.0, 1.0] for feature selection by FPR.
         Only applicable when selectorType = "fpr".
@@ -481,8 +399,8 @@ class ChiSqSelector:
         self.fpr = float(fpr)
         return self
 
-    @since("2.2.0")
-    def setFdr(self, fdr: float) -> "ChiSqSelector":
+    @since('2.2.0')
+    def setFdr(self, fdr):
         """
         set FDR [0.0, 1.0] for feature selection by FDR.
         Only applicable when selectorType = "fdr".
@@ -490,8 +408,8 @@ class ChiSqSelector:
         self.fdr = float(fdr)
         return self
 
-    @since("2.2.0")
-    def setFwe(self, fwe: float) -> "ChiSqSelector":
+    @since('2.2.0')
+    def setFwe(self, fwe):
         """
         set FWE [0.0, 1.0] for feature selection by FWE.
         Only applicable when selectorType = "fwe".
@@ -499,8 +417,8 @@ class ChiSqSelector:
         self.fwe = float(fwe)
         return self
 
-    @since("2.1.0")
-    def setSelectorType(self, selectorType: str) -> "ChiSqSelector":
+    @since('2.1.0')
+    def setSelectorType(self, selectorType):
         """
         set the selector type of the ChisqSelector.
         Supported options: "numTopFeatures" (default), "percentile", "fpr", "fdr", "fwe".
@@ -508,7 +426,7 @@ class ChiSqSelector:
         self.selectorType = str(selectorType)
         return self
 
-    def fit(self, data: RDD[LabeledPoint]) -> "ChiSqSelectorModel":
+    def fit(self, data):
         """
         Returns a ChiSquared feature selector.
 
@@ -521,16 +439,8 @@ class ChiSqSelector:
             Real-valued features will be treated as categorical for each
             distinct value. Apply feature discretizer before using this function.
         """
-        jmodel = callMLlibFunc(
-            "fitChiSqSelector",
-            self.selectorType,
-            self.numTopFeatures,
-            self.percentile,
-            self.fpr,
-            self.fdr,
-            self.fwe,
-            data,
-        )
+        jmodel = callMLlibFunc("fitChiSqSelector", self.selectorType, self.numTopFeatures,
+                               self.percentile, self.fpr, self.fdr, self.fwe, data)
         return ChiSqSelectorModel(jmodel)
 
 
@@ -542,7 +452,7 @@ class PCAModel(JavaVectorTransformer):
     """
 
 
-class PCA:
+class PCA(object):
     """
     A feature transformer that projects vectors to a low-dimensional space using PCA.
 
@@ -560,8 +470,7 @@ class PCA:
     >>> pcArray[1]
     -4.013...
     """
-
-    def __init__(self, k: int):
+    def __init__(self, k):
         """
         Parameters
         ----------
@@ -570,7 +479,7 @@ class PCA:
         """
         self.k = int(k)
 
-    def fit(self, data: RDD["VectorLike"]) -> PCAModel:
+    def fit(self, data):
         """
         Computes a [[PCAModel]] that contains the principal components of the input vectors.
 
@@ -585,7 +494,7 @@ class PCA:
         return PCAModel(jmodel)
 
 
-class HashingTF:
+class HashingTF(object):
     """
     Maps a sequence of terms to their term frequencies using the hashing
     trick.
@@ -608,13 +517,12 @@ class HashingTF:
     >>> htf.transform(doc)
     SparseVector(100, {...})
     """
-
-    def __init__(self, numFeatures: int = 1 << 20):
+    def __init__(self, numFeatures=1 << 20):
         self.numFeatures = numFeatures
         self.binary = False
 
     @since("2.0.0")
-    def setBinary(self, value: bool) -> "HashingTF":
+    def setBinary(self, value):
         """
         If True, term frequency vector will be binary such that non-zero
         term counts will be set to 1
@@ -623,23 +531,13 @@ class HashingTF:
         self.binary = value
         return self
 
-    @since("1.2.0")
-    def indexOf(self, term: Hashable) -> int:
-        """Returns the index of the input term."""
+    @since('1.2.0')
+    def indexOf(self, term):
+        """ Returns the index of the input term. """
         return hash(term) % self.numFeatures
 
-    @overload
-    def transform(self, document: Iterable[Hashable]) -> Vector:
-        ...
-
-    @overload
-    def transform(self, document: RDD[Iterable[Hashable]]) -> RDD[Vector]:
-        ...
-
-    @since("1.2.0")
-    def transform(
-        self, document: Union[Iterable[Hashable], RDD[Iterable[Hashable]]]
-    ) -> Union[Vector, RDD[Vector]]:
+    @since('1.2.0')
+    def transform(self, document):
         """
         Transforms the input document (list of terms) to term frequency
         vectors, or transform the RDD of document to RDD of term
@@ -648,7 +546,7 @@ class HashingTF:
         if isinstance(document, RDD):
             return document.map(self.transform)
 
-        freq: Dict[int, float] = {}
+        freq = {}
         for term in document:
             i = self.indexOf(term)
             freq[i] = 1.0 if self.binary else freq.get(i, 0) + 1.0
@@ -662,15 +560,7 @@ class IDFModel(JavaVectorTransformer):
     .. versionadded:: 1.2.0
     """
 
-    @overload
-    def transform(self, x: "VectorLike") -> Vector:
-        ...
-
-    @overload
-    def transform(self, x: RDD["VectorLike"]) -> RDD[Vector]:
-        ...
-
-    def transform(self, x: Union["VectorLike", RDD["VectorLike"]]) -> Union[Vector, RDD[Vector]]:
+    def transform(self, x):
         """
         Transforms term frequency (TF) vectors to TF-IDF vectors.
 
@@ -699,29 +589,29 @@ class IDFModel(JavaVectorTransformer):
         """
         return JavaVectorTransformer.transform(self, x)
 
-    @since("1.4.0")
-    def idf(self) -> Vector:
+    @since('1.4.0')
+    def idf(self):
         """
         Returns the current IDF vector.
         """
-        return self.call("idf")
+        return self.call('idf')
 
-    @since("3.0.0")
-    def docFreq(self) -> List[int]:
+    @since('3.0.0')
+    def docFreq(self):
         """
         Returns the document frequency.
         """
-        return self.call("docFreq")
+        return self.call('docFreq')
 
-    @since("3.0.0")
-    def numDocs(self) -> int:
+    @since('3.0.0')
+    def numDocs(self):
         """
         Returns number of documents evaluated to compute idf
         """
-        return self.call("numDocs")
+        return self.call('numDocs')
 
 
-class IDF:
+class IDF(object):
     """
     Inverse document frequency (IDF).
 
@@ -762,11 +652,10 @@ class IDF:
     >>> model.transform(Vectors.sparse(n, (1, 3), (1.0, 2.0)))
     SparseVector(4, {1: 0.0, 3: 0.5754})
     """
-
-    def __init__(self, minDocFreq: int = 0):
+    def __init__(self, minDocFreq=0):
         self.minDocFreq = minDocFreq
 
-    def fit(self, dataset: RDD["VectorLike"]) -> IDFModel:
+    def fit(self, dataset):
         """
         Computes the inverse document frequency.
 
@@ -783,12 +672,12 @@ class IDF:
         return IDFModel(jmodel)
 
 
-class Word2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader["Word2VecModel"]):
+class Word2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader):
     """
     class for Word2Vec model
     """
 
-    def transform(self, word: str) -> Vector:  # type: ignore[override]
+    def transform(self, word):
         """
         Transforms a word to its vector representation
 
@@ -813,7 +702,7 @@ class Word2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader["Word2VecMod
         except Py4JJavaError:
             raise ValueError("%s not found" % word)
 
-    def findSynonyms(self, word: Union[str, "VectorLike"], num: int) -> Iterable[Tuple[str, float]]:
+    def findSynonyms(self, word, num):
         """
         Find synonyms of a word
 
@@ -841,27 +730,26 @@ class Word2VecModel(JavaVectorTransformer, JavaSaveable, JavaLoader["Word2VecMod
         words, similarity = self.call("findSynonyms", word, num)
         return zip(words, similarity)
 
-    @since("1.4.0")
-    def getVectors(self) -> "JavaMap":
+    @since('1.4.0')
+    def getVectors(self):
         """
         Returns a map of words to their vector representations.
         """
         return self.call("getVectors")
 
     @classmethod
-    @since("1.5.0")
-    def load(cls, sc: SparkContext, path: str) -> "Word2VecModel":
+    @since('1.5.0')
+    def load(cls, sc, path):
         """
         Load a model from the given path.
         """
-        assert sc._jvm is not None
-
-        jmodel = sc._jvm.org.apache.spark.mllib.feature.Word2VecModel.load(sc._jsc.sc(), path)
+        jmodel = sc._jvm.org.apache.spark.mllib.feature \
+            .Word2VecModel.load(sc._jsc.sc(), path)
         model = sc._jvm.org.apache.spark.mllib.api.python.Word2VecModelWrapper(jmodel)
         return Word2VecModel(model)
 
 
-class Word2Vec:
+class Word2Vec(object):
     """Word2Vec creates vector representation of words in a text corpus.
     The algorithm first constructs a vocabulary from the corpus
     and then learns vector representation of words in the vocabulary.
@@ -917,8 +805,7 @@ class Word2Vec:
     ... except OSError:
     ...     pass
     """
-
-    def __init__(self) -> None:
+    def __init__(self):
         """
         Construct Word2Vec instance
         """
@@ -926,28 +813,28 @@ class Word2Vec:
         self.learningRate = 0.025
         self.numPartitions = 1
         self.numIterations = 1
-        self.seed: Optional[int] = None
+        self.seed = None
         self.minCount = 5
         self.windowSize = 5
 
-    @since("1.2.0")
-    def setVectorSize(self, vectorSize: int) -> "Word2Vec":
+    @since('1.2.0')
+    def setVectorSize(self, vectorSize):
         """
         Sets vector size (default: 100).
         """
         self.vectorSize = vectorSize
         return self
 
-    @since("1.2.0")
-    def setLearningRate(self, learningRate: float) -> "Word2Vec":
+    @since('1.2.0')
+    def setLearningRate(self, learningRate):
         """
         Sets initial learning rate (default: 0.025).
         """
         self.learningRate = learningRate
         return self
 
-    @since("1.2.0")
-    def setNumPartitions(self, numPartitions: int) -> "Word2Vec":
+    @since('1.2.0')
+    def setNumPartitions(self, numPartitions):
         """
         Sets number of partitions (default: 1). Use a small number for
         accuracy.
@@ -955,8 +842,8 @@ class Word2Vec:
         self.numPartitions = numPartitions
         return self
 
-    @since("1.2.0")
-    def setNumIterations(self, numIterations: int) -> "Word2Vec":
+    @since('1.2.0')
+    def setNumIterations(self, numIterations):
         """
         Sets number of iterations (default: 1), which should be smaller
         than or equal to number of partitions.
@@ -964,16 +851,16 @@ class Word2Vec:
         self.numIterations = numIterations
         return self
 
-    @since("1.2.0")
-    def setSeed(self, seed: int) -> "Word2Vec":
+    @since('1.2.0')
+    def setSeed(self, seed):
         """
         Sets random seed.
         """
         self.seed = seed
         return self
 
-    @since("1.4.0")
-    def setMinCount(self, minCount: int) -> "Word2Vec":
+    @since('1.4.0')
+    def setMinCount(self, minCount):
         """
         Sets minCount, the minimum number of times a token must appear
         to be included in the word2vec model's vocabulary (default: 5).
@@ -981,15 +868,15 @@ class Word2Vec:
         self.minCount = minCount
         return self
 
-    @since("2.0.0")
-    def setWindowSize(self, windowSize: int) -> "Word2Vec":
+    @since('2.0.0')
+    def setWindowSize(self, windowSize):
         """
         Sets window size (default: 5).
         """
         self.windowSize = windowSize
         return self
 
-    def fit(self, data: RDD[List[str]]) -> "Word2VecModel":
+    def fit(self, data):
         """
         Computes the vector representation of each word in vocabulary.
 
@@ -1006,17 +893,10 @@ class Word2Vec:
         """
         if not isinstance(data, RDD):
             raise TypeError("data should be an RDD of list of string")
-        jmodel = callMLlibFunc(
-            "trainWord2VecModel",
-            data,
-            int(self.vectorSize),
-            float(self.learningRate),
-            int(self.numPartitions),
-            int(self.numIterations),
-            self.seed,
-            int(self.minCount),
-            int(self.windowSize),
-        )
+        jmodel = callMLlibFunc("trainWord2VecModel", data, int(self.vectorSize),
+                               float(self.learningRate), int(self.numPartitions),
+                               int(self.numIterations), self.seed,
+                               int(self.minCount), int(self.windowSize))
         return Word2VecModel(jmodel)
 
 
@@ -1039,25 +919,13 @@ class ElementwiseProduct(VectorTransformer):
     >>> eprod.transform(rdd).collect()
     [DenseVector([2.0, 2.0, 9.0]), DenseVector([9.0, 6.0, 12.0])]
     """
-
-    def __init__(self, scalingVector: Vector) -> None:
+    def __init__(self, scalingVector):
         self.scalingVector = _convert_to_vector(scalingVector)
 
-    @overload
-    def transform(self, vector: "VectorLike") -> Vector:
-        ...
-
-    @overload
-    def transform(self, vector: RDD["VectorLike"]) -> RDD[Vector]:
-        ...
-
-    def transform(
-        self, vector: Union["VectorLike", RDD["VectorLike"]]
-    ) -> Union[Vector, RDD[Vector]]:
+    @since('1.5.0')
+    def transform(self, vector):
         """
         Computes the Hadamard product of the vector.
-
-        .. versionadded:: 1.5.0
         """
         if isinstance(vector, RDD):
             vector = vector.map(_convert_to_vector)
@@ -1067,18 +935,19 @@ class ElementwiseProduct(VectorTransformer):
         return callMLlibFunc("elementwiseProductVector", self.scalingVector, vector)
 
 
-def _test() -> None:
+def _test():
     import doctest
     from pyspark.sql import SparkSession
-
     globs = globals().copy()
-    spark = SparkSession.builder.master("local[4]").appName("mllib.feature tests").getOrCreate()
-    globs["sc"] = spark.sparkContext
+    spark = SparkSession.builder\
+        .master("local[4]")\
+        .appName("mllib.feature tests")\
+        .getOrCreate()
+    globs['sc'] = spark.sparkContext
     (failure_count, test_count) = doctest.testmod(globs=globs, optionflags=doctest.ELLIPSIS)
     spark.stop()
     if failure_count:
         sys.exit(-1)
-
 
 if __name__ == "__main__":
     sys.path.pop(0)

@@ -25,34 +25,33 @@
 """
 
 import sys
-from typing import Any, Dict, List, NoReturn, Optional, cast
 
 import numpy as np
 from distutils.version import LooseVersion
 
 from pyspark import SparkContext
-from pyspark.sql.types import Row, StructType, _create_row, _parse_datatype_json_string
+from pyspark.sql.types import Row, _create_row, _parse_datatype_json_string
 from pyspark.sql import SparkSession
 
 __all__ = ["ImageSchema"]
 
 
-class _ImageSchema:
+class _ImageSchema(object):
     """
     Internal class for `pyspark.ml.image.ImageSchema` attribute. Meant to be private and
     not to be instantized. Use `pyspark.ml.image.ImageSchema` attribute to access the
     APIs of this class.
     """
 
-    def __init__(self) -> None:
-        self._imageSchema: Optional[StructType] = None
-        self._ocvTypes: Optional[Dict[str, int]] = None
-        self._columnSchema: Optional[StructType] = None
-        self._imageFields: Optional[List[str]] = None
-        self._undefinedImageType: Optional[str] = None
+    def __init__(self):
+        self._imageSchema = None
+        self._ocvTypes = None
+        self._columnSchema = None
+        self._imageFields = None
+        self._undefinedImageType = None
 
     @property
-    def imageSchema(self) -> StructType:
+    def imageSchema(self):
         """
         Returns the image schema.
 
@@ -67,13 +66,12 @@ class _ImageSchema:
 
         if self._imageSchema is None:
             ctx = SparkContext._active_spark_context
-            assert ctx is not None and ctx._jvm is not None
             jschema = ctx._jvm.org.apache.spark.ml.image.ImageSchema.imageSchema()
-            self._imageSchema = cast(StructType, _parse_datatype_json_string(jschema.json()))
+            self._imageSchema = _parse_datatype_json_string(jschema.json())
         return self._imageSchema
 
     @property
-    def ocvTypes(self) -> Dict[str, int]:
+    def ocvTypes(self):
         """
         Returns the OpenCV type mapping supported.
 
@@ -87,12 +85,11 @@ class _ImageSchema:
 
         if self._ocvTypes is None:
             ctx = SparkContext._active_spark_context
-            assert ctx is not None and ctx._jvm is not None
             self._ocvTypes = dict(ctx._jvm.org.apache.spark.ml.image.ImageSchema.javaOcvTypes())
         return self._ocvTypes
 
     @property
-    def columnSchema(self) -> StructType:
+    def columnSchema(self):
         """
         Returns the schema for the image column.
 
@@ -107,13 +104,12 @@ class _ImageSchema:
 
         if self._columnSchema is None:
             ctx = SparkContext._active_spark_context
-            assert ctx is not None and ctx._jvm is not None
             jschema = ctx._jvm.org.apache.spark.ml.image.ImageSchema.columnSchema()
-            self._columnSchema = cast(StructType, _parse_datatype_json_string(jschema.json()))
+            self._columnSchema = _parse_datatype_json_string(jschema.json())
         return self._columnSchema
 
     @property
-    def imageFields(self) -> List[str]:
+    def imageFields(self):
         """
         Returns field names of image columns.
 
@@ -127,12 +123,11 @@ class _ImageSchema:
 
         if self._imageFields is None:
             ctx = SparkContext._active_spark_context
-            assert ctx is not None and ctx._jvm is not None
             self._imageFields = list(ctx._jvm.org.apache.spark.ml.image.ImageSchema.imageFields())
         return self._imageFields
 
     @property
-    def undefinedImageType(self) -> str:
+    def undefinedImageType(self):
         """
         Returns the name of undefined image type for the invalid image.
 
@@ -141,13 +136,11 @@ class _ImageSchema:
 
         if self._undefinedImageType is None:
             ctx = SparkContext._active_spark_context
-            assert ctx is not None and ctx._jvm is not None
-            self._undefinedImageType = (
+            self._undefinedImageType = \
                 ctx._jvm.org.apache.spark.ml.image.ImageSchema.undefinedImageType()
-            )
         return self._undefinedImageType
 
-    def toNDArray(self, image: Row) -> np.ndarray:
+    def toNDArray(self, image):
         """
         Converts an image to an array with metadata.
 
@@ -168,14 +161,12 @@ class _ImageSchema:
         if not isinstance(image, Row):
             raise TypeError(
                 "image argument should be pyspark.sql.types.Row; however, "
-                "it got [%s]." % type(image)
-            )
+                "it got [%s]." % type(image))
 
         if any(not hasattr(image, f) for f in self.imageFields):
             raise ValueError(
                 "image argument should have attributes specified in "
-                "ImageSchema.imageSchema [%s]." % ", ".join(self.imageFields)
-            )
+                "ImageSchema.imageSchema [%s]." % ", ".join(self.imageFields))
 
         height = image.height
         width = image.width
@@ -184,10 +175,9 @@ class _ImageSchema:
             shape=(height, width, nChannels),
             dtype=np.uint8,
             buffer=image.data,
-            strides=(width * nChannels, nChannels, 1),
-        )
+            strides=(width * nChannels, nChannels, 1))
 
-    def toImage(self, array: np.ndarray, origin: str = "") -> Row:
+    def toImage(self, array, origin=""):
         """
         Converts an array with metadata to a two-dimensional image.
 
@@ -208,8 +198,7 @@ class _ImageSchema:
 
         if not isinstance(array, np.ndarray):
             raise TypeError(
-                "array argument should be numpy.ndarray; however, it got [%s]." % type(array)
-            )
+                "array argument should be numpy.ndarray; however, it got [%s]." % type(array))
 
         if array.ndim != 3:
             raise ValueError("Invalid array shape")
@@ -228,7 +217,7 @@ class _ImageSchema:
         # Running `bytearray(numpy.array([1]))` fails in specific Python versions
         # with a specific Numpy version, for example in Python 3.6.0 and NumPy 1.13.3.
         # Here, it avoids it by converting it to bytes.
-        if LooseVersion(np.__version__) >= LooseVersion("1.9"):
+        if LooseVersion(np.__version__) >= LooseVersion('1.9'):
             data = bytearray(array.astype(dtype=np.uint8).ravel().tobytes())
         else:
             # Numpy prior to 1.9 don't have `tobytes` method.
@@ -237,31 +226,32 @@ class _ImageSchema:
         # Creating new Row with _create_row(), because Row(name = value, ... )
         # orders fields by name, which conflicts with expected schema order
         # when the new DataFrame is created by UDF
-        return _create_row(self.imageFields, [origin, height, width, nChannels, mode, data])
+        return _create_row(self.imageFields,
+                           [origin, height, width, nChannels, mode, data])
 
 
 ImageSchema = _ImageSchema()
 
 
 # Monkey patch to disallow instantiation of this class.
-def _disallow_instance(_: Any) -> NoReturn:
+def _disallow_instance(_):
     raise RuntimeError("Creating instance of _ImageSchema class is disallowed.")
+_ImageSchema.__init__ = _disallow_instance
 
 
-_ImageSchema.__init__ = _disallow_instance  # type: ignore[assignment]
-
-
-def _test() -> None:
+def _test():
     import doctest
     import pyspark.ml.image
-
     globs = pyspark.ml.image.__dict__.copy()
-    spark = SparkSession.builder.master("local[2]").appName("ml.image tests").getOrCreate()
-    globs["spark"] = spark
+    spark = SparkSession.builder\
+        .master("local[2]")\
+        .appName("ml.image tests")\
+        .getOrCreate()
+    globs['spark'] = spark
 
     (failure_count, test_count) = doctest.testmod(
-        pyspark.ml.image, globs=globs, optionflags=doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE
-    )
+        pyspark.ml.image, globs=globs,
+        optionflags=doctest.ELLIPSIS | doctest.NORMALIZE_WHITESPACE)
     spark.stop()
     if failure_count:
         sys.exit(-1)

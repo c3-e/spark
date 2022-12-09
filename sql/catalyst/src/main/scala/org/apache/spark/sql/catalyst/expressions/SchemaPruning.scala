@@ -17,10 +17,6 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
-import java.util.Locale
-
-import scala.collection.immutable.HashMap
-
 import org.apache.spark.sql.catalyst.SQLConfHelper
 import org.apache.spark.sql.types._
 
@@ -33,8 +29,8 @@ object SchemaPruning extends SQLConfHelper {
    *   1. The schema field ordering at original schema is still preserved in pruned schema.
    *   2. The top-level fields are not pruned here.
    */
-  def pruneSchema(
-      schema: StructType,
+  def pruneDataSchema(
+      dataSchema: StructType,
       requestedRootFields: Seq[RootField]): StructType = {
     val resolver = conf.resolver
     // Merge the requested root fields into a single schema. Note the ordering of the fields
@@ -44,10 +40,10 @@ object SchemaPruning extends SQLConfHelper {
       .map { root: RootField => StructType(Array(root.field)) }
       .reduceLeft(_ merge _)
     val mergedDataSchema =
-      StructType(schema.map(d => mergedSchema.find(m => resolver(m.name, d.name)).getOrElse(d)))
+      StructType(dataSchema.map(d => mergedSchema.find(m => resolver(m.name, d.name)).getOrElse(d)))
     // Sort the fields of mergedDataSchema according to their order in dataSchema,
     // recursively. This makes mergedDataSchema a pruned schema of dataSchema
-    sortLeftFieldsByRight(mergedDataSchema, schema).asInstanceOf[StructType]
+    sortLeftFieldsByRight(mergedDataSchema, dataSchema).asInstanceOf[StructType]
   }
 
   /**
@@ -58,7 +54,6 @@ object SchemaPruning extends SQLConfHelper {
    */
   private def sortLeftFieldsByRight(left: DataType, right: DataType): DataType =
     (left, right) match {
-      case _ if left == right => left
       case (ArrayType(leftElementType, containsNull), ArrayType(rightElementType, _)) =>
         ArrayType(
           sortLeftFieldsByRight(leftElementType, rightElementType),
@@ -70,23 +65,16 @@ object SchemaPruning extends SQLConfHelper {
           sortLeftFieldsByRight(leftValueType, rightValueType),
           containsNull)
       case (leftStruct: StructType, rightStruct: StructType) =>
-        val formatFieldName: String => String =
-          if (conf.caseSensitiveAnalysis) identity else _.toLowerCase(Locale.ROOT)
-
-        val leftStructHashMap =
-          HashMap(leftStruct.map(f => formatFieldName(f.name)).zip(leftStruct): _*)
-        val sortedLeftFields = rightStruct.fieldNames.flatMap { fieldName =>
-          val formattedFieldName = formatFieldName(fieldName)
-          if (leftStructHashMap.contains(formattedFieldName)) {
-            val resolvedLeftStruct = leftStructHashMap(formattedFieldName)
-            val leftFieldType = resolvedLeftStruct.dataType
-            val rightFieldType = rightStruct(fieldName).dataType
-            val sortedLeftFieldType = sortLeftFieldsByRight(leftFieldType, rightFieldType)
-            Some(StructField(fieldName, sortedLeftFieldType, nullable = resolvedLeftStruct.nullable,
-              metadata = resolvedLeftStruct.metadata))
-          } else {
-            None
-          }
+        val resolver = conf.resolver
+        val filteredRightFieldNames = rightStruct.fieldNames
+          .filter(name => leftStruct.fieldNames.exists(resolver(_, name)))
+        val sortedLeftFields = filteredRightFieldNames.map { fieldName =>
+          val resolvedLeftStruct = leftStruct.find(p => resolver(p.name, fieldName)).get
+          val leftFieldType = resolvedLeftStruct.dataType
+          val rightFieldType = rightStruct(fieldName).dataType
+          val sortedLeftFieldType = sortLeftFieldsByRight(leftFieldType, rightFieldType)
+          StructField(fieldName, sortedLeftFieldType, nullable = resolvedLeftStruct.nullable,
+            metadata = resolvedLeftStruct.metadata)
         }
         StructType(sortedLeftFields)
       case _ => left

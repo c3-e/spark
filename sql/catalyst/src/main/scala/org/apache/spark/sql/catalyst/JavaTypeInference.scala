@@ -35,6 +35,7 @@ import org.apache.spark.sql.catalyst.expressions.objects._
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.types._
+import org.apache.spark.util.Utils
 
 /**
  * Type-inference utilities for POJOs and Java collections.
@@ -119,7 +120,9 @@ object JavaTypeInference {
       case c: Class[_] if c == classOf[java.sql.Date] => (DateType, true)
       case c: Class[_] if c == classOf[java.time.Instant] => (TimestampType, true)
       case c: Class[_] if c == classOf[java.sql.Timestamp] => (TimestampType, true)
-      case c: Class[_] if c == classOf[java.time.LocalDateTime] => (TimestampNTZType, true)
+      // SPARK-36227: Remove TimestampNTZ type support in Spark 3.2 with minimal code changes.
+      case c: Class[_] if c == classOf[java.time.LocalDateTime] && Utils.isTesting =>
+        (TimestampNTZType, true)
       case c: Class[_] if c == classOf[java.time.Duration] => (DayTimeIntervalType(), true)
       case c: Class[_] if c == classOf[java.time.Period] => (YearMonthIntervalType(), true)
 
@@ -218,7 +221,9 @@ object JavaTypeInference {
 
     // Assumes we are deserializing the first column of a row.
     deserializerForWithNullSafetyAndUpcast(GetColumnByOrdinal(0, dataType), dataType,
-      nullable = nullable, walkedTypePath, deserializerFor(typeToken, _, walkedTypePath))
+      nullable = nullable, walkedTypePath, (casted, walkedTypePath) => {
+        deserializerFor(typeToken, casted, walkedTypePath)
+      })
   }
 
   private def deserializerFor(
@@ -249,7 +254,8 @@ object JavaTypeInference {
       case c if c == classOf[java.sql.Timestamp] =>
         createDeserializerForSqlTimestamp(path)
 
-      case c if c == classOf[java.time.LocalDateTime] =>
+      // SPARK-36227: Remove TimestampNTZ type support in Spark 3.2 with minimal code changes.
+      case c if c == classOf[java.time.LocalDateTime] && Utils.isTesting =>
         createDeserializerForLocalDateTime(path)
 
       case c if c == classOf[java.time.Duration] =>
@@ -278,7 +284,7 @@ object JavaTypeInference {
             dataType,
             nullable = elementNullable,
             newTypePath,
-            deserializerFor(typeToken.getComponentType, _, newTypePath))
+            (casted, typePath) => deserializerFor(typeToken.getComponentType, casted, typePath))
         }
 
         val arrayData = UnresolvedMapObjects(mapFunction, path)
@@ -307,7 +313,7 @@ object JavaTypeInference {
             dataType,
             nullable = elementNullable,
             newTypePath,
-            deserializerFor(et, _, newTypePath))
+            (casted, typePath) => deserializerFor(et, casted, typePath))
         }
 
         UnresolvedMapObjects(mapFunction, path, customCollectionCls = Some(c))
@@ -411,7 +417,8 @@ object JavaTypeInference {
 
         case c if c == classOf[java.sql.Timestamp] => createSerializerForSqlTimestamp(inputObject)
 
-        case c if c == classOf[java.time.LocalDateTime] =>
+        // SPARK-36227: Remove TimestampNTZ type support in Spark 3.2 with minimal code changes.
+        case c if c == classOf[java.time.LocalDateTime] && Utils.isTesting =>
           createSerializerForLocalDateTime(inputObject)
 
         case c if c == classOf[java.time.LocalDate] => createSerializerForJavaLocalDate(inputObject)
@@ -421,9 +428,6 @@ object JavaTypeInference {
         case c if c == classOf[java.time.Duration] => createSerializerForJavaDuration(inputObject)
 
         case c if c == classOf[java.time.Period] => createSerializerForJavaPeriod(inputObject)
-
-        case c if c == classOf[java.math.BigInteger] =>
-          createSerializerForJavaBigInteger(inputObject)
 
         case c if c == classOf[java.math.BigDecimal] =>
           createSerializerForJavaBigDecimal(inputObject)

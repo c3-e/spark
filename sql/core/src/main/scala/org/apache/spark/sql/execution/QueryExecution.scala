@@ -23,7 +23,6 @@ import java.util.concurrent.atomic.AtomicLong
 
 import org.apache.hadoop.fs.Path
 
-import org.apache.spark.SparkException
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{AnalysisException, Row, SparkSession}
@@ -105,29 +104,12 @@ class QueryExecution(
     case other => other
   }
 
-  // The plan that has been normalized by custom rules, so that it's more likely to hit cache.
-  lazy val normalized: LogicalPlan = {
-    val normalizationRules = sparkSession.sessionState.planNormalizationRules
-    if (normalizationRules.isEmpty) {
-      commandExecuted
-    } else {
-      val planChangeLogger = new PlanChangeLogger[LogicalPlan]()
-      val normalized = normalizationRules.foldLeft(commandExecuted) { (p, rule) =>
-        val result = rule.apply(p)
-        planChangeLogger.logRule(rule.ruleName, p, result)
-        result
-      }
-      planChangeLogger.logBatch("Plan Normalization", commandExecuted, normalized)
-      normalized
-    }
-  }
-
   lazy val withCachedData: LogicalPlan = sparkSession.withActive {
     assertAnalyzed()
     assertSupported()
     // clone the plan to avoid sharing the plan instance between different stages like analyzing,
     // optimizing and planning.
-    sparkSession.sharedState.cacheManager.useCachedData(normalized.clone())
+    sparkSession.sharedState.cacheManager.useCachedData(commandExecuted.clone())
   }
 
   def assertCommandExecuted(): Unit = commandExecuted
@@ -198,9 +180,7 @@ class QueryExecution(
   }
 
   protected def executePhase[T](phase: String)(block: => T): T = sparkSession.withActive {
-    QueryExecution.withInternalError(s"The Spark SQL phase $phase failed with an internal error.") {
-      tracker.measurePhase(phase)(block)
-    }
+    tracker.measurePhase(phase)(block)
   }
 
   def simpleString: String = {
@@ -244,7 +224,7 @@ class QueryExecution(
       // output mode does not matter since there is no `Sink`.
       new IncrementalExecution(
         sparkSession, logical, OutputMode.Append(), "<unknown>",
-        UUID.randomUUID, UUID.randomUUID, 0, None, OffsetSeqMetadata(0, 0))
+        UUID.randomUUID, UUID.randomUUID, 0, OffsetSeqMetadata(0, 0))
     } else {
       this
     }
@@ -428,9 +408,6 @@ object QueryExecution {
       PlanSubqueries(sparkSession),
       RemoveRedundantProjects,
       EnsureRequirements(),
-      // `ReplaceHashWithSortAgg` needs to be added after `EnsureRequirements` to guarantee the
-      // sort order of each node is checked to be valid.
-      ReplaceHashWithSortAgg,
       // `RemoveRedundantSorts` needs to be added after `EnsureRequirements` to guarantee the same
       // number of partitions when instantiating PartitioningCollection.
       RemoveRedundantSorts,
@@ -503,29 +480,5 @@ object QueryExecution {
     val sparkPlan = createSparkPlan(session, session.sessionState.planner, plan.clone())
     val preparationRules = preparations(session, Option(InsertAdaptiveSparkPlan(context)), true)
     prepareForExecution(preparationRules, sparkPlan.clone())
-  }
-
-  /**
-   * Converts asserts, null pointer exceptions to internal errors.
-   */
-  private[sql] def toInternalError(msg: String, e: Throwable): Throwable = e match {
-    case e @ (_: java.lang.NullPointerException | _: java.lang.AssertionError) =>
-      SparkException.internalError(
-        msg + " You hit a bug in Spark or the Spark plugins you use. Please, report this bug " +
-          "to the corresponding communities or vendors, and provide the full stack trace.",
-        e)
-    case e: Throwable =>
-      e
-  }
-
-  /**
-   * Catches asserts, null pointer exceptions, and converts them to internal errors.
-   */
-  private[sql] def withInternalError[T](msg: String)(block: => T): T = {
-    try {
-      block
-    } catch {
-      case e: Throwable => throw toInternalError(msg, e)
-    }
   }
 }

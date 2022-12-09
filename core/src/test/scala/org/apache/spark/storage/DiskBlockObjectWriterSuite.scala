@@ -18,12 +18,14 @@ package org.apache.spark.storage
 
 import java.io.File
 
+import org.scalatest.BeforeAndAfterEach
+
 import org.apache.spark.{SparkConf, SparkFunSuite}
 import org.apache.spark.executor.ShuffleWriteMetrics
 import org.apache.spark.serializer.{JavaSerializer, SerializerManager}
 import org.apache.spark.util.Utils
 
-class DiskBlockObjectWriterSuite extends SparkFunSuite {
+class DiskBlockObjectWriterSuite extends SparkFunSuite with BeforeAndAfterEach {
 
   var tempDir: File = _
 
@@ -181,24 +183,5 @@ class DiskBlockObjectWriterSuite extends SparkFunSuite {
     val segment = writer.commitAndGet()
     writer.close()
     assert(segment.length === 0)
-  }
-
-  test("calling closeAndDelete() on a partial write file") {
-    val (writer, file, writeMetrics) = createWriter()
-
-    for (i <- 1 to 1000) {
-      writer.write(i, i)
-    }
-    val firstSegment = writer.commitAndGet()
-    assert(firstSegment.length === file.length())
-    assert(writeMetrics.bytesWritten === file.length())
-
-    for (i <- 1 to 500) {
-      writer.write(i, i)
-    }
-    writer.closeAndDelete()
-    assert(!file.exists())
-    assert(writeMetrics.bytesWritten == 0)
-    assert(writeMetrics.recordsWritten == 0)
   }
 }

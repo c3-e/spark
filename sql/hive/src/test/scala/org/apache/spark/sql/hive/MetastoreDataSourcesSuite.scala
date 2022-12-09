@@ -22,12 +22,10 @@ import java.io.File
 import scala.collection.mutable.ArrayBuffer
 
 import org.apache.hadoop.fs.Path
-import org.apache.logging.log4j.Level
 
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, CatalogTableType}
-import org.apache.spark.sql.connector.catalog.CatalogManager.SESSION_CATALOG_NAME
 import org.apache.spark.sql.execution.command.CreateTableCommand
 import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation}
 import org.apache.spark.sql.hive.HiveExternalCatalog._
@@ -324,7 +322,7 @@ class MetastoreDataSourcesSuite extends QueryTest with SQLTestUtils with TestHiv
            """.stripMargin)
 
         // Create the table again should trigger a AnalysisException.
-        val e = intercept[AnalysisException] {
+        val message = intercept[AnalysisException] {
           sql(
             s"""CREATE TABLE ctasJsonTable
                |USING org.apache.spark.sql.json.DefaultSource
@@ -333,9 +331,11 @@ class MetastoreDataSourcesSuite extends QueryTest with SQLTestUtils with TestHiv
                |) AS
                |SELECT * FROM jsonTable
              """.stripMargin)
-        }
+        }.getMessage
 
-        checkErrorTableAlreadyExists(e, s"`$SESSION_CATALOG_NAME`.`default`.`ctasJsonTable`")
+        assert(
+          message.contains("Table default.ctasJsonTable already exists."),
+          "We should complain that ctasJsonTable already exists")
 
         // The following statement should be fine if it has IF NOT EXISTS.
         // It tries to create a table ctasJsonTable with a new schema.
@@ -520,10 +520,11 @@ class MetastoreDataSourcesSuite extends QueryTest with SQLTestUtils with TestHiv
           assert(table("createdJsonTable").schema === df.schema)
           checkAnswer(sql("SELECT * FROM createdJsonTable"), df)
 
-          val e = intercept[AnalysisException] {
+          assert(
+            intercept[AnalysisException] {
               sparkSession.catalog.createTable("createdJsonTable", jsonFilePath.toString)
-            }
-          checkErrorTableAlreadyExists(e, s"`$SESSION_CATALOG_NAME`.`default`.`createdJsonTable`")
+            }.getMessage.contains("Table createdJsonTable already exists."),
+            "We should complain that createdJsonTable already exists")
         }
 
         // Data should not be deleted.
@@ -905,8 +906,8 @@ class MetastoreDataSourcesSuite extends QueryTest with SQLTestUtils with TestHiv
       val e = intercept[AnalysisException] {
         createDF(10, 19).write.mode(SaveMode.Append).format("orc").saveAsTable("appendOrcToParquet")
       }
-      assert(e.getMessage.contains("The format of the existing table " +
-        s"$SESSION_CATALOG_NAME.default.appendorctoparquet is `Parquet"))
+      assert(e.getMessage.contains(
+        "The format of the existing table default.appendOrcToParquet is `Parquet"))
     }
 
     withTable("appendParquetToJson") {
@@ -916,8 +917,8 @@ class MetastoreDataSourcesSuite extends QueryTest with SQLTestUtils with TestHiv
           .saveAsTable("appendParquetToJson")
       }.getMessage
 
-      assert(msg.contains("The format of the existing table " +
-        s"$SESSION_CATALOG_NAME.default.appendparquettojson is `Json"))
+      assert(msg.contains(
+        "The format of the existing table default.appendParquetToJson is `Json"))
     }
 
     withTable("appendTextToJson") {
@@ -927,8 +928,7 @@ class MetastoreDataSourcesSuite extends QueryTest with SQLTestUtils with TestHiv
           .saveAsTable("appendTextToJson")
       }.getMessage
       // The format of the existing table can be JsonDataSourceV2 or JsonFileFormat.
-      assert(msg.contains("The format of the existing table " +
-        s"$SESSION_CATALOG_NAME.default.appendtexttojson is `Json"))
+      assert(msg.contains("The format of the existing table default.appendTextToJson is `Json"))
     }
   }
 
@@ -1191,29 +1191,22 @@ class MetastoreDataSourcesSuite extends QueryTest with SQLTestUtils with TestHiv
   test("saveAsTable[append]: mismatch column names") {
     withTable("saveAsTable_mismatch_column_names") {
       Seq((1, 2)).toDF("i", "j").write.saveAsTable("saveAsTable_mismatch_column_names")
-      checkError(
-        exception = intercept[AnalysisException] {
-          Seq((3, 4)).toDF("i", "k")
-            .write.mode("append").saveAsTable("saveAsTable_mismatch_column_names")
-        },
-        errorClass = "_LEGACY_ERROR_TEMP_1162",
-        parameters = Map("col" -> "j", "inputColumns" -> "i, k"))
+      val e = intercept[AnalysisException] {
+        Seq((3, 4)).toDF("i", "k")
+          .write.mode("append").saveAsTable("saveAsTable_mismatch_column_names")
+      }
+      assert(e.getMessage.contains("cannot resolve"))
     }
   }
 
   test("saveAsTable[append]: too many columns") {
     withTable("saveAsTable_too_many_columns") {
       Seq((1, 2)).toDF("i", "j").write.saveAsTable("saveAsTable_too_many_columns")
-      checkError(
-        exception = intercept[AnalysisException] {
-          Seq((3, 4, 5)).toDF("i", "j", "k")
-            .write.mode("append").saveAsTable("saveAsTable_too_many_columns")
-        },
-        errorClass = "_LEGACY_ERROR_TEMP_1161",
-        parameters = Map(
-          "tableName" -> "spark_catalog.default.saveastable_too_many_columns",
-          "existingTableSchema" -> "struct<i:int,j:int>",
-          "querySchema" -> "struct<i:int,j:int,k:int>"))
+      val e = intercept[AnalysisException] {
+        Seq((3, 4, 5)).toDF("i", "j", "k")
+          .write.mode("append").saveAsTable("saveAsTable_too_many_columns")
+      }
+      assert(e.getMessage.contains("doesn't match"))
     }
   }
 
@@ -1248,15 +1241,13 @@ class MetastoreDataSourcesSuite extends QueryTest with SQLTestUtils with TestHiv
 
       var e = intercept[AnalysisException] {
         table(tableName).write.mode(SaveMode.Overwrite).saveAsTable(tableName)
-      }
-      assert(e.getMessage.contains(
-        s"Cannot overwrite table $SESSION_CATALOG_NAME.default.$tableName " +
-        "that is also being read from"))
+      }.getMessage
+      assert(e.contains(s"Cannot overwrite table default.$tableName that is also being read from"))
 
       e = intercept[AnalysisException] {
         table(tableName).write.mode(SaveMode.ErrorIfExists).saveAsTable(tableName)
-      }
-      checkErrorTableAlreadyExists(e, s"`$SESSION_CATALOG_NAME`.`default`.`$tableName`")
+      }.getMessage
+      assert(e.contains(s"Table `$tableName` already exists"))
     }
   }
 
@@ -1290,15 +1281,11 @@ class MetastoreDataSourcesSuite extends QueryTest with SQLTestUtils with TestHiv
   test("saveAsTable[append]: less columns") {
     withTable("saveAsTable_less_columns") {
       Seq((1, 2)).toDF("i", "j").write.saveAsTable("saveAsTable_less_columns")
-      checkError(
-        exception = intercept[AnalysisException] {
-          Seq(4).toDF("j").write.mode("append").saveAsTable("saveAsTable_less_columns")
-        },
-        errorClass = "_LEGACY_ERROR_TEMP_1161",
-        parameters = Map(
-          "tableName" -> "spark_catalog.default.saveastable_less_columns",
-          "existingTableSchema" -> "struct<i:int,j:int>",
-          "querySchema" -> "struct<j:int>"))
+      val e = intercept[AnalysisException] {
+        Seq((4)).toDF("j")
+          .write.mode("append").saveAsTable("saveAsTable_less_columns")
+      }
+      assert(e.getMessage.contains("doesn't match"))
     }
   }
 
@@ -1413,75 +1400,6 @@ class MetastoreDataSourcesSuite extends QueryTest with SQLTestUtils with TestHiv
           checkAnswer(spark.table(tableName), Row(1))
         }
       }
-    }
-  }
-
-  test("SPARK-37283: Don't try to store a V1 table in Hive compatible format " +
-    "if the table contains Hive incompatible types") {
-    import DayTimeIntervalType.{DAY, HOUR, MINUTE, SECOND}
-    import YearMonthIntervalType.{MONTH, YEAR}
-    withTable("t") {
-      val logAppender = new LogAppender(
-        s"Check whether a message is shown and it says that the V1 table contains " +
-          "Hive incompatible types if the table contains Hive incompatible types")
-      logAppender.setThreshold(Level.WARN)
-      withLogAppender(logAppender) {
-        sql(
-          """
-            |CREATE TABLE t(
-            |  c1 INTERVAL DAY TO MINUTE,
-            |  c2 STRING,
-            |  c3 INTERVAL YEAR TO MONTH,
-            |  c4 INT,
-            |  c5 INTERVAL HOUR,
-            |  c6 INTERVAL MONTH,
-            |  c7 STRUCT<a: INT, b: STRING>,
-            |  c8 STRUCT<a: INT, b: INTERVAL HOUR TO SECOND>,
-            |  c9 ARRAY<INT>,
-            |  c10 ARRAY<INTERVAL YEAR>,
-            |  c11 MAP<INT, STRING>,
-            |  c12 MAP<INT, INTERVAL DAY>,
-            |  c13 MAP<INTERVAL MINUTE TO SECOND, STRING>,
-            |  c14 TIMESTAMP_NTZ
-            |) USING Parquet""".stripMargin)
-      }
-      val expectedMsg = "Hive incompatible types found: interval day to minute, " +
-        "interval year to month, interval hour, interval month, " +
-        "struct<a:int,b:interval hour to second>, " +
-        "array<interval year>, map<int,interval day>, " +
-        "map<interval minute to second,string>, timestamp_ntz. " +
-        s"Persisting data source table `$SESSION_CATALOG_NAME`.`default`.`t` into Hive " +
-        "metastore in Spark SQL specific format, which is NOT compatible with Hive."
-      val actualMessages = logAppender.loggingEvents
-        .map(_.getMessage.getFormattedMessage)
-        .filter(_.contains("incompatible"))
-      assert(actualMessages.contains(expectedMsg))
-      assert(hiveClient.getTable("default", "t").schema
-        .forall(_.dataType == ArrayType(StringType)))
-
-      val df = sql("SELECT * FROM t")
-      assert(df.schema ===
-        StructType(Seq(
-          StructField("c1", DayTimeIntervalType(DAY, MINUTE)),
-          StructField("c2", StringType),
-          StructField("c3", YearMonthIntervalType(YEAR, MONTH)),
-          StructField("c4", IntegerType),
-          StructField("c5", DayTimeIntervalType(HOUR)),
-          StructField("c6", YearMonthIntervalType(MONTH)),
-          StructField("c7",
-            StructType(Seq(
-              StructField("a", IntegerType),
-              StructField("b", StringType)))),
-          StructField("c8",
-            StructType(Seq(
-              StructField("a", IntegerType),
-              StructField("b", DayTimeIntervalType(HOUR, SECOND))))),
-          StructField("c9", ArrayType(IntegerType)),
-          StructField("c10", ArrayType(YearMonthIntervalType(YEAR))),
-          StructField("c11", MapType(IntegerType, StringType)),
-          StructField("c12", MapType(IntegerType, DayTimeIntervalType(DAY))),
-          StructField("c13", MapType(DayTimeIntervalType(MINUTE, SECOND), StringType)),
-          StructField("c14", TimestampNTZType))))
     }
   }
 

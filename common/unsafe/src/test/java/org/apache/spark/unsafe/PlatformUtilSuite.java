@@ -95,18 +95,18 @@ public class PlatformUtilSuite {
     Assert.assertEquals(MemoryBlock.FREED_IN_ALLOCATOR_PAGE_NUMBER, block.pageNumber);
   }
 
-  @Test
+  @Test(expected = AssertionError.class)
   public void onHeapMemoryAllocatorThrowsAssertionErrorOnDoubleFree() {
     MemoryBlock block = MemoryAllocator.HEAP.allocate(1024);
     MemoryAllocator.HEAP.free(block);
-    Assert.assertThrows(AssertionError.class, () -> MemoryAllocator.HEAP.free(block));
+    MemoryAllocator.HEAP.free(block);
   }
 
-  @Test
+  @Test(expected = AssertionError.class)
   public void offHeapMemoryAllocatorThrowsAssertionErrorOnDoubleFree() {
     MemoryBlock block = MemoryAllocator.UNSAFE.allocate(1024);
     MemoryAllocator.UNSAFE.free(block);
-    Assert.assertThrows(AssertionError.class, () -> MemoryAllocator.UNSAFE.free(block));
+    MemoryAllocator.UNSAFE.free(block);
   }
 
   @Test

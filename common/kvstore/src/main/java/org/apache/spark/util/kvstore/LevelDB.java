@@ -270,14 +270,10 @@ public class LevelDB implements KVStore {
     KVStoreView<T> view = view(klass).index(index);
 
     for (Object indexValue : indexValues) {
-      try (KVStoreIterator<T> iterator =
-        view.first(indexValue).last(indexValue).closeableIterator()) {
-        while (iterator.hasNext()) {
-          T value = iterator.next();
-          Object itemKey = naturalIndex.getValue(value);
-          delete(klass, itemKey);
-          removed = true;
-        }
+      for (T value: view.first(indexValue).last(indexValue)) {
+        Object itemKey = naturalIndex.getValue(value);
+        delete(klass, itemKey);
+        removed = true;
       }
     }
 

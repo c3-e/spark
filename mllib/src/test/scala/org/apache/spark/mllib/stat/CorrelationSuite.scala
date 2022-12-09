@@ -20,6 +20,7 @@ package org.apache.spark.mllib.stat
 import breeze.linalg.{DenseMatrix => BDM, Matrix => BM}
 
 import org.apache.spark.SparkFunSuite
+import org.apache.spark.internal.Logging
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.random.RandomRDDs
 import org.apache.spark.mllib.stat.correlation.{Correlations, PearsonCorrelation,
@@ -27,7 +28,7 @@ import org.apache.spark.mllib.stat.correlation.{Correlations, PearsonCorrelation
 import org.apache.spark.mllib.util.MLlibTestSparkContext
 import org.apache.spark.mllib.util.TestingUtils._
 
-class CorrelationSuite extends SparkFunSuite with MLlibTestSparkContext {
+class CorrelationSuite extends SparkFunSuite with MLlibTestSparkContext with Logging {
 
   // test input data
   val xData = Array(1.0, 0.0, -2.0)

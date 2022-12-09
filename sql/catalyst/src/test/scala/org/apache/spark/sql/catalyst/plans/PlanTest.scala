@@ -76,12 +76,9 @@ trait PlanTestBase extends PredicateHelper with SQLHelper with SQLConfHelper { s
       case s: LateralSubquery =>
         s.copy(plan = normalizeExprIds(s.plan), exprId = ExprId(0))
       case e: Exists =>
-        e.copy(plan = normalizeExprIds(e.plan), exprId = ExprId(0))
+        e.copy(exprId = ExprId(0))
       case l: ListQuery =>
-        l.copy(
-          plan = normalizeExprIds(l.plan),
-          exprId = ExprId(0),
-          childOutputs = l.childOutputs.map(_.withExprId(ExprId(0))))
+        l.copy(exprId = ExprId(0))
       case a: AttributeReference =>
         AttributeReference(a.name, a.dataType, a.nullable)(exprId = ExprId(0))
       case OuterReference(a: AttributeReference) =>
@@ -140,7 +137,6 @@ trait PlanTestBase extends PredicateHelper with SQLHelper with SQLConfHelper { s
           }
         }.asInstanceOf[Seq[NamedExpression]]
         Project(projList, child)
-      case c: KeepAnalyzedQuery => c.storeAnalyzedQuery()
     }
   }
 

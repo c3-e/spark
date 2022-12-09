@@ -55,7 +55,7 @@ abstract class SchedulerIntegrationSuite[T <: MockBackend: ClassTag] extends Spa
   var backend: T = _
   // Even though the tests aren't doing much, occasionally we see flakiness from pauses over
   // a second (probably from GC?) so we leave a long timeout in here
-  val duration = Duration(20, SECONDS)
+  val duration = Duration(10, SECONDS)
 
   override def beforeEach(): Unit = {
     if (taskScheduler != null) {
@@ -136,9 +136,7 @@ abstract class SchedulerIntegrationSuite[T <: MockBackend: ClassTag] extends Spa
       func: (TaskContext, Iterator[_]) => _ = jobComputeFunc): Future[Any] = {
     val waiter: JobWaiter[Any] = scheduler.submitJob(rdd, func, partitions.toSeq, CallSite("", ""),
       (index, res) => results(index) = res, new Properties())
-    // scalastyle:off executioncontextglobal
     import scala.concurrent.ExecutionContext.Implicits.global
-    // scalastyle:on executioncontextglobal
     waiter.completionFuture.recover { case ex =>
       failure = ex
     }
@@ -321,8 +319,7 @@ private[spark] abstract class MockBackend(
   def taskSuccess(task: TaskDescription, result: Any): Unit = {
     val ser = env.serializer.newInstance()
     val resultBytes = ser.serialize(result)
-    // no accumulator updates
-    val directResult = new DirectTaskResult(resultBytes, Seq(), Array[Long]())
+    val directResult = new DirectTaskResult(resultBytes, Seq(), Array()) // no accumulator updates
     taskUpdate(task, TaskState.FINISHED, directResult)
   }
 
@@ -700,9 +697,7 @@ class BasicSchedulerIntegrationSuite extends SchedulerIntegrationSuite[SingleCor
     withBackend(runBackend _) {
       // Submit a job containing an RDD which will hang in getPartitions() until we release
       // the countdown latch:
-      // scalastyle:off executioncontextglobal
       import scala.concurrent.ExecutionContext.Implicits.global
-      // scalastyle:on executioncontextglobal
       val slowJobFuture = Future { submit(rddWithSlowGetPartitions, Array(0)) }.flatten
 
       // Block the current thread until the other thread has started the getPartitions() call:

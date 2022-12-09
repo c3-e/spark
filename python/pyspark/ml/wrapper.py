@@ -17,68 +17,48 @@
 
 from abc import ABCMeta, abstractmethod
 
-from typing import Any, Generic, Optional, List, Type, TypeVar, TYPE_CHECKING
-
 from pyspark import since
 from pyspark import SparkContext
 from pyspark.sql import DataFrame
 from pyspark.ml import Estimator, Predictor, PredictionModel, Transformer, Model
 from pyspark.ml.base import _PredictorParams
-from pyspark.ml.param import Param, Params
+from pyspark.ml.param import Params
 from pyspark.ml.util import _jvm
 from pyspark.ml.common import inherit_doc, _java2py, _py2java
 
 
-if TYPE_CHECKING:
-    from pyspark.ml._typing import ParamMap
-    from py4j.java_gateway import JavaObject, JavaClass
-
-
-T = TypeVar("T")
-JW = TypeVar("JW", bound="JavaWrapper")
-JM = TypeVar("JM", bound="JavaTransformer")
-JP = TypeVar("JP", bound="JavaParams")
-
-
-class JavaWrapper:
+class JavaWrapper(object):
     """
     Wrapper class for a Java companion object
     """
-
-    def __init__(self, java_obj: Optional["JavaObject"] = None):
+    def __init__(self, java_obj=None):
         super(JavaWrapper, self).__init__()
         self._java_obj = java_obj
 
-    def __del__(self) -> None:
+    def __del__(self):
         if SparkContext._active_spark_context and self._java_obj is not None:
-            SparkContext._active_spark_context._gateway.detach(  # type: ignore[union-attr]
-                self._java_obj
-            )
+            SparkContext._active_spark_context._gateway.detach(self._java_obj)
 
     @classmethod
-    def _create_from_java_class(cls: Type[JW], java_class: str, *args: Any) -> JW:
+    def _create_from_java_class(cls, java_class, *args):
         """
         Construct this object from given Java classname and arguments
         """
         java_obj = JavaWrapper._new_java_obj(java_class, *args)
         return cls(java_obj)
 
-    def _call_java(self, name: str, *args: Any) -> Any:
+    def _call_java(self, name, *args):
         m = getattr(self._java_obj, name)
         sc = SparkContext._active_spark_context
-        assert sc is not None
-
         java_args = [_py2java(sc, arg) for arg in args]
         return _java2py(sc, m(*java_args))
 
     @staticmethod
-    def _new_java_obj(java_class: str, *args: Any) -> "JavaObject":
+    def _new_java_obj(java_class, *args):
         """
         Returns a new Java object.
         """
         sc = SparkContext._active_spark_context
-        assert sc is not None
-
         java_obj = _jvm()
         for name in java_class.split("."):
             java_obj = getattr(java_obj, name)
@@ -86,7 +66,7 @@ class JavaWrapper:
         return java_obj(*java_args)
 
     @staticmethod
-    def _new_java_array(pylist: List[Any], java_class: "JavaClass") -> "JavaObject":
+    def _new_java_array(pylist, java_class):
         """
         Create a Java array of given java_class type. Useful for
         calling a method with a Scala Array from Python with Py4J.
@@ -116,9 +96,6 @@ class JavaWrapper:
           Java Array of converted pylist.
         """
         sc = SparkContext._active_spark_context
-        assert sc is not None
-        assert sc._gateway is not None
-
         java_array = None
         if len(pylist) > 0 and isinstance(pylist[0], list):
             # If pylist is a 2D array, then a 2D java array will be created.
@@ -143,28 +120,23 @@ class JavaParams(JavaWrapper, Params, metaclass=ABCMeta):
     Utility class to help create wrapper classes from Java/Scala
     implementations of pipeline components.
     """
-
     #: The param values in the Java object should be
     #: synced with the Python wrapper in fit/transform/evaluate/copy.
 
-    def _make_java_param_pair(self, param: Param[T], value: T) -> "JavaObject":
+    def _make_java_param_pair(self, param, value):
         """
         Makes a Java param pair.
         """
         sc = SparkContext._active_spark_context
-        assert sc is not None and self._java_obj is not None
-
         param = self._resolveParam(param)
         java_param = self._java_obj.getParam(param.name)
         java_value = _py2java(sc, value)
         return java_param.w(java_value)
 
-    def _transfer_params_to_java(self) -> None:
+    def _transfer_params_to_java(self):
         """
         Transforms the embedded params to the companion Java object.
         """
-        assert self._java_obj is not None
-
         pair_defaults = []
         for param in self.params:
             if self.isSet(param):
@@ -175,12 +147,10 @@ class JavaParams(JavaWrapper, Params, metaclass=ABCMeta):
                 pair_defaults.append(pair)
         if len(pair_defaults) > 0:
             sc = SparkContext._active_spark_context
-            assert sc is not None and sc._jvm is not None
-
             pair_defaults_seq = sc._jvm.PythonUtils.toSeq(pair_defaults)
             self._java_obj.setDefault(pair_defaults_seq)
 
-    def _transfer_param_map_to_java(self, pyParamMap: "ParamMap") -> "JavaObject":
+    def _transfer_param_map_to_java(self, pyParamMap):
         """
         Transforms a Python ParamMap into a Java ParamMap.
         """
@@ -191,53 +161,42 @@ class JavaParams(JavaWrapper, Params, metaclass=ABCMeta):
                 paramMap.put([pair])
         return paramMap
 
-    def _create_params_from_java(self) -> None:
+    def _create_params_from_java(self):
         """
         SPARK-10931: Temporary fix to create params that are defined in the Java obj but not here
         """
-        assert self._java_obj is not None
-
         java_params = list(self._java_obj.params())
         from pyspark.ml.param import Param
-
         for java_param in java_params:
             java_param_name = java_param.name()
             if not hasattr(self, java_param_name):
-                param: Param[Any] = Param(self, java_param_name, java_param.doc())
+                param = Param(self, java_param_name, java_param.doc())
                 setattr(param, "created_from_java_param", True)
                 setattr(self, java_param_name, param)
                 self._params = None  # need to reset so self.params will discover new params
 
-    def _transfer_params_from_java(self) -> None:
+    def _transfer_params_from_java(self):
         """
         Transforms the embedded params from the companion Java object.
         """
         sc = SparkContext._active_spark_context
-        assert sc is not None and self._java_obj is not None
-
         for param in self.params:
             if self._java_obj.hasParam(param.name):
                 java_param = self._java_obj.getParam(param.name)
                 # SPARK-14931: Only check set params back to avoid default params mismatch.
                 if self._java_obj.isSet(java_param):
-                    java_value = self._java_obj.getOrDefault(java_param)
-                    if param.typeConverter.__name__.startswith("toList"):
-                        value = [_java2py(sc, x) for x in list(java_value)]
-                    else:
-                        value = _java2py(sc, java_value)
+                    value = _java2py(sc, self._java_obj.getOrDefault(java_param))
                     self._set(**{param.name: value})
                 # SPARK-10931: Temporary fix for params that have a default in Java
                 if self._java_obj.hasDefault(java_param) and not self.isDefined(param):
                     value = _java2py(sc, self._java_obj.getDefault(java_param)).get()
                     self._setDefault(**{param.name: value})
 
-    def _transfer_param_map_from_java(self, javaParamMap: "JavaObject") -> "ParamMap":
+    def _transfer_param_map_from_java(self, javaParamMap):
         """
         Transforms a Java ParamMap into a Python ParamMap.
         """
         sc = SparkContext._active_spark_context
-        assert sc is not None
-
         paramMap = dict()
         for pair in javaParamMap.toList():
             param = pair.param()
@@ -246,13 +205,13 @@ class JavaParams(JavaWrapper, Params, metaclass=ABCMeta):
         return paramMap
 
     @staticmethod
-    def _empty_java_param_map() -> "JavaObject":
+    def _empty_java_param_map():
         """
         Returns an empty Java ParamMap reference.
         """
         return _jvm().org.apache.spark.ml.param.ParamMap()
 
-    def _to_java(self) -> "JavaObject":
+    def _to_java(self):
         """
         Transfer this instance's Params to the wrapped Java object, and return the Java object.
         Used for ML persistence.
@@ -268,23 +227,23 @@ class JavaParams(JavaWrapper, Params, metaclass=ABCMeta):
         return self._java_obj
 
     @staticmethod
-    def _from_java(java_stage: "JavaObject") -> "JP":
+    def _from_java(java_stage):
         """
         Given a Java object, create and return a Python wrapper of it.
         Used for ML persistence.
 
         Meta-algorithms such as Pipeline should override this method as a classmethod.
         """
-
-        def __get_class(clazz: str) -> Type[JP]:
+        def __get_class(clazz):
             """
             Loads Python class from its name.
             """
-            parts = clazz.split(".")
+            parts = clazz.split('.')
             module = ".".join(parts[:-1])
-            m = __import__(module, fromlist=[parts[-1]])
-            return getattr(m, parts[-1])
-
+            m = __import__(module)
+            for comp in parts[1:]:
+                m = getattr(m, comp)
+            return m
         stage_name = java_stage.getClass().getName().replace("org.apache.spark", "pyspark")
         # Generate a default new instance from the stage_name class.
         py_type = __get_class(stage_name)
@@ -302,12 +261,11 @@ class JavaParams(JavaWrapper, Params, metaclass=ABCMeta):
         elif hasattr(py_type, "_from_java"):
             py_stage = py_type._from_java(java_stage)
         else:
-            raise NotImplementedError(
-                "This Java stage cannot be loaded into Python currently: %r" % stage_name
-            )
+            raise NotImplementedError("This Java stage cannot be loaded into Python currently: %r"
+                                      % stage_name)
         return py_stage
 
-    def copy(self: "JP", extra: Optional["ParamMap"] = None) -> "JP":
+    def copy(self, extra=None):
         """
         Creates a copy of this instance with the same uid and some
         extra params. This implementation first calls Params.copy and
@@ -333,32 +291,30 @@ class JavaParams(JavaWrapper, Params, metaclass=ABCMeta):
             that._transfer_params_to_java()
         return that
 
-    def clear(self, param: Param) -> None:
+    def clear(self, param):
         """
         Clears a param from the param map if it has been explicitly set.
         """
-        assert self._java_obj is not None
-
         super(JavaParams, self).clear(param)
         java_param = self._java_obj.getParam(param.name)
         self._java_obj.clear(java_param)
 
 
 @inherit_doc
-class JavaEstimator(JavaParams, Estimator[JM], metaclass=ABCMeta):
+class JavaEstimator(JavaParams, Estimator, metaclass=ABCMeta):
     """
     Base class for :py:class:`Estimator`s that wrap Java/Scala
     implementations.
     """
 
     @abstractmethod
-    def _create_model(self, java_model: "JavaObject") -> JM:
+    def _create_model(self, java_model):
         """
         Creates a model from the input Java model reference.
         """
         raise NotImplementedError()
 
-    def _fit_java(self, dataset: DataFrame) -> "JavaObject":
+    def _fit_java(self, dataset):
         """
         Fits a Java model to the input dataset.
 
@@ -372,12 +328,10 @@ class JavaEstimator(JavaParams, Estimator[JM], metaclass=ABCMeta):
         py4j.java_gateway.JavaObject
             fitted Java model
         """
-        assert self._java_obj is not None
-
         self._transfer_params_to_java()
         return self._java_obj.fit(dataset._jdf)
 
-    def _fit(self, dataset: DataFrame) -> JM:
+    def _fit(self, dataset):
         java_model = self._fit_java(dataset)
         model = self._create_model(java_model)
         return self._copyValues(model)
@@ -391,11 +345,9 @@ class JavaTransformer(JavaParams, Transformer, metaclass=ABCMeta):
     available as _java_obj.
     """
 
-    def _transform(self, dataset: DataFrame) -> DataFrame:
-        assert self._java_obj is not None
-
+    def _transform(self, dataset):
         self._transfer_params_to_java()
-        return DataFrame(self._java_obj.transform(dataset._jdf), dataset.sparkSession)
+        return DataFrame(self._java_obj.transform(dataset._jdf), dataset.sql_ctx)
 
 
 @inherit_doc
@@ -406,7 +358,7 @@ class JavaModel(JavaTransformer, Model, metaclass=ABCMeta):
     param mix-ins, because this sets the UID from the Java model.
     """
 
-    def __init__(self, java_model: Optional["JavaObject"] = None):
+    def __init__(self, java_model=None):
         """
         Initialize this instance with a Java model object.
         Subclasses should call this constructor, initialize params,
@@ -430,35 +382,34 @@ class JavaModel(JavaTransformer, Model, metaclass=ABCMeta):
 
             self._resetUid(java_model.uid())
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return self._call_java("toString")
 
 
 @inherit_doc
-class JavaPredictor(Predictor, JavaEstimator[JM], _PredictorParams, Generic[JM], metaclass=ABCMeta):
+class JavaPredictor(Predictor, JavaEstimator, _PredictorParams, metaclass=ABCMeta):
     """
     (Private) Java Estimator for prediction tasks (regression and classification).
     """
-
     pass
 
 
 @inherit_doc
-class JavaPredictionModel(PredictionModel[T], JavaModel, _PredictorParams):
+class JavaPredictionModel(PredictionModel, JavaModel, _PredictorParams):
     """
     (Private) Java Model for prediction tasks (regression and classification).
     """
 
-    @property  # type: ignore[misc]
+    @property
     @since("2.1.0")
-    def numFeatures(self) -> int:
+    def numFeatures(self):
         """
         Returns the number of features the model was trained on. If unknown, returns -1
         """
         return self._call_java("numFeatures")
 
     @since("3.0.0")
-    def predict(self, value: T) -> float:
+    def predict(self, value):
         """
         Predict label for the given features.
         """

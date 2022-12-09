@@ -18,7 +18,6 @@
 package org.apache.spark.launcher;
 
 import java.io.File;
-import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -28,12 +27,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 import static java.nio.file.attribute.PosixFilePermission.*;
 
-import org.apache.logging.log4j.core.config.Property;
-import org.apache.logging.log4j.core.config.plugins.*;
-import org.apache.logging.log4j.core.Filter;
-import org.apache.logging.log4j.core.Layout;
-import org.apache.logging.log4j.core.appender.AbstractAppender;
-import org.apache.logging.log4j.core.LogEvent;
+import org.apache.log4j.AppenderSkeleton;
+import org.apache.log4j.spi.LoggingEvent;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -165,29 +160,27 @@ public class ChildProcAppHandleSuite extends BaseSuite {
     assertEquals(Arrays.asList("output"), Files.lines(out).collect(Collectors.toList()));
   }
 
-  @Test
+  @Test(expected = IllegalArgumentException.class)
   public void testBadLogRedirect() throws Exception {
     File out = Files.createTempFile("stdout", "txt").toFile();
     out.deleteOnExit();
-    assertThrows(IllegalArgumentException.class,
-      () -> new SparkLauncher()
-              .redirectError()
-              .redirectOutput(out)
-              .redirectToLog("foo")
-              .launch()
-              .waitFor());
+    new SparkLauncher()
+      .redirectError()
+      .redirectOutput(out)
+      .redirectToLog("foo")
+      .launch()
+      .waitFor();
   }
 
-  @Test
+  @Test(expected = IllegalArgumentException.class)
   public void testRedirectErrorTwiceFails() throws Exception {
     File err = Files.createTempFile("stderr", "txt").toFile();
     err.deleteOnExit();
-    assertThrows(IllegalArgumentException.class,
-      () -> new SparkLauncher()
-              .redirectError()
-              .redirectError(err)
-              .launch()
-              .waitFor());
+    new SparkLauncher()
+      .redirectError()
+      .redirectError(err)
+      .launch()
+      .waitFor();
   }
 
   @Test
@@ -245,29 +238,22 @@ public class ChildProcAppHandleSuite extends BaseSuite {
    * A log4j appender used by child apps of this test. It records all messages logged through it in
    * memory so the test can check them.
    */
-  @Plugin(name="LogAppender", category="Core", elementType="appender", printObject=true)
-  public static class LogAppender extends AbstractAppender {
-
-    protected LogAppender(String name,
-                          Filter filter,
-                          Layout<? extends Serializable> layout,
-                          boolean ignoreExceptions) {
-      super(name, filter, layout, ignoreExceptions, Property.EMPTY_ARRAY);
-    }
+  public static class LogAppender extends AppenderSkeleton {
 
     @Override
-    public void append(LogEvent event) {
+    protected void append(LoggingEvent event) {
       MESSAGES.add(event.getMessage().toString());
     }
 
-
-    @PluginFactory
-    public static LogAppender createAppender(
-            @PluginAttribute("name") String name,
-            @PluginElement("Layout") Layout<? extends Serializable> layout,
-            @PluginElement("Filter") final Filter filter,
-            @PluginAttribute("otherAttribute") String otherAttribute) {
-      return new LogAppender(name, filter, layout, false);
+    @Override
+    public boolean requiresLayout() {
+      return false;
     }
+
+    @Override
+    public void close() {
+
+    }
+
   }
 }

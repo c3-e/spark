@@ -17,13 +17,12 @@
 
 package org.apache.spark.sql.execution
 
-import java.io.{DataInputStream, DataOutputStream}
-import java.nio.ByteBuffer
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, DataInputStream, DataOutputStream}
 import java.util.concurrent.atomic.AtomicInteger
 
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 
-import org.apache.spark.{broadcast, SparkEnv, SparkException}
+import org.apache.spark.{broadcast, SparkEnv}
 import org.apache.spark.internal.Logging
 import org.apache.spark.io.CompressionCodec
 import org.apache.spark.rdd.{RDD, RDDOperationScope}
@@ -39,7 +38,6 @@ import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.NextIterator
-import org.apache.spark.util.io.{ChunkedByteBuffer, ChunkedByteBufferOutputStream}
 
 object SparkPlan {
   /** The original [[LogicalPlan]] from which this [[SparkPlan]] is converted. */
@@ -75,16 +73,7 @@ abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializ
   val id: Int = SparkPlan.newPlanId()
 
   /**
-   * Return true if this stage of the plan supports row-based execution. A plan
-   * can also support columnar execution (see `supportsColumnar`). Spark will decide
-   * which execution to be called during query planning.
-   */
-  def supportsRowBased: Boolean = !supportsColumnar
-
-  /**
-   * Return true if this stage of the plan supports columnar execution. A plan
-   * can also support row-based execution (see `supportsRowBased`). Spark will decide
-   * which execution to be called during query planning.
+   * Return true if this stage of the plan supports columnar execution.
    */
   def supportsColumnar: Boolean = false
 
@@ -191,7 +180,7 @@ abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializ
    */
   final def execute(): RDD[InternalRow] = executeQuery {
     if (isCanonicalizedPlan) {
-      throw SparkException.internalError("A canonicalized plan is not supposed to be executed.")
+      throw new IllegalStateException("A canonicalized plan is not supposed to be executed.")
     }
     doExecute()
   }
@@ -204,7 +193,7 @@ abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializ
    */
   final def executeBroadcast[T](): broadcast.Broadcast[T] = executeQuery {
     if (isCanonicalizedPlan) {
-      throw SparkException.internalError("A canonicalized plan is not supposed to be executed.")
+      throw new IllegalStateException("A canonicalized plan is not supposed to be executed.")
     }
     doExecuteBroadcast()
   }
@@ -218,7 +207,7 @@ abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializ
    */
   final def executeColumnar(): RDD[ColumnarBatch] = executeQuery {
     if (isCanonicalizedPlan) {
-      throw SparkException.internalError("A canonicalized plan is not supposed to be executed.")
+      throw new IllegalStateException("A canonicalized plan is not supposed to be executed.")
     }
     doExecuteColumnar()
   }
@@ -320,14 +309,9 @@ abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializ
    * when it is no longer needed. This allows input formats to be able to reuse batches if needed.
    */
   protected def doExecuteColumnar(): RDD[ColumnarBatch] = {
-    throw SparkException.internalError(s"Internal Error ${this.getClass} has column support" +
+    throw new IllegalStateException(s"Internal Error ${this.getClass} has column support" +
       s" mismatch:\n${this}")
   }
-
-  /**
-   * Converts the output of this plan to row-based if it is columnar plan.
-   */
-  def toRowBased: SparkPlan = if (supportsColumnar) ColumnarToRowExec(this) else this
 
   /**
    * Packing the UnsafeRows into byte array for faster serialization.
@@ -338,13 +322,13 @@ abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializ
    * compressed.
    */
   private def getByteArrayRdd(
-      n: Int = -1, takeFromEnd: Boolean = false): RDD[(Long, ChunkedByteBuffer)] = {
+      n: Int = -1, takeFromEnd: Boolean = false): RDD[(Long, Array[Byte])] = {
     execute().mapPartitionsInternal { iter =>
       var count = 0
       val buffer = new Array[Byte](4 << 10)  // 4K
       val codec = CompressionCodec.createCodec(SparkEnv.get.conf)
-      val cbbos = new ChunkedByteBufferOutputStream(1024 * 1024, ByteBuffer.allocate)
-      val out = new DataOutputStream(codec.compressedOutputStream(cbbos))
+      val bos = new ByteArrayOutputStream()
+      val out = new DataOutputStream(codec.compressedOutputStream(bos))
 
       if (takeFromEnd && n > 0) {
         // To collect n from the last, we should anyway read everything with keeping the n.
@@ -373,19 +357,19 @@ abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializ
       out.writeInt(-1)
       out.flush()
       out.close()
-      Iterator((count, cbbos.toChunkedByteBuffer))
+      Iterator((count, bos.toByteArray))
     }
   }
 
   /**
    * Decodes the byte arrays back to UnsafeRows and put them into buffer.
    */
-  private def decodeUnsafeRows(bytes: ChunkedByteBuffer): Iterator[InternalRow] = {
+  private def decodeUnsafeRows(bytes: Array[Byte]): Iterator[InternalRow] = {
     val nFields = schema.length
 
     val codec = CompressionCodec.createCodec(SparkEnv.get.conf)
-    val cbbis = bytes.toInputStream()
-    val ins = new DataInputStream(codec.compressedInputStream(cbbis))
+    val bis = new ByteArrayInputStream(bytes)
+    val ins = new DataInputStream(codec.compressedInputStream(bis))
 
     new NextIterator[InternalRow] {
       private var sizeOfNextRow = ins.readInt()
@@ -471,8 +455,7 @@ abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializ
     if (n == 0) {
       return new Array[InternalRow](0)
     }
-    val limitScaleUpFactor = Math.max(conf.limitScaleUpFactor, 2)
-    // TODO: refactor and reuse the code from RDD's take()
+
     val childRDD = getByteArrayRdd(n, takeFromEnd)
 
     val buf = if (takeFromEnd) new ListBuffer[InternalRow] else new ArrayBuffer[InternalRow]
@@ -481,11 +464,12 @@ abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializ
     while (buf.length < n && partsScanned < totalParts) {
       // The number of partitions to try in this iteration. It is ok for this number to be
       // greater than totalParts because we actually cap it at totalParts in runJob.
-      var numPartsToTry = conf.limitInitialNumPartitions
+      var numPartsToTry = 1L
       if (partsScanned > 0) {
-        // If we didn't find any rows after the previous iteration, multiply by
-        // limitScaleUpFactor and retry. Otherwise, interpolate the number of partitions we need
-        // to try, but overestimate it by 50%. We also cap the estimation in the end.
+        // If we didn't find any rows after the previous iteration, quadruple and retry.
+        // Otherwise, interpolate the number of partitions we need to try, but overestimate
+        // it by 50%. We also cap the estimation in the end.
+        val limitScaleUpFactor = Math.max(conf.limitScaleUpFactor, 2)
         if (buf.isEmpty) {
           numPartsToTry = partsScanned * limitScaleUpFactor
         } else {
@@ -505,8 +489,8 @@ abstract class SparkPlan extends QueryPlan[SparkPlan] with Logging with Serializ
         parts
       }
       val sc = sparkContext
-      val res = sc.runJob(childRDD, (it: Iterator[(Long, ChunkedByteBuffer)]) =>
-        if (it.hasNext) it.next() else (0L, new ChunkedByteBuffer()), partsToScan)
+      val res = sc.runJob(childRDD, (it: Iterator[(Long, Array[Byte])]) =>
+        if (it.hasNext) it.next() else (0L, Array.emptyByteArray), partsToScan)
 
       var i = 0
 

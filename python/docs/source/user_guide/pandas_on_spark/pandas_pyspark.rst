@@ -81,7 +81,7 @@ if possible, it is recommended to use pandas API on Spark or PySpark APIs instea
 PySpark
 -------
 
-PySpark users can access the full PySpark APIs by calling :func:`DataFrame.to_spark`.
+PySpark users can access to full PySpark APIs by calling :func:`DataFrame.to_spark`.
 pandas-on-Spark DataFrame and Spark DataFrame are virtually interchangeable.
 
 For example, if you need to call ``spark_df.filter(...)`` of Spark DataFrame, you can do
@@ -107,7 +107,7 @@ Spark DataFrame can be a pandas-on-Spark DataFrame easily as below:
 
 .. code-block:: python
 
-   >>> sdf.pandas_api()
+   >>> sdf.to_pandas_on_spark()
       id
    0   6
    1   7
@@ -127,7 +127,7 @@ to use as an index when possible.
    >>> # Call Spark APIs
    ... sdf = sdf.filter("id > 5")
    >>> # Uses the explicit index to avoid to create default index.
-   ... sdf.pandas_api(index_col='index')
+   ... sdf.to_pandas_on_spark(index_col='index')
           id
    index
    6       6

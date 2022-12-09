@@ -30,6 +30,7 @@ import scala.concurrent.duration._
 import com.google.common.io.Files
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.{mock, never, verify, when}
+import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.Eventually._
 
 import org.apache.spark.{SparkConf, SparkEnv, SparkException, SparkFunSuite}
@@ -40,7 +41,7 @@ import org.apache.spark.util.{ThreadUtils, Utils}
 /**
  * Common tests for an RpcEnv implementation.
  */
-abstract class RpcEnvSuite extends SparkFunSuite {
+abstract class RpcEnvSuite extends SparkFunSuite with BeforeAndAfterAll {
 
   var env: RpcEnv = _
 
@@ -170,6 +171,8 @@ abstract class RpcEnvSuite extends SparkFunSuite {
 
     val conf = new SparkConf()
     val shortProp = "spark.rpc.short.timeout"
+    conf.set(Network.RPC_RETRY_WAIT, 0L)
+    conf.set(Network.RPC_NUM_RETRIES, 1)
     val anotherEnv = createRpcEnv(conf, "remote", 0, clientMode = true)
     // Use anotherEnv to find out the RpcEndpointRef
     val rpcEndpointRef = anotherEnv.setupEndpointRef(env.address, "ask-timeout")
@@ -200,6 +203,8 @@ abstract class RpcEnvSuite extends SparkFunSuite {
 
     val conf = new SparkConf()
     val shortProp = "spark.rpc.short.timeout"
+    conf.set(Network.RPC_RETRY_WAIT, 0L)
+    conf.set(Network.RPC_NUM_RETRIES, 1)
     val anotherEnv = createRpcEnv(conf, "remote", 0, clientMode = true)
     // Use anotherEnv to find out the RpcEndpointRef
     val rpcEndpointRef = anotherEnv.setupEndpointRef(env.address, "ask-abort")

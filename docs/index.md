@@ -23,7 +23,7 @@ license: |
 Apache Spark is a unified analytics engine for large-scale data processing.
 It provides high-level APIs in Java, Scala, Python and R,
 and an optimized engine that supports general execution graphs.
-It also supports a rich set of higher-level tools including [Spark SQL](sql-programming-guide.html) for SQL and structured data processing, [pandas API on Spark](api/python/getting_started/quickstart_ps.html) for pandas workloads, [MLlib](ml-guide.html) for machine learning, [GraphX](graphx-programming-guide.html) for graph processing, and [Structured Streaming](structured-streaming-programming-guide.html) for incremental computation and stream processing.
+It also supports a rich set of higher-level tools including [Spark SQL](sql-programming-guide.html) for SQL and structured data processing, [MLlib](ml-guide.html) for machine learning, [GraphX](graphx-programming-guide.html) for graph processing, and [Structured Streaming](structured-streaming-programming-guide.html) for incremental computation and stream processing.
 
 # Downloading
 
@@ -39,11 +39,12 @@ source, visit [Building Spark](building-spark.html).
 
 Spark runs on both Windows and UNIX-like systems (e.g. Linux, Mac OS), and it should run on any platform that runs a supported version of Java. This should include JVMs on x86_64 and ARM64. It's easy to run locally on one machine --- all you need is to have `java` installed on your system `PATH`, or the `JAVA_HOME` environment variable pointing to a Java installation.
 
-Spark runs on Java 8/11/17, Scala 2.12/2.13, Python 3.7+ and R 3.5+.
-Python 3.7 support is deprecated as of Spark 3.4.0.
+Spark runs on Java 8/11, Scala 2.12/2.13, Python 3.6+ and R 3.5+.
+Python 3.6 support is deprecated as of Spark 3.2.0.
 Java 8 prior to version 8u201 support is deprecated as of Spark 3.2.0.
-When using the Scala API, it is necessary for applications to use the same version of Scala that Spark was compiled for.
-For example, when using Scala 2.13, use Spark compiled for 2.13, and compile code/applications for Scala 2.13 as well.
+For the Scala API, Spark {{site.SPARK_VERSION}}
+uses Scala {{site.SCALA_BINARY_VERSION}}. You will need to use a compatible Scala version
+({{site.SCALA_BINARY_VERSION}}.x).
 
 For Python 3.9, Arrow optimization and pandas UDFs might not work due to the supported Python versions in Apache Arrow. Please refer to the latest [Python Compatibility](https://arrow.apache.org/docs/python/install.html#python-compatibility) page.
 For Java 11, `-Dio.netty.tryReflectionSetAccessible=true` is required additionally for Apache Arrow library. This prevents `java.lang.UnsupportedOperationException: sun.misc.Unsafe or java.nio.DirectByteBuffer.(long, int) not available` when Apache Arrow uses Netty internally.
@@ -111,7 +112,6 @@ options for deployment:
 * [GraphX](graphx-programming-guide.html): processing graphs 
 * [SparkR](sparkr.html): processing data with Spark in R
 * [PySpark](api/python/getting_started/index.html): processing data with Spark in Python
-* [Spark SQL CLI](sql-distributed-sql-engine-spark-sql-cli.html): processing data with SQL on the command line
 
 **API Docs:**
 
@@ -155,9 +155,10 @@ options for deployment:
 * [Spark Community](https://spark.apache.org/community.html) resources, including local meetups
 * [StackOverflow tag `apache-spark`](http://stackoverflow.com/questions/tagged/apache-spark)
 * [Mailing Lists](https://spark.apache.org/mailing-lists.html): ask questions about Spark here
-* AMP Camps: a series of training camps at UC Berkeley that featured talks and
-  exercises about Spark, Spark Streaming, Mesos, and more. [Videos](https://www.youtube.com/user/BerkeleyAMPLab/search?query=amp%20camp),
-  are available online for free.
+* [AMP Camps](http://ampcamp.berkeley.edu/): a series of training camps at UC Berkeley that featured talks and
+  exercises about Spark, Spark Streaming, Mesos, and more. [Videos](http://ampcamp.berkeley.edu/6/),
+  [slides](http://ampcamp.berkeley.edu/6/) and [exercises](http://ampcamp.berkeley.edu/6/exercises/) are
+  available online for free.
 * [Code Examples](https://spark.apache.org/examples.html): more are also available in the `examples` subfolder of Spark ([Scala]({{site.SPARK_GITHUB_URL}}/tree/master/examples/src/main/scala/org/apache/spark/examples),
  [Java]({{site.SPARK_GITHUB_URL}}/tree/master/examples/src/main/java/org/apache/spark/examples),
  [Python]({{site.SPARK_GITHUB_URL}}/tree/master/examples/src/main/python),

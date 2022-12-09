@@ -18,8 +18,7 @@
 package org.apache.spark.sql.connector.expressions.aggregate;
 
 import org.apache.spark.annotation.Evolving;
-import org.apache.spark.sql.connector.expressions.Expression;
-import org.apache.spark.sql.internal.connector.ExpressionWithToString;
+import org.apache.spark.sql.connector.expressions.NamedReference;
 
 /**
  * An aggregate function that returns the number of the specific row in a group.
@@ -27,18 +26,27 @@ import org.apache.spark.sql.internal.connector.ExpressionWithToString;
  * @since 3.2.0
  */
 @Evolving
-public final class Count extends ExpressionWithToString implements AggregateFunc {
-  private final Expression input;
+public final class Count implements AggregateFunc {
+  private final NamedReference column;
   private final boolean isDistinct;
 
-  public Count(Expression column, boolean isDistinct) {
-    this.input = column;
+  public Count(NamedReference column, boolean isDistinct) {
+    this.column = column;
     this.isDistinct = isDistinct;
   }
 
-  public Expression column() { return input; }
+  public NamedReference column() { return column; }
   public boolean isDistinct() { return isDistinct; }
 
   @Override
-  public Expression[] children() { return new Expression[]{ input }; }
+  public String toString() {
+    if (isDistinct) {
+      return "COUNT(DISTINCT " + column.describe() + ")";
+    } else {
+      return "COUNT(" + column.describe() + ")";
+    }
+  }
+
+  @Override
+  public String describe() { return this.toString(); }
 }

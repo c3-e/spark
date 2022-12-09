@@ -11,7 +11,7 @@
   "failedTasks" : 0,
   "completedTasks" : 0,
   "totalTasks" : 0,
-  "totalDuration" : 101795,
+  "totalDuration" : 0,
   "totalGCTime" : 0,
   "totalInputBytes" : 0,
   "totalShuffleRead" : 0,
@@ -72,8 +72,7 @@
     "MinorGCCount" : 0,
     "MinorGCTime" : 0,
     "MajorGCCount" : 0,
-    "MajorGCTime" : 0,
-    "TotalGCTime" : 0
+    "MajorGCTime" : 0
   },
   "attributes" : { },
   "resources" : { },
@@ -126,8 +125,7 @@
     "MinorGCCount" : 0,
     "MinorGCTime" : 0,
     "MajorGCCount" : 0,
-    "MajorGCTime" : 0,
-    "TotalGCTime" : 0
+    "MajorGCTime" : 0
   },
   "attributes" : { },
   "resources" : { },
@@ -180,8 +178,7 @@
     "MinorGCCount" : 0,
     "MinorGCTime" : 0,
     "MajorGCCount" : 0,
-    "MajorGCTime" : 0,
-    "TotalGCTime" : 0
+    "MajorGCTime" : 0
   },
   "attributes" : { },
   "resources" : { },
@@ -234,8 +231,7 @@
     "MinorGCCount" : 0,
     "MinorGCTime" : 0,
     "MajorGCCount" : 0,
-    "MajorGCTime" : 0,
-    "TotalGCTime" : 0
+    "MajorGCTime" : 0
   },
   "attributes" : { },
   "resources" : { },

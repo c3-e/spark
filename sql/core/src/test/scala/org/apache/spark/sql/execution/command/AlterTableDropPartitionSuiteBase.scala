@@ -19,8 +19,6 @@ package org.apache.spark.sql.execution.command
 
 import org.apache.spark.sql.{AnalysisException, QueryTest, Row}
 import org.apache.spark.sql.catalyst.analysis.NoSuchPartitionsException
-import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
-import org.apache.spark.sql.catalyst.util.quoteIdentifier
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -88,13 +86,10 @@ trait AlterTableDropPartitionSuiteBase extends QueryTest with DDLCommandTestUtil
 
   test("table to alter does not exist") {
     withNamespaceAndTable("ns", "does_not_exist") { t =>
-      val parsed = CatalystSqlParser.parseMultipartIdentifier(t)
-        .map(part => quoteIdentifier(part)).mkString(".")
-      val e = intercept[AnalysisException] {
+      val errMsg = intercept[AnalysisException] {
         sql(s"ALTER TABLE $t DROP PARTITION (a='4', b='9')")
-      }
-      checkErrorTableNotFound(e, parsed,
-        ExpectedContext(t, 12, 11 + t.length))
+      }.getMessage
+      assert(errMsg.contains("Table not found"))
     }
   }
 
@@ -124,10 +119,9 @@ trait AlterTableDropPartitionSuiteBase extends QueryTest with DDLCommandTestUtil
         |$defaultUsing
         |PARTITIONED BY (part0, part1)""".stripMargin)
       val errMsg = intercept[AnalysisException] {
-        sql(s"ALTER TABLE $t ADD PARTITION (part0 = 1)")
+        sql(s"ALTER TABLE $t DROP PARTITION (part0 = 1)")
       }.getMessage
-      assert(errMsg.contains("Partition spec is invalid. " +
-        "The spec (part0) must match the partition spec (part0, part1)"))
+      assert(errMsg.contains(notFullPartitionSpecErr))
     }
   }
 
@@ -136,18 +130,10 @@ trait AlterTableDropPartitionSuiteBase extends QueryTest with DDLCommandTestUtil
       sql(s"CREATE TABLE $t (id bigint, data string) $defaultUsing PARTITIONED BY (id)")
       sql(s"ALTER TABLE $t ADD PARTITION (id=1) LOCATION 'loc'")
 
-      val e = intercept[NoSuchPartitionsException] {
+      val errMsg = intercept[NoSuchPartitionsException] {
         sql(s"ALTER TABLE $t DROP PARTITION (id=1), PARTITION (id=2)")
-      }
-      val expectedTableName = if (commandVersion == DDLCommandTestUtils.V1_COMMAND_VERSION) {
-        "`ns`.`tbl`"
-      } else {
-        "`test_catalog`.`ns`.`tbl`"
-      }
-      checkError(e,
-        errorClass = "PARTITIONS_NOT_FOUND",
-        parameters = Map("partitionList" -> "PARTITION (`id` = 2)",
-        "tableName" -> expectedTableName))
+      }.getMessage
+      assert(errMsg.contains("partitions not found in table"))
 
       checkPartitions(t, Map("id" -> "1"))
       sql(s"ALTER TABLE $t DROP IF EXISTS PARTITION (id=1), PARTITION (id=2)")

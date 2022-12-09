@@ -19,15 +19,14 @@ package org.apache.spark.scheduler.cluster.k8s
 import java.io.File
 
 import io.fabric8.kubernetes.client.Config
-import io.fabric8.kubernetes.client.KubernetesClient
 
-import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.SparkContext
 import org.apache.spark.deploy.k8s.{KubernetesConf, KubernetesUtils, SparkKubernetesClientFactory}
 import org.apache.spark.deploy.k8s.Config._
 import org.apache.spark.deploy.k8s.Constants.DEFAULT_EXECUTOR_CONTAINER_NAME
 import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.{ExternalClusterManager, SchedulerBackend, TaskScheduler, TaskSchedulerImpl}
-import org.apache.spark.util.{Clock, SystemClock, ThreadUtils, Utils}
+import org.apache.spark.util.{SystemClock, ThreadUtils}
 
 private[spark] class KubernetesClusterManager extends ExternalClusterManager with Logging {
 
@@ -103,19 +102,24 @@ private[spark] class KubernetesClusterManager extends ExternalClusterManager wit
     val subscribersExecutor = ThreadUtils
       .newDaemonThreadPoolScheduledExecutor(
         "kubernetes-executor-snapshots-subscribers", 2)
-    val snapshotsStore = new ExecutorPodsSnapshotsStoreImpl(subscribersExecutor, conf = sc.conf)
+    val snapshotsStore = new ExecutorPodsSnapshotsStoreImpl(subscribersExecutor)
 
     val executorPodsLifecycleEventHandler = new ExecutorPodsLifecycleManager(
       sc.conf,
       kubernetesClient,
       snapshotsStore)
 
-    val executorPodsAllocator = makeExecutorPodsAllocator(sc, kubernetesClient, snapshotsStore)
+    val executorPodsAllocator = new ExecutorPodsAllocator(
+      sc.conf,
+      sc.env.securityManager,
+      new KubernetesExecutorBuilder(),
+      kubernetesClient,
+      snapshotsStore,
+      new SystemClock())
 
     val podsWatchEventSource = new ExecutorPodsWatchSnapshotSource(
       snapshotsStore,
-      kubernetesClient,
-      sc.conf)
+      kubernetesClient)
 
     val eventsPollingExecutor = ThreadUtils.newDaemonSingleThreadScheduledExecutor(
       "kubernetes-executor-pod-polling-sync")
@@ -132,31 +136,6 @@ private[spark] class KubernetesClusterManager extends ExternalClusterManager wit
       executorPodsLifecycleEventHandler,
       podsWatchEventSource,
       podsPollingEventSource)
-  }
-
-  private[k8s] def makeExecutorPodsAllocator(sc: SparkContext, kubernetesClient: KubernetesClient,
-      snapshotsStore: ExecutorPodsSnapshotsStore) = {
-    val executorPodsAllocatorName = sc.conf.get(KUBERNETES_ALLOCATION_PODS_ALLOCATOR) match {
-      case "statefulset" =>
-        classOf[StatefulSetPodsAllocator].getName
-      case "direct" =>
-        classOf[ExecutorPodsAllocator].getName
-      case fullClass =>
-        fullClass
-    }
-
-    val cls = Utils.classForName[AbstractPodsAllocator](executorPodsAllocatorName)
-    val cstr = cls.getConstructor(
-      classOf[SparkConf], classOf[org.apache.spark.SecurityManager],
-      classOf[KubernetesExecutorBuilder], classOf[KubernetesClient],
-      classOf[ExecutorPodsSnapshotsStore], classOf[Clock])
-    cstr.newInstance(
-      sc.conf,
-      sc.env.securityManager,
-      new KubernetesExecutorBuilder(),
-      kubernetesClient,
-      snapshotsStore,
-      new SystemClock())
   }
 
   override def initialize(scheduler: TaskScheduler, backend: SchedulerBackend): Unit = {

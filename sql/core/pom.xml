@@ -22,14 +22,14 @@
   <parent>
     <groupId>org.apache.spark</groupId>
     <artifactId>spark-parent_2.12</artifactId>
-    <version>3.4.0-SNAPSHOT</version>
+    <version>3.2.2</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
   <artifactId>spark-sql_2.12</artifactId>
   <packaging>jar</packaging>
   <name>Spark Project SQL</name>
-  <url>https://spark.apache.org/</url>
+  <url>http://spark.apache.org/</url>
   <properties>
     <sbt.project.name>sql</sbt.project.name>
   </properties>
@@ -38,6 +38,7 @@
     <dependency>
       <groupId>org.rocksdb</groupId>
       <artifactId>rocksdbjni</artifactId>
+      <version>6.20.3</version>
     </dependency>
     <dependency>
       <groupId>com.univocity</groupId>
@@ -98,12 +99,10 @@
     <dependency>
       <groupId>org.apache.orc</groupId>
       <artifactId>orc-core</artifactId>
-      <classifier>${orc.classifier}</classifier>
     </dependency>
     <dependency>
       <groupId>org.apache.orc</groupId>
       <artifactId>orc-mapreduce</artifactId>
-      <classifier>${orc.classifier}</classifier>
     </dependency>
     <dependency>
       <groupId>org.apache.hive</groupId>
@@ -112,24 +111,6 @@
     <dependency>
       <groupId>org.apache.parquet</groupId>
       <artifactId>parquet-column</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.parquet</groupId>
-      <artifactId>parquet-encoding</artifactId>
-      <scope>test</scope>
-      <classifier>tests</classifier>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.parquet</groupId>
-      <artifactId>parquet-common</artifactId>
-      <scope>test</scope>
-      <classifier>tests</classifier>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.parquet</groupId>
-      <artifactId>parquet-column</artifactId>
-      <scope>test</scope>
-      <classifier>tests</classifier>
     </dependency>
     <dependency>
       <groupId>org.apache.parquet</groupId>
@@ -155,7 +136,7 @@
     <dependency>
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>
-      <version>2.1.214</version>
+      <version>1.4.195</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -191,11 +172,6 @@
     <dependency>
       <groupId>org.mockito</groupId>
       <artifactId>mockito-core</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.mockito</groupId>
-      <artifactId>mockito-inline</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -239,7 +215,7 @@
         <groupId>org.scalatest</groupId>
         <artifactId>scalatest-maven-plugin</artifactId>
         <configuration>
-          <argLine>-ea -Xmx4g -Xss4m -XX:ReservedCodeCacheSize=${CodeCacheSize} ${extraJavaTestArgs} -Dio.netty.tryReflectionSetAccessible=true</argLine>
+          <argLine>-ea -Xmx4g -Xss4m -XX:ReservedCodeCacheSize=${CodeCacheSize} -Dio.netty.tryReflectionSetAccessible=true</argLine>
         </configuration>
       </plugin>
       <plugin>
@@ -277,7 +253,7 @@
   
   <profiles>
     <profile>
-      <id>hadoop-2</id>
+      <id>hadoop-2.7</id>
       <dependencies>
         <dependency>
           <groupId>org.codehaus.jackson</groupId>

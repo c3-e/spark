@@ -19,9 +19,12 @@ package org.apache.spark.sql.execution.command
 
 import org.apache.spark.sql.catalyst.analysis.{AnalysisTest, UnresolvedPartitionSpec, UnresolvedTable}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
+import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.plans.logical.ShowPartitions
+import org.apache.spark.sql.execution.SparkSqlParser
+import org.apache.spark.sql.test.SharedSparkSession
 
-class ShowPartitionsParserSuite extends AnalysisTest {
+class ShowPartitionsParserSuite extends AnalysisTest with SharedSparkSession {
   test("SHOW PARTITIONS") {
     val commandName = "SHOW PARTITIONS"
     Seq(
@@ -45,14 +48,10 @@ class ShowPartitionsParserSuite extends AnalysisTest {
   }
 
   test("empty values in non-optional partition specs") {
-    checkError(
-      exception = parseException(parsePlan)("SHOW PARTITIONS dbx.tab1 PARTITION (a='1', b)"),
-      errorClass = "INVALID_SQL_SYNTAX",
-      sqlState = "42000",
-      parameters = Map("inputString" -> "Partition key `b` must set value (can't be empty)."),
-      context = ExpectedContext(
-        fragment = "PARTITION (a='1', b)",
-        start = 25,
-        stop = 44))
+    val e = intercept[ParseException] {
+      new SparkSqlParser().parsePlan(
+        "SHOW PARTITIONS dbx.tab1 PARTITION (a='1', b)")
+    }.getMessage
+    assert(e.contains("Found an empty partition key 'b'"))
   }
 }

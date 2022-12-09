@@ -163,7 +163,7 @@ To use a custom metrics.properties for the application master and executors, upd
     Amount of resource to use for the YARN Application Master in client mode.
     In cluster mode, use <code>spark.yarn.driver.resource.&lt;resource-type&gt;.amount</code> instead.
     Please note that this feature can be used only with YARN 3.0+
-    For reference, see YARN Resource Model documentation: https://hadoop.apache.org/docs/current/hadoop-yarn/hadoop-yarn-site/ResourceModel.html
+    For reference, see YARN Resource Model documentation: https://hadoop.apache.org/docs/r3.0.1/hadoop-yarn/hadoop-yarn-site/ResourceModel.html
     <p/>
     Example: 
     To request GPU resources from YARN, use: <code>spark.yarn.am.resource.yarn.io/gpu.amount</code>
@@ -185,7 +185,7 @@ To use a custom metrics.properties for the application master and executors, upd
   <td>
     Amount of resource to use for the YARN Application Master in cluster mode.
     Please note that this feature can be used only with YARN 3.0+
-    For reference, see YARN Resource Model documentation: https://hadoop.apache.org/docs/current/hadoop-yarn/hadoop-yarn-site/ResourceModel.html
+    For reference, see YARN Resource Model documentation: https://hadoop.apache.org/docs/r3.0.1/hadoop-yarn/hadoop-yarn-site/ResourceModel.html
     <p/>
     Example: 
     To request GPU resources from YARN, use: <code>spark.yarn.driver.resource.yarn.io/gpu.amount</code>
@@ -198,7 +198,7 @@ To use a custom metrics.properties for the application master and executors, upd
   <td>
     Amount of resource to use per executor process.
     Please note that this feature can be used only with YARN 3.0+
-    For reference, see YARN Resource Model documentation: https://hadoop.apache.org/docs/current/hadoop-yarn/hadoop-yarn-site/ResourceModel.html
+    For reference, see YARN Resource Model documentation: https://hadoop.apache.org/docs/r3.0.1/hadoop-yarn/hadoop-yarn-site/ResourceModel.html
     <p/>
     Example: 
     To request GPU resources from YARN, use: <code>spark.yarn.executor.resource.yarn.io/gpu.amount</code>
@@ -464,43 +464,6 @@ To use a custom metrics.properties for the application master and executors, upd
   <td>1.6.0</td>
 </tr>
 <tr>
-  <td><code>spark.yarn.am.clientModeTreatDisconnectAsFailed</code></td>
-  <td>false</td>
-  <td>
-  Treat yarn-client unclean disconnects as failures. In yarn-client mode, normally the application will always finish
-  with a final status of SUCCESS because in some cases, it is not possible to know if the Application was terminated
-  intentionally by the user or if there was a real error. This config changes that behavior such that if the Application
-  Master disconnects from the driver uncleanly (ie without the proper shutdown handshake) the application will
-  terminate with a final status of FAILED. This will allow the caller to decide if it was truly a failure. Note that if
-  this config is set and the user just terminate the client application badly it may show a status of FAILED when it wasn't really FAILED.
-  </td>
-  <td>3.3.0</td>
-</tr>
-<tr>
-  <td><code>spark.yarn.am.clientModeExitOnError</code></td>
-  <td>false</td>
-  <td>
-  In yarn-client mode, when this is true, if driver got application report with final status of KILLED or FAILED,
-  driver will stop corresponding SparkContext and exit program with code 1.
-  Note, if this is true and called from another application, it will terminate the parent application as well.
-  </td>
-  <td>3.3.0</td>
-</tr>
-<tr>
-  <td><code>spark.yarn.am.tokenConfRegex</code></td>
-  <td>(none)</td>
-  <td>
-    This config is only supported when Hadoop version is 2.9+ or 3.x (e.g., when using the Hadoop 3.x profile). 
-    The value of this config is a regex expression used to grep a list of config entries from the job's configuration file (e.g., hdfs-site.xml) 
-    and send to RM, which uses them when renewing delegation tokens. A typical use case of this feature is to support delegation 
-    tokens in an environment where a YARN cluster needs to talk to multiple downstream HDFS clusters, where the YARN RM may not have configs 
-    (e.g., dfs.nameservices, dfs.ha.namenodes.*, dfs.namenode.rpc-address.*) to connect to these clusters. 
-    In this scenario, Spark users can specify the config value to be <code>^dfs.nameservices$|^dfs.namenode.rpc-address.*$|^dfs.ha.namenodes.*$</code> to parse 
-    these HDFS configs from the job's local configuration files. This config is very similar to <code>mapreduce.job.send-token-conf</code>. Please check YARN-5910 for more details.
-  </td>
-  <td>3.3.0</td>
-</tr>
-<tr>
   <td><code>spark.yarn.executor.failuresValidityInterval</code></td>
   <td>(none)</td>
   <td>
@@ -637,41 +600,6 @@ To use a custom metrics.properties for the application master and executors, upd
   If it is not set then the YARN application ID is used.
   </td>
   <td>2.4.0</td>
-</tr>
-<tr>
-  <td><code>spark.yarn.report.interval</code></td>
-  <td><code>1s</code></td>
-  <td>
-    Interval between reports of the current Spark job status in cluster mode.
-  </td>
-  <td>0.9.0</td>
-</tr>
-<tr>
-  <td><code>spark.yarn.clientLaunchMonitorInterval</code></td>
-  <td><code>1s</code></td>
-  <td>
-    Interval between requests for status the client mode AM when starting the app.
-  </td>
-  <td>2.3.0</td>
-</tr>
-<tr>
-  <td><code>spark.yarn.includeDriverLogsLink</code></td>
-  <td><code>false</code></td>
-  <td>
-    In cluster mode, whether the client application report includes links to the driver 
-    container's logs. This requires polling the ResourceManager's REST API, so it 
-    places some additional load on the RM.
-  </td>
-  <td>3.1.0</td>
-</tr>
-<tr>
-  <td><code>spark.yarn.unmanagedAM.enabled</code></td>
-  <td><code>false</code></td>
-  <td>
-    In client mode, whether to launch the Application Master service as part of the client 
-    using unmanaged am.
-  </td>
-  <td>3.0.0</td>
 </tr>
 </table>
 
@@ -878,29 +806,6 @@ The following extra configuration options are available when the shuffle service
     NodeManager.
   </td>
 </tr>
-<tr>
-  <td><code>spark.yarn.shuffle.service.logs.namespace</code></td>
-  <td><code>(not set)</code></td>
-  <td>
-    A namespace which will be appended to the class name when forming the logger name to use for
-    emitting logs from the YARN shuffle service, like
-    <code>org.apache.spark.network.yarn.YarnShuffleService.logsNamespaceValue</code>. Since some logging frameworks
-    may expect the logger name to look like a class name, it's generally recommended to provide a value which
-    would be a valid Java package or class name and not include spaces.
-  </td>
-</tr>
-<tr>
-  <td><code>spark.shuffle.service.db.backend</code></td>
-  <td>LEVELDB</td>
-  <td>
-    When work-preserving restart is enabled in YARN, this is used to specify the disk-base store used 
-    in shuffle service state store, supports `LEVELDB` and `ROCKSDB` with `LEVELDB` as default value. 
-    The original data store in `LevelDB/RocksDB` will not be automatically converted to another kind 
-    of storage now. The original data store will be retained and the new type data store will be 
-    created when switching storage types.
-  </td>
-  <td>3.4.0</td>
-</tr>
 </table>
 
 Please note that the instructions above assume that the default shuffle service name,
@@ -977,12 +882,9 @@ support the ability to run shuffle services within an isolated classloader
 can coexist within a single NodeManager. The
 `yarn.nodemanager.aux-services.<service-name>.classpath` and, starting from YARN 2.10.2/3.1.1/3.2.0,
 `yarn.nodemanager.aux-services.<service-name>.remote-classpath` options can be used to configure
-this. Note that YARN 3.3.0/3.3.1 have an issue which requires setting
-`yarn.nodemanager.aux-services.<service-name>.system-classes` as a workaround. See
-[YARN-11053](https://issues.apache.org/jira/browse/YARN-11053) for details. In addition to setting
-up separate classpaths, it's necessary to ensure the two versions advertise to different ports.
-This can be achieved using the `spark-shuffle-site.xml` file described above. For example, you may
-have configuration like:
+this. In addition to setting up separate classpaths, it's necessary to ensure the two versions
+advertise to different ports. This can be achieved using the `spark-shuffle-site.xml` file described
+above. For example, you may have configuration like:
 
 ```properties
   yarn.nodemanager.aux-services = spark_shuffle_x,spark_shuffle_y
@@ -997,7 +899,7 @@ Or
 ```
 
 The two `spark-*-config` directories each contain one file, `spark-shuffle-site.xml`. These are XML
-files in the [Hadoop Configuration format](https://hadoop.apache.org/docs/current/api/org/apache/hadoop/conf/Configuration.html)
+files in the [Hadoop Configuration format](https://hadoop.apache.org/docs/r3.2.2/api/org/apache/hadoop/conf/Configuration.html)
 which each contain a few configurations to adjust the port number and metrics name prefix used:
 ```xml
 <configuration>

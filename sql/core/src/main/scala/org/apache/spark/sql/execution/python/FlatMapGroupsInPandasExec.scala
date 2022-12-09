@@ -50,7 +50,7 @@ case class FlatMapGroupsInPandasExec(
     func: Expression,
     output: Seq[Attribute],
     child: SparkPlan)
-  extends SparkPlan with UnaryExecNode with PythonSQLMetrics {
+  extends SparkPlan with UnaryExecNode {
 
   private val sessionLocalTimeZone = conf.sessionLocalTimeZone
   private val pythonRunnerConf = ArrowUtils.getPythonRunnerConfMap(conf)
@@ -75,7 +75,7 @@ case class FlatMapGroupsInPandasExec(
   override protected def doExecute(): RDD[InternalRow] = {
     val inputRDD = child.execute()
 
-    val (dedupAttributes, argOffsets) = resolveArgOffsets(child.output, groupingAttributes)
+    val (dedupAttributes, argOffsets) = resolveArgOffsets(child, groupingAttributes)
 
     // Map grouped rows to ArrowPythonRunner results, Only execute if partition is not empty
     inputRDD.mapPartitionsInternal { iter => if (iter.isEmpty) iter else {
@@ -89,8 +89,7 @@ case class FlatMapGroupsInPandasExec(
         Array(argOffsets),
         StructType.fromAttributes(dedupAttributes),
         sessionLocalTimeZone,
-        pythonRunnerConf,
-        pythonMetrics)
+        pythonRunnerConf)
 
       executePython(data, output, runner)
     }}

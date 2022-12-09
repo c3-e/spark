@@ -16,6 +16,7 @@
 #
 
 import base64
+from distutils.version import LooseVersion
 from io import BytesIO
 import unittest
 
@@ -43,13 +44,15 @@ class SeriesPlotMatplotlibTest(PandasOnSparkTestCase, TestUtils):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        pd.set_option("plotting.backend", "matplotlib")
+        if LooseVersion(pd.__version__) >= LooseVersion("0.25"):
+            pd.set_option("plotting.backend", "matplotlib")
         set_option("plotting.backend", "matplotlib")
         set_option("plotting.max_rows", 1000)
 
     @classmethod
     def tearDownClass(cls):
-        pd.reset_option("plotting.backend")
+        if LooseVersion(pd.__version__) >= LooseVersion("0.25"):
+            pd.reset_option("plotting.backend")
         reset_option("plotting.backend")
         reset_option("plotting.max_rows")
         super().tearDownClass()
@@ -70,7 +73,7 @@ class SeriesPlotMatplotlibTest(PandasOnSparkTestCase, TestUtils):
 
     @property
     def pdf2(self):
-        return self.psdf2._to_pandas()
+        return self.psdf2.to_pandas()
 
     @staticmethod
     def plot_to_base64(ax):

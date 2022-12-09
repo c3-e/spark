@@ -120,7 +120,9 @@ abstract class AbstractCommandBuilder {
 
   void addOptionString(List<String> cmd, String options) {
     if (!isEmpty(options)) {
-      cmd.addAll(parseOptionString(options));
+      for (String opt : parseOptionString(options)) {
+        cmd.add(opt);
+      }
     }
   }
 
@@ -265,8 +267,11 @@ abstract class AbstractCommandBuilder {
     if (effectiveConfig == null) {
       effectiveConfig = new HashMap<>(conf);
       Properties p = loadPropertiesFile();
-      p.stringPropertyNames().forEach(key ->
-        effectiveConfig.computeIfAbsent(key, p::getProperty));
+      for (String key : p.stringPropertyNames()) {
+        if (!effectiveConfig.containsKey(key)) {
+          effectiveConfig.put(key, p.getProperty(key));
+        }
+      }
     }
     return effectiveConfig;
   }

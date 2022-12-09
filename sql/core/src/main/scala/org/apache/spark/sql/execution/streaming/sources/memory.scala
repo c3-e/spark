@@ -20,6 +20,7 @@ package org.apache.spark.sql.execution.streaming.sources
 import java.util
 import javax.annotation.concurrent.GuardedBy
 
+import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.util.control.NonFatal
@@ -48,7 +49,7 @@ class MemorySink extends Table with SupportsWrite with Logging {
   override def schema(): StructType = StructType(Nil)
 
   override def capabilities(): util.Set[TableCapability] = {
-    util.EnumSet.of(TableCapability.STREAMING_WRITE)
+    Set(TableCapability.STREAMING_WRITE).asJava
   }
 
   override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {

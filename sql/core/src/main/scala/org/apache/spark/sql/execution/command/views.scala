@@ -25,7 +25,7 @@ import org.json4s.jackson.JsonMethods._
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.catalyst.{SQLConfHelper, TableIdentifier}
-import org.apache.spark.sql.catalyst.analysis.{AnalysisContext, GlobalTempView, LocalTempView, ViewType}
+import org.apache.spark.sql.catalyst.analysis.{AnalysisContext, GlobalTempView, LocalTempView, PersistedView, ViewType}
 import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, CatalogTableType, TemporaryViewRelation}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, SubqueryExpression}
 import org.apache.spark.sql.catalyst.plans.logical.{AnalysisOnlyCommand, LogicalPlan, Project, View}
@@ -89,7 +89,26 @@ case class CreateViewCommand(
       referredTempFunctions = analysisContext.referredTempFunctionNames.toSeq)
   }
 
+  if (viewType == PersistedView) {
+    require(originalText.isDefined, "'originalText' must be provided to create permanent view")
+  }
+
+  if (allowExisting && replace) {
+    throw QueryCompilationErrors.createViewWithBothIfNotExistsAndReplaceError()
+  }
+
   private def isTemporary = viewType == LocalTempView || viewType == GlobalTempView
+
+  // Disallows 'CREATE TEMPORARY VIEW IF NOT EXISTS' to be consistent with 'CREATE TEMPORARY TABLE'
+  if (allowExisting && isTemporary) {
+    throw QueryCompilationErrors.defineTempViewWithIfNotExistsError()
+  }
+
+  // Temporary view names should NOT contain database prefix like "database.table"
+  if (isTemporary && name.database.isDefined) {
+    val database = name.database.get
+    throw QueryCompilationErrors.notAllowedToAddDBPrefixForTempViewError(database)
+  }
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
     if (!isAnalyzed) {
@@ -123,7 +142,7 @@ case class CreateViewCommand(
         referredTempFunctions)
       catalog.createTempView(name.table, tableDefinition, overrideIfExists = replace)
     } else if (viewType == GlobalTempView) {
-      val db = sparkSession.conf.get(StaticSQLConf.GLOBAL_TEMP_DATABASE)
+      val db = sparkSession.sessionState.conf.getConf(StaticSQLConf.GLOBAL_TEMP_DATABASE)
       val viewIdent = TableIdentifier(name.table, Option(db))
       val aliasedPlan = aliasPlan(sparkSession, analyzedPlan)
       val tableDefinition = createTemporaryViewRelation(
@@ -196,7 +215,7 @@ case class CreateViewCommand(
       throw QueryCompilationErrors.createPersistedViewFromDatasetAPINotAllowedError()
     }
     val aliasedSchema = CharVarcharUtils.getRawSchema(
-      aliasPlan(session, analyzedPlan).schema, session.sessionState.conf)
+      aliasPlan(session, analyzedPlan).schema)
     val newProperties = generateViewProperties(
       properties, session, analyzedPlan, aliasedSchema.fieldNames)
 
@@ -470,7 +489,8 @@ object ViewHelper extends SQLConfHelper with Logging {
 
     // Generate the query column names, throw an AnalysisException if there exists duplicate column
     // names.
-    SchemaUtils.checkColumnNameDuplication(fieldNames, conf.resolver)
+    SchemaUtils.checkColumnNameDuplication(
+      fieldNames, "in the view definition", conf.resolver)
 
     // Generate the view default catalog and namespace, as well as captured SQL configs.
     val manager = session.sessionState.catalogManager

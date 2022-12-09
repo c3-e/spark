@@ -19,10 +19,11 @@ package org.apache.hive.service.cli;
 import java.util.List;
 import java.util.Map;
 
+
+
+
 import org.apache.hive.service.auth.HiveAuthFactory;
 import org.apache.hive.service.rpc.thrift.TOperationHandle;
-import org.apache.hive.service.rpc.thrift.TRowSet;
-import org.apache.hive.service.rpc.thrift.TTableSchema;
 
 public interface ICLIService {
 
@@ -85,13 +86,13 @@ public interface ICLIService {
   void closeOperation(OperationHandle opHandle)
       throws HiveSQLException;
 
-  TTableSchema getResultSetMetadata(OperationHandle opHandle)
+  TableSchema getResultSetMetadata(OperationHandle opHandle)
       throws HiveSQLException;
 
-  TRowSet fetchResults(OperationHandle opHandle)
+  RowSet fetchResults(OperationHandle opHandle)
       throws HiveSQLException;
 
-  TRowSet fetchResults(OperationHandle opHandle, FetchOrientation orientation,
+  RowSet fetchResults(OperationHandle opHandle, FetchOrientation orientation,
       long maxRows, FetchType fetchType) throws HiveSQLException;
 
   String getDelegationToken(SessionHandle sessionHandle, HiveAuthFactory authFactory,

@@ -47,14 +47,15 @@ private[sql] object ArrowUtils {
     case BinaryType => ArrowType.Binary.INSTANCE
     case DecimalType.Fixed(precision, scale) => new ArrowType.Decimal(precision, scale)
     case DateType => new ArrowType.Date(DateUnit.DAY)
-    case TimestampType if timeZoneId == null =>
-      throw new IllegalStateException("Missing timezoneId where it is mandatory.")
-    case TimestampType => new ArrowType.Timestamp(TimeUnit.MICROSECOND, timeZoneId)
-    case TimestampNTZType =>
-      new ArrowType.Timestamp(TimeUnit.MICROSECOND, null)
+    case TimestampType =>
+      if (timeZoneId == null) {
+        throw QueryExecutionErrors.timeZoneIdNotSpecifiedForTimestampTypeError()
+      } else {
+        new ArrowType.Timestamp(TimeUnit.MICROSECOND, timeZoneId)
+      }
     case NullType => ArrowType.Null.INSTANCE
     case _: YearMonthIntervalType => new ArrowType.Interval(IntervalUnit.YEAR_MONTH)
-    case _: DayTimeIntervalType => new ArrowType.Duration(TimeUnit.MICROSECOND)
+    case _: DayTimeIntervalType => new ArrowType.Interval(IntervalUnit.DAY_TIME)
     case _ =>
       throw QueryExecutionErrors.unsupportedDataTypeError(dt.catalogString)
   }
@@ -73,12 +74,10 @@ private[sql] object ArrowUtils {
     case ArrowType.Binary.INSTANCE => BinaryType
     case d: ArrowType.Decimal => DecimalType(d.getPrecision, d.getScale)
     case date: ArrowType.Date if date.getUnit == DateUnit.DAY => DateType
-    case ts: ArrowType.Timestamp
-      if ts.getUnit == TimeUnit.MICROSECOND && ts.getTimezone == null => TimestampNTZType
     case ts: ArrowType.Timestamp if ts.getUnit == TimeUnit.MICROSECOND => TimestampType
     case ArrowType.Null.INSTANCE => NullType
     case yi: ArrowType.Interval if yi.getUnit == IntervalUnit.YEAR_MONTH => YearMonthIntervalType()
-    case di: ArrowType.Duration if di.getUnit == TimeUnit.MICROSECOND => DayTimeIntervalType()
+    case di: ArrowType.Interval if di.getUnit == IntervalUnit.DAY_TIME => DayTimeIntervalType()
     case _ => throw QueryExecutionErrors.unsupportedDataTypeError(dt.toString)
   }
 
@@ -128,7 +127,7 @@ private[sql] object ArrowUtils {
           val dt = fromArrowField(child)
           StructField(child.getName, dt, child.isNullable)
         }
-        StructType(fields.toArray)
+        StructType(fields.toSeq)
       case arrowType => fromArrowType(arrowType)
     }
   }
@@ -144,7 +143,7 @@ private[sql] object ArrowUtils {
     StructType(schema.getFields.asScala.map { field =>
       val dt = fromArrowField(field)
       StructField(field.getName, dt, field.isNullable)
-    }.toArray)
+    }.toSeq)
   }
 
   /** Return Map with conf settings to be used in ArrowPythonRunner */

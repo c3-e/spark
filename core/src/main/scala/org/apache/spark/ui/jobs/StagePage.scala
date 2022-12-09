@@ -39,8 +39,6 @@ import org.apache.spark.util.Utils
 private[ui] class StagePage(parent: StagesTab, store: AppStatusStore) extends WebUIPage("stage") {
   import ApiHelper._
 
-  private val TIMELINE_ENABLED = parent.conf.get(UI_TIMELINE_ENABLED)
-
   private val TIMELINE_LEGEND = {
     <div class="legend-area">
       <svg>
@@ -255,9 +253,6 @@ private[ui] class StagePage(parent: StagesTab, store: AppStatusStore) extends We
       stageId: Int,
       stageAttemptId: Int,
       totalTasks: Int): Seq[Node] = {
-
-    if (!TIMELINE_ENABLED) return Seq.empty[Node]
-
     val executorsSet = new HashSet[(String, String)]
     var minLaunchTime = Long.MaxValue
     var maxFinishTime = Long.MinValue
@@ -360,7 +355,7 @@ private[ui] class StagePage(parent: StagesTab, store: AppStatusStore) extends We
                |'content': '<div class="task-assignment-timeline-content"
                  |data-toggle="tooltip" data-placement="top"
                  |data-html="true" data-container="body"
-                 |data-title="${"Task " + index + " (attempt " + attempt + ")"}<br>
+                 |data-title="${s"Task " + index + " (attempt " + attempt + ")"}<br>
                  |Status: ${taskInfo.status}<br>
                  |Launch Time: ${UIUtils.formatDate(new Date(launchTime))}
                  |${
@@ -416,7 +411,7 @@ private[ui] class StagePage(parent: StagesTab, store: AppStatusStore) extends We
           <span>Enable zooming</span>
         </div>
         <div>
-          <form id={"form-event-timeline-page"}
+          <form id={s"form-event-timeline-page"}
                 method="get"
                 action=""
                 class="form-inline float-right justify-content-end"
@@ -426,13 +421,13 @@ private[ui] class StagePage(parent: StagesTab, store: AppStatusStore) extends We
             <input type="hidden" name="attempt" value={stageAttemptId.toString} />
             <input type="text"
                    name="task.eventTimelinePageNumber"
-                   id={"form-event-timeline-page-no"}
+                   id={s"form-event-timeline-page-no"}
                    value={page.toString}
                    class="col-1 form-control" />
 
             <label>. Show </label>
             <input type="text"
-                   id={"form-event-timeline-page-size"}
+                   id={s"form-event-timeline-page-size"}
                    name="task.eventTimelinePageSize"
                    value={pageSize.toString}
                    class="col-1 form-control" />
@@ -445,7 +440,7 @@ private[ui] class StagePage(parent: StagesTab, store: AppStatusStore) extends We
       {TIMELINE_LEGEND}
     </div> ++
     <script type="text/javascript">
-      {Unparsed("drawTaskAssignmentTimeline(" +
+      {Unparsed(s"drawTaskAssignmentTimeline(" +
       s"$groupArrayStr, $executorsArrayStr, $minLaunchTime, $maxFinishTime, " +
         s"${UIUtils.getTimeZoneOffset()})")}
     </script>
@@ -538,8 +533,7 @@ private[ui] class TaskPagedTable(
         {if (hasInput(stage)) Seq((HEADER_INPUT_SIZE, "")) else Nil} ++
         {if (hasOutput(stage)) Seq((HEADER_OUTPUT_SIZE, "")) else Nil} ++
         {if (hasShuffleRead(stage)) {
-          Seq((HEADER_SHUFFLE_READ_FETCH_WAIT_TIME,
-            TaskDetailsClassNames.SHUFFLE_READ_FETCH_WAIT_TIME),
+          Seq((HEADER_SHUFFLE_READ_TIME, TaskDetailsClassNames.SHUFFLE_READ_BLOCKED_TIME),
             (HEADER_SHUFFLE_TOTAL_READS, ""),
             (HEADER_SHUFFLE_REMOTE_READS, TaskDetailsClassNames.SHUFFLE_READ_REMOTE_SIZE))
         } else {
@@ -662,7 +656,7 @@ private[ui] class TaskPagedTable(
         }</td>
       }}
       {if (hasShuffleRead(stage)) {
-        <td class={TaskDetailsClassNames.SHUFFLE_READ_FETCH_WAIT_TIME}>
+        <td class={TaskDetailsClassNames.SHUFFLE_READ_BLOCKED_TIME}>
           {formatDuration(task.taskMetrics.map(_.shuffleReadMetrics.fetchWaitTime))}
         </td>
         <td>{
@@ -748,7 +742,7 @@ private[spark] object ApiHelper {
   val HEADER_ACCUMULATORS = "Accumulators"
   val HEADER_INPUT_SIZE = "Input Size / Records"
   val HEADER_OUTPUT_SIZE = "Output Size / Records"
-  val HEADER_SHUFFLE_READ_FETCH_WAIT_TIME = "Shuffle Read Fetch Wait Time"
+  val HEADER_SHUFFLE_READ_TIME = "Shuffle Read Blocked Time"
   val HEADER_SHUFFLE_TOTAL_READS = "Shuffle Read Size / Records"
   val HEADER_SHUFFLE_REMOTE_READS = "Shuffle Remote Reads"
   val HEADER_SHUFFLE_WRITE_TIME = "Shuffle Write Time"
@@ -778,7 +772,7 @@ private[spark] object ApiHelper {
     HEADER_ACCUMULATORS -> TaskIndexNames.ACCUMULATORS,
     HEADER_INPUT_SIZE -> TaskIndexNames.INPUT_SIZE,
     HEADER_OUTPUT_SIZE -> TaskIndexNames.OUTPUT_SIZE,
-    HEADER_SHUFFLE_READ_FETCH_WAIT_TIME -> TaskIndexNames.SHUFFLE_READ_FETCH_WAIT_TIME,
+    HEADER_SHUFFLE_READ_TIME -> TaskIndexNames.SHUFFLE_READ_TIME,
     HEADER_SHUFFLE_TOTAL_READS -> TaskIndexNames.SHUFFLE_TOTAL_READS,
     HEADER_SHUFFLE_REMOTE_READS -> TaskIndexNames.SHUFFLE_REMOTE_READS,
     HEADER_SHUFFLE_WRITE_TIME -> TaskIndexNames.SHUFFLE_WRITE_TIME,
@@ -791,13 +785,9 @@ private[spark] object ApiHelper {
     stageData.accumulatorUpdates.exists { acc => acc.name != null && acc.value != null }
   }
 
-  def hasInput(stageData: StageData): Boolean = {
-    stageData.inputBytes > 0 || stageData.inputRecords > 0
-  }
+  def hasInput(stageData: StageData): Boolean = stageData.inputBytes > 0
 
-  def hasOutput(stageData: StageData): Boolean = {
-    stageData.outputBytes > 0 || stageData.outputRecords > 0
-  }
+  def hasOutput(stageData: StageData): Boolean = stageData.outputBytes > 0
 
   def hasShuffleRead(stageData: StageData): Boolean = stageData.shuffleReadBytes > 0
 

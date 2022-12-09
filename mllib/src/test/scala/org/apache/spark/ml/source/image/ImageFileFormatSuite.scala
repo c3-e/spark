@@ -29,7 +29,8 @@ import org.apache.spark.sql.functions.{col, substring_index}
 class ImageFileFormatSuite extends SparkFunSuite with MLlibTestSparkContext {
 
   // Single column of images named "image"
-  private lazy val imagePath = getTestResourcePath("images/partitioned")
+  private lazy val imagePath = "../data/mllib/images/partitioned"
+  private lazy val recursiveImagePath = "../data/mllib/images"
 
   test("Smoke test: create basic ImageSchema dataframe") {
     val origin = "path"
@@ -49,8 +50,7 @@ class ImageFileFormatSuite extends SparkFunSuite with MLlibTestSparkContext {
     assert(df.schema("image").dataType == columnSchema, "data do not fit ImageSchema")
   }
 
-  // TODO(SPARK-40171): Re-enable the following flaky test case after being fixed.
-  ignore("image datasource count test") {
+  test("image datasource count test") {
     val df1 = spark.read.format("image").load(imagePath)
     assert(df1.count === 9)
 
@@ -88,8 +88,7 @@ class ImageFileFormatSuite extends SparkFunSuite with MLlibTestSparkContext {
     assert(result === invalidImageRow(resultOrigin))
   }
 
-  // TODO(SPARK-40171): Re-enable the following flaky test case after being fixed.
-  ignore("image datasource partition test") {
+  test("image datasource partition test") {
     val result = spark.read.format("image")
       .option("dropInvalid", true).load(imagePath)
       .select(substring_index(col("image.origin"), "/", -1).as("origin"), col("cls"), col("date"))
@@ -107,9 +106,8 @@ class ImageFileFormatSuite extends SparkFunSuite with MLlibTestSparkContext {
     ))
   }
 
-  // TODO(SPARK-40171): Re-enable the following flaky test case after being fixed.
   // Images with the different number of channels
-  ignore("readImages pixel values test") {
+  test("readImages pixel values test") {
     val images = spark.read.format("image").option("dropInvalid", true)
       .load(imagePath + "/cls=multichannel/").collect()
 

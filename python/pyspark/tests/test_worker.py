@@ -21,10 +21,9 @@ import tempfile
 import threading
 import time
 import unittest
-
 has_resource_module = True
 try:
-    import resource
+    import resource  # noqa: F401
 except ImportError:
     has_resource_module = False
 
@@ -43,8 +42,7 @@ class WorkerTests(ReusedPySparkTestCase):
         def sleep(x):
             import os
             import time
-
-            with open(path, "w") as f:
+            with open(path, 'w') as f:
                 f.write("%d %d" % (os.getppid(), os.getpid()))
             time.sleep(100)
 
@@ -54,9 +52,7 @@ class WorkerTests(ReusedPySparkTestCase):
                 self.sc.parallelize(range(1), 1).foreach(sleep)
             except Exception:
                 pass
-
         import threading
-
         t = threading.Thread(target=run)
         t.daemon = True
         t.start()
@@ -66,10 +62,11 @@ class WorkerTests(ReusedPySparkTestCase):
         while True:
             if os.path.exists(path):
                 with open(path) as f:
-                    data = f.read().split(" ")
+                    data = f.read().split(' ')
                 try:
                     daemon_pid, worker_pid = map(int, data)
                 except ValueError:
+                    pass
                     # In case the value is not written yet.
                     cnt += 1
                     if cnt == 10:
@@ -103,7 +100,6 @@ class WorkerTests(ReusedPySparkTestCase):
     def test_after_exception(self):
         def raise_exception(_):
             raise RuntimeError()
-
         rdd = self.sc.parallelize(range(100), 1)
         with QuietTest(self.sc):
             self.assertRaises(Py4JJavaError, lambda: rdd.foreach(raise_exception))
@@ -113,7 +109,6 @@ class WorkerTests(ReusedPySparkTestCase):
         # SPARK-33339: Pyspark application will hang due to non Exception
         def raise_system_exit(_):
             raise SystemExit()
-
         rdd = self.sc.parallelize(range(100), 1)
         with QuietTest(self.sc):
             self.assertRaises(Exception, lambda: rdd.foreach(raise_system_exit))
@@ -135,7 +130,6 @@ class WorkerTests(ReusedPySparkTestCase):
 
     def test_accumulator_when_reuse_worker(self):
         from pyspark.accumulators import INT_ACCUMULATOR_PARAM
-
         acc1 = self.sc.accumulator(0, INT_ACCUMULATOR_PARAM)
         self.sc.parallelize(range(100), 20).foreach(lambda x: acc1.add(x))
         self.assertEqual(sum(range(100)), acc1.value)
@@ -176,7 +170,6 @@ class WorkerTests(ReusedPySparkTestCase):
     def test_python_exception_non_hanging(self):
         # SPARK-21045: exceptions with no ascii encoding shall not hanging PySpark.
         try:
-
             def f():
                 raise RuntimeError("exception with 中 and \xd6\xd0")
 
@@ -186,6 +179,7 @@ class WorkerTests(ReusedPySparkTestCase):
 
 
 class WorkerReuseTest(PySparkTestCase):
+
     def test_reuse_worker_of_parallelize_range(self):
         def check_reuse_worker_of_parallelize_range():
             rdd = self.sc.parallelize(range(20), 8)
@@ -199,20 +193,21 @@ class WorkerReuseTest(PySparkTestCase):
 
 
 @unittest.skipIf(
-    not has_resource_module or sys.platform != "linux",
+    not has_resource_module or sys.platform != 'linux',
     "Memory limit feature in Python worker is dependent on "
-    "Python's 'resource' module on Linux; however, not found or not on Linux.",
-)
+    "Python's 'resource' module on Linux; however, not found or not on Linux.")
 class WorkerMemoryTest(unittest.TestCase):
+
     def setUp(self):
         class_name = self.__class__.__name__
         conf = SparkConf().set("spark.executor.pyspark.memory", "2g")
-        self.sc = SparkContext("local[4]", class_name, conf=conf)
+        self.sc = SparkContext('local[4]', class_name, conf=conf)
 
     def test_memory_limit(self):
         rdd = self.sc.parallelize(range(1), 1)
 
         def getrlimit():
+            import resource
             return resource.getrlimit(resource.RLIMIT_AS)
 
         actual = rdd.map(lambda _: getrlimit()).collect()
@@ -227,6 +222,7 @@ class WorkerMemoryTest(unittest.TestCase):
 
 
 class WorkerSegfaultTest(ReusedPySparkTestCase):
+
     @classmethod
     def conf(cls):
         _conf = super(WorkerSegfaultTest, cls).conf()
@@ -235,10 +231,8 @@ class WorkerSegfaultTest(ReusedPySparkTestCase):
 
     def test_python_segfault(self):
         try:
-
             def f():
                 import ctypes
-
                 ctypes.string_at(0)
 
             self.sc.parallelize([1]).map(lambda x: f()).count()
@@ -248,9 +242,10 @@ class WorkerSegfaultTest(ReusedPySparkTestCase):
 
 @unittest.skipIf(
     "COVERAGE_PROCESS_START" in os.environ,
-    "Flaky with coverage enabled, skipping for now.",
+    "Flaky with coverage enabled, skipping for now."
 )
 class WorkerSegfaultNonDaemonTest(WorkerSegfaultTest):
+
     @classmethod
     def conf(cls):
         _conf = super(WorkerSegfaultNonDaemonTest, cls).conf()
@@ -264,8 +259,7 @@ if __name__ == "__main__":
 
     try:
         import xmlrunner  # type: ignore[import]
-
-        testRunner = xmlrunner.XMLTestRunner(output="target/test-reports", verbosity=2)
+        testRunner = xmlrunner.XMLTestRunner(output='target/test-reports', verbosity=2)
     except ImportError:
         testRunner = None
     unittest.main(testRunner=testRunner, verbosity=2)

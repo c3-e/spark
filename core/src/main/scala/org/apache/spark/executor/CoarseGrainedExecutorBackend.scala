@@ -35,8 +35,6 @@ import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.deploy.worker.WorkerWatcher
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config._
-import org.apache.spark.network.netty.SparkTransportConf
-import org.apache.spark.network.util.NettyUtils
 import org.apache.spark.resource.ResourceInformation
 import org.apache.spark.resource.ResourceProfile
 import org.apache.spark.resource.ResourceProfile._
@@ -44,6 +42,7 @@ import org.apache.spark.resource.ResourceUtils._
 import org.apache.spark.rpc._
 import org.apache.spark.scheduler.{ExecutorLossMessage, ExecutorLossReason, TaskDescription}
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages._
+import org.apache.spark.serializer.SerializerInstance
 import org.apache.spark.util.{ChildFirstURLClassLoader, MutableURLClassLoader, SignalUtils, ThreadUtils, Utils}
 
 private[spark] class CoarseGrainedExecutorBackend(
@@ -53,6 +52,7 @@ private[spark] class CoarseGrainedExecutorBackend(
     bindAddress: String,
     hostname: String,
     cores: Int,
+    userClassPath: Seq[URL],
     env: SparkEnv,
     resourcesFileOpt: Option[String],
     resourceProfile: ResourceProfile)
@@ -62,9 +62,13 @@ private[spark] class CoarseGrainedExecutorBackend(
 
   private implicit val formats = DefaultFormats
 
-  private[spark] val stopping = new AtomicBoolean(false)
+  private[executor] val stopping = new AtomicBoolean(false)
   var executor: Executor = null
   @volatile var driver: Option[RpcEndpointRef] = None
+
+  // If this CoarseGrainedExecutorBackend is changed to support multiple threads, then this may need
+  // to be changed so that we don't share the serializer instance across threads
+  private[this] val ser: SerializerInstance = env.closureSerializer.newInstance()
 
   private var _resources = Map.empty[String, ResourceInformation]
 
@@ -87,8 +91,7 @@ private[spark] class CoarseGrainedExecutorBackend(
 
     logInfo("Connecting to driver: " + driverUrl)
     try {
-      val shuffleClientTransportConf = SparkTransportConf.fromSparkConf(env.conf, "shuffle")
-      if (NettyUtils.preferDirectBufs(shuffleClientTransportConf) &&
+      if (PlatformDependent.directBufferPreferred() &&
           PlatformDependent.maxDirectMemory() < env.conf.get(MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM)) {
         throw new SparkException(s"Netty direct memory should at least be bigger than " +
           s"'${MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM.key}', but got " +
@@ -104,7 +107,6 @@ private[spark] class CoarseGrainedExecutorBackend(
     rpcEnv.asyncSetupEndpointRefByURI(driverUrl).flatMap { ref =>
       // This is a very fast action so we can use "ThreadUtils.sameThread"
       driver = Some(ref)
-      env.executorBackend = Option(this)
       ref.ask[Boolean](RegisterExecutor(executorId, self, hostname, cores, extractLogUrls,
         extractAttributes, _resources, resourceProfile.id))
     }(ThreadUtils.sameThread).onComplete {
@@ -122,7 +124,7 @@ private[spark] class CoarseGrainedExecutorBackend(
    */
   private def createClassLoader(): MutableURLClassLoader = {
     val currentLoader = Utils.getContextOrSparkClassLoader
-    val urls = getUserClassPath.toArray
+    val urls = userClassPath.toArray
     if (env.conf.get(EXECUTOR_USER_CLASS_PATH_FIRST)) {
       new ChildFirstURLClassLoader(urls, currentLoader)
     } else {
@@ -147,8 +149,6 @@ private[spark] class CoarseGrainedExecutorBackend(
     }
   }
 
-  def getUserClassPath: Seq[URL] = Nil
-
   def extractLogUrls: Map[String, String] = {
     val prefix = "SPARK_LOG_URL_"
     sys.env.filterKeys(_.startsWith(prefix))
@@ -161,16 +161,11 @@ private[spark] class CoarseGrainedExecutorBackend(
       .map(e => (e._1.substring(prefix.length).toUpperCase(Locale.ROOT), e._2)).toMap
   }
 
-  def notifyDriverAboutPushCompletion(shuffleId: Int, shuffleMergeId: Int, mapIndex: Int): Unit = {
-    val msg = ShufflePushCompletion(shuffleId, shuffleMergeId, mapIndex)
-    driver.foreach(_.send(msg))
-  }
-
   override def receive: PartialFunction[Any, Unit] = {
     case RegisteredExecutor =>
       logInfo("Successfully registered with driver")
       try {
-        executor = new Executor(executorId, hostname, env, getUserClassPath, isLocal = false,
+        executor = new Executor(executorId, hostname, env, userClassPath, isLocal = false,
           resources = _resources)
         driver.get.send(LaunchedExecutor(executorId))
       } catch {
@@ -286,11 +281,7 @@ private[spark] class CoarseGrainedExecutorBackend(
       if (throwable != null) {
         logError(message, throwable)
       } else {
-        if (code == 0) {
-          logInfo(message)
-        } else {
-          logError(message)
-        }
+        logError(message)
       }
 
       if (notifyDriver && driver.nonEmpty) {
@@ -403,6 +394,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       cores: Int,
       appId: String,
       workerUrl: Option[String],
+      userClassPath: mutable.ListBuffer[URL],
       resourcesFileOpt: Option[String],
       resourceProfileId: Int)
 
@@ -410,7 +402,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
     val createFn: (RpcEnv, Arguments, SparkEnv, ResourceProfile) =>
       CoarseGrainedExecutorBackend = { case (rpcEnv, arguments, env, resourceProfile) =>
       new CoarseGrainedExecutorBackend(rpcEnv, arguments.driverUrl, arguments.executorId,
-        arguments.bindAddress, arguments.hostname, arguments.cores,
+        arguments.bindAddress, arguments.hostname, arguments.cores, arguments.userClassPath.toSeq,
         env, arguments.resourcesFileOpt, resourceProfile)
     }
     run(parseArguments(args, this.getClass.getCanonicalName.stripSuffix("$")), createFn)
@@ -498,6 +490,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
     var resourcesFileOpt: Option[String] = None
     var appId: String = null
     var workerUrl: Option[String] = None
+    val userClassPath = new mutable.ListBuffer[URL]()
     var resourceProfileId: Int = DEFAULT_RESOURCE_PROFILE_ID
 
     var argv = args.toList
@@ -528,6 +521,9 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
           // Worker url is used in spark standalone mode to enforce fate-sharing with worker
           workerUrl = Some(value)
           argv = tail
+        case ("--user-class-path") :: value :: tail =>
+          userClassPath += new URL(value)
+          argv = tail
         case ("--resourceProfileId") :: value :: tail =>
           resourceProfileId = value.toInt
           argv = tail
@@ -554,7 +550,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
     }
 
     Arguments(driverUrl, executorId, bindAddress, hostname, cores, appId, workerUrl,
-      resourcesFileOpt, resourceProfileId)
+      userClassPath, resourcesFileOpt, resourceProfileId)
   }
 
   private def printUsageAndExit(classNameForEntry: String): Unit = {
@@ -572,6 +568,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       |   --resourcesFile <fileWithJSONResourceInformation>
       |   --app-id <appid>
       |   --worker-url <workerUrl>
+      |   --user-class-path <url>
       |   --resourceProfileId <id>
       |""".stripMargin)
     // scalastyle:on println

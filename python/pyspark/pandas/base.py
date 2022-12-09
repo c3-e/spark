@@ -24,10 +24,10 @@ from itertools import chain
 from typing import Any, Callable, Optional, Sequence, Tuple, Union, cast, TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
-from pandas.api.types import is_list_like, CategoricalDtype  # type: ignore[attr-defined]
+import pandas as pd  # noqa: F401
+from pandas.api.types import is_list_like, CategoricalDtype
 from pyspark.sql import functions as F, Column, Window
-from pyspark.sql.types import LongType, BooleanType, NumericType
+from pyspark.sql.types import LongType, BooleanType
 
 from pyspark import pandas as ps  # For running doctests and reference resolution in PyCharm.
 from pyspark.pandas._typing import Axis, Dtype, IndexOpsLike, Label, SeriesOrIndex
@@ -38,6 +38,7 @@ from pyspark.pandas.internal import (
     NATURAL_ORDER_COLUMN_NAME,
     SPARK_DEFAULT_INDEX_NAME,
 )
+from pyspark.pandas.spark import functions as SF
 from pyspark.pandas.spark.accessors import SparkIndexOpsMethods
 from pyspark.pandas.typedef import extension_dtypes
 from pyspark.pandas.utils import (
@@ -50,10 +51,10 @@ from pyspark.pandas.utils import (
 from pyspark.pandas.frame import DataFrame
 
 if TYPE_CHECKING:
-    from pyspark.sql._typing import ColumnOrName
+    from pyspark.sql._typing import ColumnOrName  # noqa: F401 (SPARK-34943)
 
-    from pyspark.pandas.data_type_ops.base import DataTypeOps
-    from pyspark.pandas.series import Series
+    from pyspark.pandas.data_type_ops.base import DataTypeOps  # noqa: F401 (SPARK-34943)
+    from pyspark.pandas.series import Series  # noqa: F401 (SPARK-34943)
 
 
 def should_alignment_for_column_op(self: SeriesOrIndex, other: SeriesOrIndex) -> bool:
@@ -91,7 +92,7 @@ def align_diff_index_ops(
         combined = combine_frames(
             this_index_ops.to_frame(),
             *[cast(Series, col).rename(i) for i, col in enumerate(cols)],
-            how="full",
+            how="full"
         )
 
         return column_op(func)(
@@ -99,7 +100,7 @@ def align_diff_index_ops(
             *[
                 combined["that"]._psser_for(label)
                 for label in combined["that"]._internal.column_labels
-            ],
+            ]
         ).rename(this_index_ops.name)
     else:
         # This could cause as many counts, reset_index calls, joins for combining
@@ -120,7 +121,7 @@ def align_diff_index_ops(
                             if isinstance(arg, Index)
                             else arg
                             for arg in args
-                        ],
+                        ]
                     ).sort_index(),
                     name=this_index_ops.name,
                 )
@@ -144,10 +145,10 @@ def align_diff_index_ops(
                     *[
                         combined["that"]._psser_for(label)
                         for label in combined["that"]._internal.column_labels
-                    ],
+                    ]
                 ).rename(this_index_ops.name)
             else:
-                this = this_index_ops.to_frame().reset_index(drop=True)
+                this = cast(Index, this_index_ops).to_frame().reset_index(drop=True)
 
                 that_series = next(col for col in cols if isinstance(col, Series))
                 that_frame = that_series._psdf[
@@ -173,7 +174,7 @@ def align_diff_index_ops(
                     *[
                         other._psser_for(label)
                         for label, col in zip(other._internal.column_labels, cols)
-                    ],
+                    ]
                 ).rename(that_series.name)
 
 
@@ -220,7 +221,7 @@ def column_op(f: Callable[..., Column]) -> Callable[..., SeriesOrIndex]:
             # Same DataFrame anchors
             scol = f(
                 self.spark.column,
-                *[arg.spark.column if isinstance(arg, IndexOpsMixin) else arg for arg in args],
+                *[arg.spark.column if isinstance(arg, IndexOpsMixin) else arg for arg in args]
             )
 
             field = InternalField.from_struct_field(
@@ -393,11 +394,7 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
 
     # comparison operators
     def __eq__(self, other: Any) -> SeriesOrIndex:  # type: ignore[override]
-        # pandas always returns False for all items with dict and set.
-        if isinstance(other, (dict, set)):
-            return self != self
-        else:
-            return self._dtype_op.eq(self, other)
+        return self._dtype_op.eq(self, other)
 
     def __ne__(self, other: Any) -> SeriesOrIndex:  # type: ignore[override]
         return self._dtype_op.ne(self, other)
@@ -430,12 +427,6 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
 
     def __ror__(self, other: Any) -> SeriesOrIndex:
         return self._dtype_op.ror(self, other)
-
-    def __xor__(self, other: Any) -> SeriesOrIndex:
-        return self._dtype_op.xor(self, other)
-
-    def __rxor__(self, other: Any) -> SeriesOrIndex:
-        return self._dtype_op.rxor(self, other)
 
     def __len__(self) -> int:
         return len(self._psdf)
@@ -723,7 +714,7 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
             .agg(
                 F.min(F.col("__origin")).alias("__partition_min"),
                 F.max(F.col("__origin")).alias("__partition_max"),
-                F.min(F.coalesce(F.col("__comparison_within_partition"), F.lit(True))).alias(
+                F.min(F.coalesce(F.col("__comparison_within_partition"), SF.lit(True))).alias(
                     "__comparison_within_partition"
                 ),
             )
@@ -748,8 +739,8 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
         )
 
         ret = sdf.select(
-            F.min(F.coalesce(F.col("__comparison_between_partitions"), F.lit(True)))
-            & F.min(F.coalesce(F.col("__comparison_within_partition"), F.lit(True)))
+            F.min(F.coalesce(F.col("__comparison_between_partitions"), SF.lit(True)))
+            & F.min(F.coalesce(F.col("__comparison_within_partition"), SF.lit(True)))
         ).collect()[0][0]
         if ret is None:
             return True
@@ -866,8 +857,8 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
         5    False
         Name: animal, dtype: bool
 
-        >>> s.rename("a").to_frame().set_index("a").index.isin(['lama'])  # doctest: +SKIP
-        Index([True, False, True, False, True, False], dtype='bool', name='a')
+        >>> s.rename("a").to_frame().set_index("a").index.isin(['lama'])
+        Index([True, False, True, False, True, False], dtype='object', name='a')
         """
         if not is_list_like(values):
             raise TypeError(
@@ -875,11 +866,9 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
                 " to isin(), you passed a [{values_type}]".format(values_type=type(values).__name__)
             )
 
-        values = (
-            cast(np.ndarray, values).tolist() if isinstance(values, np.ndarray) else list(values)
-        )
+        values = values.tolist() if isinstance(values, np.ndarray) else list(values)
 
-        other = [F.lit(v) for v in values]
+        other = [SF.lit(v) for v in values]
         scol = self.spark.column.isin(other)
         field = self._internal.data_fields[0].copy(
             dtype=np.dtype("bool"), spark_type=BooleanType(), nullable=False
@@ -910,8 +899,8 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
         2     True
         dtype: bool
 
-        >>> ser.rename("a").to_frame().set_index("a").index.isna()  # doctest: +SKIP
-        Index([False, False, True], dtype='bool', name='a')
+        >>> ser.rename("a").to_frame().set_index("a").index.isna()
+        Index([False, False, True], dtype='object', name='a')
         """
         from pyspark.pandas.indexes import MultiIndex
 
@@ -953,19 +942,19 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
         2    False
         dtype: bool
 
-        >>> ser.rename("a").to_frame().set_index("a").index.notna()  # doctest: +SKIP
-        Index([True, True, False], dtype='bool', name='a')
+        >>> ser.rename("a").to_frame().set_index("a").index.notna()
+        Index([True, True, False], dtype='object', name='a')
         """
         from pyspark.pandas.indexes import MultiIndex
 
         if isinstance(self, MultiIndex):
             raise NotImplementedError("notna is not defined for MultiIndex")
-        return (~self.isnull()).rename(self.name)  # type: ignore[attr-defined]
+        return (~self.isnull()).rename(self.name)  # type: ignore
 
     notna = notnull
 
-    # TODO: axis and many arguments should be implemented.
-    def all(self, axis: Axis = 0, skipna: bool = True) -> bool:
+    # TODO: axis, skipna, and many arguments should be implemented.
+    def all(self, axis: Axis = 0) -> bool:
         """
         Return whether all elements are True.
 
@@ -979,13 +968,6 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
 
             * 0 / 'index' : reduce the index, return a Series whose index is the
               original column labels.
-
-        skipna : boolean, default True
-            Exclude NA values, such as None or numpy.NaN.
-            If an entire row/column is NA values and `skipna` is True,
-            then the result will be True, as for an empty row/column.
-            If `skipna` is False, numpy.NaNs are treated as True because these are
-            not equal to zero, Nones are treated as False.
 
         Examples
         --------
@@ -1004,9 +986,6 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
         >>> ps.Series([True, True, None]).all()
         True
 
-        >>> ps.Series([True, True, None]).all(skipna=False)
-        False
-
         >>> ps.Series([True, False, None]).all()
         False
 
@@ -1015,15 +994,6 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
 
         >>> ps.Series([np.nan]).all()
         True
-
-        >>> ps.Series([np.nan]).all(skipna=False)
-        True
-
-        >>> ps.Series([None]).all()
-        True
-
-        >>> ps.Series([None]).all(skipna=False)
-        False
 
         >>> df = ps.Series([True, False, None]).rename("a").to_frame()
         >>> df.set_index("a").index.all()
@@ -1036,18 +1006,11 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
         sdf = self._internal.spark_frame.select(self.spark.column)
         col = scol_for(sdf, sdf.columns[0])
 
-        # `any` and `every` was added as of Spark 3.0.
+        # Note that we're ignoring `None`s here for now.
+        # any and every was added as of Spark 3.0
         # ret = sdf.select(F.expr("every(CAST(`%s` AS BOOLEAN))" % sdf.columns[0])).collect()[0][0]
-        # We use min as its alternative as below.
-        if isinstance(self.spark.data_type, NumericType) or skipna:
-            # np.nan takes no effect to the result; None takes no effect if `skipna`
-            ret = sdf.select(F.min(F.coalesce(col.cast("boolean"), F.lit(True)))).collect()[0][0]
-        else:
-            # Take None as False when not `skipna`
-            ret = sdf.select(
-                F.min(F.when(col.isNull(), F.lit(False)).otherwise(col.cast("boolean")))
-            ).collect()[0][0]
-
+        # Here we use min as its alternative:
+        ret = sdf.select(F.min(F.coalesce(col.cast("boolean"), SF.lit(True)))).collect()[0][0]
         if ret is None:
             return True
         else:
@@ -1110,7 +1073,7 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
         # any and every was added as of Spark 3.0
         # ret = sdf.select(F.expr("any(CAST(`%s` AS BOOLEAN))" % sdf.columns[0])).collect()[0][0]
         # Here we use max as its alternative:
-        ret = sdf.select(F.max(F.coalesce(col.cast("boolean"), F.lit(False)))).collect()[0][0]
+        ret = sdf.select(F.max(F.coalesce(col.cast("boolean"), SF.lit(False)))).collect()[0][0]
         if ret is None:
             return False
         else:
@@ -1173,13 +1136,10 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
         periods: int,
         fill_value: Any,
         *,
-        part_cols: Sequence["ColumnOrName"] = (),
+        part_cols: Sequence["ColumnOrName"] = ()
     ) -> IndexOpsLike:
         if not isinstance(periods, int):
             raise TypeError("periods should be an int; however, got [%s]" % type(periods).__name__)
-
-        if periods == 0:
-            return self.copy()
 
         col = self.spark.column
         window = (
@@ -1367,7 +1327,7 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
 
         if normalize:
             drop_sum = sdf_dropna.count()
-            sdf = sdf.withColumn("count", F.col("count") / F.lit(drop_sum))
+            sdf = sdf.withColumn("count", F.col("count") / SF.lit(drop_sum))
 
         internal = InternalFrame(
             spark_frame=sdf,
@@ -1605,12 +1565,12 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
         if isinstance(self.dtype, CategoricalDtype):
             categories = self.dtype.categories
             if len(categories) == 0:
-                scol = F.lit(None)
+                scol = SF.lit(None)
             else:
                 kvs = list(
                     chain(
                         *[
-                            (F.lit(code), F.lit(category))
+                            (SF.lit(code), SF.lit(category))
                             for code, category in enumerate(categories)
                         ]
                     )
@@ -1658,14 +1618,14 @@ class IndexOpsMixin(object, metaclass=ABCMeta):
             code += 1
 
         kvs = list(
-            chain(*([(F.lit(unique), F.lit(code)) for unique, code in unique_to_code.items()]))
+            chain(*([(SF.lit(unique), SF.lit(code)) for unique, code in unique_to_code.items()]))
         )
 
         if len(kvs) == 0:  # uniques are all missing values
-            new_scol = F.lit(na_sentinel_code)
+            new_scol = SF.lit(na_sentinel_code)
         else:
             map_scol = F.create_map(*kvs)
-            null_scol = F.when(self.isnull().spark.column, F.lit(na_sentinel_code))
+            null_scol = F.when(self.isnull().spark.column, SF.lit(na_sentinel_code))
             new_scol = null_scol.otherwise(map_scol[self.spark.column])
 
         codes = self._with_new_scol(new_scol.alias(self._internal.data_spark_column_names[0]))

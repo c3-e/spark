@@ -30,7 +30,7 @@ import org.apache.spark.sql.{DataFrame, Dataset}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 import org.apache.spark.storage.StorageLevel
-import org.apache.spark.util.collection.{OpenHashMap, Utils}
+import org.apache.spark.util.collection.OpenHashMap
 
 /**
  * Params for [[CountVectorizer]] and [[CountVectorizerModel]].
@@ -305,7 +305,7 @@ class CountVectorizerModel(
   override def transform(dataset: Dataset[_]): DataFrame = {
     val outputSchema = transformSchema(dataset.schema, logging = true)
     if (broadcastDict.isEmpty) {
-      val dict = Utils.toMapWithIndex(vocabulary)
+      val dict = vocabulary.zipWithIndex.toMap
       broadcastDict = Some(dataset.sparkSession.sparkContext.broadcast(dict))
     }
     val dictBr = broadcastDict.get

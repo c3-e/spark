@@ -77,7 +77,7 @@ private[spark] class ProcfsMetricsGetter(procfsDir: String = "/proc/") extends L
     }
     catch {
       case e: SparkException =>
-        logDebug("Exception when trying to compute process tree." +
+        logWarning("Exception when trying to compute process tree." +
           " As a result reporting of ProcessTree metrics is stopped", e)
         isAvailable = false
         -1
@@ -94,7 +94,7 @@ private[spark] class ProcfsMetricsGetter(procfsDir: String = "/proc/") extends L
       Integer.parseInt(out.split("\n")(0))
     } catch {
       case e: Exception =>
-        logDebug("Exception when trying to compute pagesize, as a" +
+        logWarning("Exception when trying to compute pagesize, as a" +
           " result reporting of ProcessTree metrics is stopped")
         isAvailable = false
         0
@@ -153,7 +153,7 @@ private[spark] class ProcfsMetricsGetter(procfsDir: String = "/proc/") extends L
       childPidsInInt
     } catch {
       case e: Exception =>
-        logDebug("Exception when trying to compute process tree." +
+        logWarning("Exception when trying to compute process tree." +
           " As a result reporting of ProcessTree metrics is stopped.", e)
         isAvailable = false
         mutable.ArrayBuffer.empty[Int]
@@ -170,7 +170,7 @@ private[spark] class ProcfsMetricsGetter(procfsDir: String = "/proc/") extends L
     try {
       val pidDir = new File(procfsDir, pid.toString)
       def openReader(): BufferedReader = {
-        val f = new File(pidDir, procfsStatFile)
+        val f = new File(new File(procfsDir, pid.toString), procfsStatFile)
         new BufferedReader(new InputStreamReader(new FileInputStream(f), UTF_8))
       }
       Utils.tryWithResource(openReader) { in =>
@@ -199,7 +199,7 @@ private[spark] class ProcfsMetricsGetter(procfsDir: String = "/proc/") extends L
       }
     } catch {
       case f: IOException =>
-        logDebug("There was a problem with reading" +
+        logWarning("There was a problem with reading" +
           " the stat file of the process. ", f)
         throw f
     }

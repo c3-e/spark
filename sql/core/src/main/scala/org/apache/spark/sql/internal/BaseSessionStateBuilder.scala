@@ -18,24 +18,20 @@ package org.apache.spark.sql.internal
 
 import org.apache.spark.annotation.Unstable
 import org.apache.spark.sql.{ExperimentalMethods, SparkSession, UDFRegistration, _}
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, EvalSubqueriesForTimeTravel, FunctionRegistry, ReplaceCharWithVarchar, ResolveSessionCatalog, TableFunctionRegistry}
-import org.apache.spark.sql.catalyst.catalog.{FunctionExpressionBuilder, SessionCatalog}
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, FunctionRegistry, ResolveSessionCatalog, TableFunctionRegistry}
+import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.optimizer.Optimizer
 import org.apache.spark.sql.catalyst.parser.ParserInterface
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.connector.catalog.CatalogManager
-import org.apache.spark.sql.errors.QueryCompilationErrors
-import org.apache.spark.sql.execution.{ColumnarRule, CommandExecutionMode, QueryExecution, SparkOptimizer, SparkPlanner, SparkSqlParser}
-import org.apache.spark.sql.execution.adaptive.AdaptiveRulesHolder
-import org.apache.spark.sql.execution.aggregate.{ResolveEncodersInScalaAgg, ScalaUDAF}
+import org.apache.spark.sql.execution.{ColumnarRule, CommandExecutionMode, QueryExecution, SparkOptimizer, SparkPlan, SparkPlanner, SparkSqlParser}
+import org.apache.spark.sql.execution.aggregate.ResolveEncodersInScalaAgg
 import org.apache.spark.sql.execution.analysis.DetectAmbiguousSelfJoin
 import org.apache.spark.sql.execution.command.CommandCheck
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.v2.{TableCapabilityCheck, V2SessionCatalog}
 import org.apache.spark.sql.execution.streaming.ResolveWriteToStream
-import org.apache.spark.sql.expressions.UserDefinedAggregateFunction
 import org.apache.spark.sql.streaming.StreamingQueryManager
 import org.apache.spark.sql.util.ExecutionListenerManager
 
@@ -157,8 +153,7 @@ abstract class BaseSessionStateBuilder(
       tableFunctionRegistry,
       SessionState.newHadoopConf(session.sparkContext.hadoopConfiguration, conf),
       sqlParser,
-      resourceLoader,
-      new SparkUDFExpressionBuilder)
+      resourceLoader)
     parentState.foreach(_.catalog.copyStateTo(catalog))
     catalog
   }
@@ -188,16 +183,13 @@ abstract class BaseSessionStateBuilder(
         ResolveEncodersInScalaAgg +:
         new ResolveSessionCatalog(catalogManager) +:
         ResolveWriteToStream +:
-        new EvalSubqueriesForTimeTravel +:
         customResolutionRules
 
     override val postHocResolutionRules: Seq[Rule[LogicalPlan]] =
       DetectAmbiguousSelfJoin +:
         PreprocessTableCreation(session) +:
         PreprocessTableInsertion +:
-        DataSourceAnalysis(this) +:
-        ApplyCharTypePadding +:
-        ReplaceCharWithVarchar +:
+        DataSourceAnalysis +:
         customPostHocResolutionRules
 
     override val extendedCheckRules: Seq[LogicalPlan => Unit] =
@@ -311,14 +303,8 @@ abstract class BaseSessionStateBuilder(
     extensions.buildColumnarRules(session)
   }
 
-  protected def adaptiveRulesHolder: AdaptiveRulesHolder = {
-    new AdaptiveRulesHolder(
-      extensions.buildQueryStagePrepRules(session),
-      extensions.buildRuntimeOptimizerRules(session))
-  }
-
-  protected def planNormalizationRules: Seq[Rule[LogicalPlan]] = {
-    extensions.buildPlanNormalizationRules(session)
+  protected def queryStagePrepRules: Seq[Rule[SparkPlan]] = {
+    extensions.buildQueryStagePrepRules(session)
   }
 
   /**
@@ -331,8 +317,7 @@ abstract class BaseSessionStateBuilder(
   /**
    * Interface to start and stop streaming queries.
    */
-  protected def streamingQueryManager: StreamingQueryManager =
-    new StreamingQueryManager(session, conf)
+  protected def streamingQueryManager: StreamingQueryManager = new StreamingQueryManager(session)
 
   /**
    * An interface to register custom [[org.apache.spark.sql.util.QueryExecutionListener]]s
@@ -341,8 +326,8 @@ abstract class BaseSessionStateBuilder(
    * This gets cloned from parent if available, otherwise a new instance is created.
    */
   protected def listenerManager: ExecutionListenerManager = {
-    parentState.map(_.listenerManager.clone(session, conf)).getOrElse(
-      new ExecutionListenerManager(session, conf, loadExtensions = true))
+    parentState.map(_.listenerManager.clone(session)).getOrElse(
+      new ExecutionListenerManager(session, loadExtensions = true))
   }
 
   /**
@@ -375,8 +360,7 @@ abstract class BaseSessionStateBuilder(
       createQueryExecution,
       createClone,
       columnarRules,
-      adaptiveRulesHolder,
-      planNormalizationRules)
+      queryStagePrepRules)
   }
 }
 
@@ -405,25 +389,6 @@ private[sql] trait WithTestConf { self: BaseSessionStateBuilder =>
       }
       SQLConf.mergeSparkConf(conf, session.sparkContext.conf)
       conf
-    }
-  }
-}
-
-class SparkUDFExpressionBuilder extends FunctionExpressionBuilder {
-  override def makeExpression(name: String, clazz: Class[_], input: Seq[Expression]): Expression = {
-    if (classOf[UserDefinedAggregateFunction].isAssignableFrom(clazz)) {
-      val expr = ScalaUDAF(
-        input,
-        clazz.getConstructor().newInstance().asInstanceOf[UserDefinedAggregateFunction],
-        udafName = Some(name))
-      // Check input argument size
-      if (expr.inputTypes.size != input.size) {
-        throw QueryCompilationErrors.invalidFunctionArgumentsError(
-          name, expr.inputTypes.size.toString, input.size)
-      }
-      expr
-    } else {
-      throw QueryCompilationErrors.noHandlerForUDAFError(clazz.getCanonicalName)
     }
   }
 }

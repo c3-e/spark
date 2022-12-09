@@ -24,8 +24,6 @@ import scala.collection.mutable
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, TypeCoercion, UnresolvedException}
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
-import org.apache.spark.sql.catalyst.expressions.Cast._
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.trees.{BinaryLike, QuaternaryLike, TernaryLike}
 import org.apache.spark.sql.catalyst.trees.TreePattern._
@@ -224,7 +222,7 @@ trait HigherOrderFunction extends Expression with ExpectsInputTypes {
         NamedLambdaVariable("none", l.dataType, l.nullable, exprId = ExprId(newExprId), null)
     }
     val canonicalizedChildren = cleaned.children.map(_.canonicalized)
-    withNewChildren(canonicalizedChildren)
+    Canonicalize.execute(withNewChildren(canonicalizedChildren))
   }
 }
 
@@ -398,29 +396,20 @@ case class ArraySort(
     checkArgumentDataTypes() match {
       case TypeCheckResult.TypeCheckSuccess =>
         argument.dataType match {
-          case ArrayType(_, _) =>
+          case ArrayType(dt, _) if RowOrdering.isOrderable(dt) =>
             if (function.dataType == IntegerType) {
               TypeCheckResult.TypeCheckSuccess
             } else {
-              DataTypeMismatch(
-                errorSubClass = "UNEXPECTED_RETURN_TYPE",
-                messageParameters = Map(
-                  "functionName" -> toSQLId(function.prettyName),
-                  "expectedType" -> toSQLType(IntegerType),
-                  "actualType" -> toSQLType(function.dataType)
-                )
-              )
+              TypeCheckResult.TypeCheckFailure("Return type of the given function has to be " +
+                "IntegerType")
             }
+          case ArrayType(dt, _) =>
+            val dtSimple = dt.catalogString
+            TypeCheckResult.TypeCheckFailure(
+              s"$prettyName does not support sorting array of type $dtSimple which is not " +
+                "orderable")
           case _ =>
-            DataTypeMismatch(
-              errorSubClass = "UNEXPECTED_INPUT_TYPE",
-              messageParameters = Map(
-                "paramIndex" -> "1",
-                "requiredType" -> toSQLType(ArrayType),
-                "inputSql" -> toSQLExpr(argument),
-                "inputType" -> toSQLType(argument.dataType)
-              )
-            )
+            TypeCheckResult.TypeCheckFailure(s"$prettyName only supports array input.")
         }
       case failure => failure
     }
@@ -479,8 +468,6 @@ object ArraySort {
         If(LessThan(left, right), litm1, If(GreaterThan(left, right), lit1, lit0)))))
   }
 
-  // Default Comparator only works for orderable types.
-  // This is validated by the underlying LessTan and GreaterThan
   val defaultComparator: LambdaFunction = {
     val left = UnresolvedNamedLambdaVariable(Seq("left"))
     val right = UnresolvedNamedLambdaVariable(Seq("right"))
@@ -602,7 +589,7 @@ case class ArrayFilter(
       }
       i += 1
     }
-    new GenericArrayData(buffer)
+    new GenericArrayData(buffer.toSeq)
   }
 
   override def prettyName: String = "filter"
@@ -636,7 +623,7 @@ case class ArrayExists(
     argument: Expression,
     function: Expression,
     followThreeValuedLogic: Boolean)
-  extends ArrayBasedSimpleHigherOrderFunction with CodegenFallback with Predicate {
+  extends ArrayBasedSimpleHigherOrderFunction with CodegenFallback {
 
   def this(argument: Expression, function: Expression) = {
     this(
@@ -653,6 +640,8 @@ case class ArrayExists(
     } else {
       super.nullable
     }
+
+  override def dataType: DataType = BooleanType
 
   override def functionType: AbstractDataType = BooleanType
 
@@ -722,10 +711,12 @@ object ArrayExists {
 case class ArrayForAll(
     argument: Expression,
     function: Expression)
-  extends ArrayBasedSimpleHigherOrderFunction with CodegenFallback with Predicate {
+  extends ArrayBasedSimpleHigherOrderFunction with CodegenFallback {
 
   override def nullable: Boolean =
       super.nullable || function.nullable
+
+  override def dataType: DataType = BooleanType
 
   override def functionType: AbstractDataType = BooleanType
 
@@ -820,13 +811,9 @@ case class ArrayAggregate(
       case TypeCheckResult.TypeCheckSuccess =>
         if (!DataType.equalsStructurally(
             zero.dataType, merge.dataType, ignoreNullability = true)) {
-          DataTypeMismatch(
-            errorSubClass = "UNEXPECTED_INPUT_TYPE",
-            messageParameters = Map(
-              "paramIndex" -> "3",
-              "requiredType" -> toSQLType(zero.dataType),
-              "inputSql" -> toSQLExpr(merge),
-              "inputType" -> toSQLType(merge.dataType)))
+          TypeCheckResult.TypeCheckFailure(
+            s"argument 3 requires ${zero.dataType.simpleString} type, " +
+              s"however, '${merge.sql}' is of ${merge.dataType.catalogString} type.")
         } else {
           TypeCheckResult.TypeCheckSuccess
         }
@@ -992,7 +979,6 @@ case class TransformValues(
  * Merges two given maps into a single map by applying function to the pair of values with
  * the same key.
  */
-// scalastyle:off line.size.limit
 @ExpressionDescription(
   usage =
     """
@@ -1005,8 +991,6 @@ case class TransformValues(
     Examples:
       > SELECT _FUNC_(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), (k, v1, v2) -> concat(v1, v2));
        {1:"ax",2:"by"}
-      > SELECT _FUNC_(map('a', 1, 'b', 2), map('b', 3, 'c', 4), (k, v1, v2) -> coalesce(v1, 0) + coalesce(v2, 0));
-       {"a":1,"b":5,"c":4}
   """,
   since = "3.0.0",
   group = "lambda_funcs")
@@ -1043,16 +1027,11 @@ case class MapZipWith(left: Expression, right: Expression, function: Expression)
     super.checkArgumentDataTypes() match {
       case TypeCheckResult.TypeCheckSuccess =>
         if (leftKeyType.sameType(rightKeyType)) {
-          TypeUtils.checkForOrderingExpr(leftKeyType, prettyName)
+          TypeUtils.checkForOrderingExpr(leftKeyType, s"function $prettyName")
         } else {
-          DataTypeMismatch(
-            errorSubClass = "MAP_ZIP_WITH_DIFF_TYPES",
-            messageParameters = Map(
-              "functionName" -> toSQLId(prettyName),
-              "leftType" -> toSQLType(leftKeyType),
-              "rightType" -> toSQLType(rightKeyType)
-            )
-          )
+          TypeCheckResult.TypeCheckFailure(s"The input to function $prettyName should have " +
+            s"been two ${MapType.simpleString}s with compatible key types, but the key types are " +
+            s"[${leftKeyType.catalogString}, ${rightKeyType.catalogString}].")
         }
       case failure => failure
     }
@@ -1163,8 +1142,8 @@ case class MapZipWith(left: Expression, right: Expression, function: Expression)
     val valueData2 = mapData2.valueArray()
     var i = 0
     for ((key, Array(index1, index2)) <- keysWithIndexes) {
-      val v1 = index1.map(valueData1.get(_, leftValueType)).orNull
-      val v2 = index2.map(valueData2.get(_, rightValueType)).orNull
+      val v1 = index1.map(valueData1.get(_, leftValueType)).getOrElse(null)
+      val v2 = index2.map(valueData2.get(_, rightValueType)).getOrElse(null)
       keyVar.value.set(key)
       value1Var.value.set(v1)
       value2Var.value.set(v2)

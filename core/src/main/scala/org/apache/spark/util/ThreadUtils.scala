@@ -162,9 +162,9 @@ private[spark] object ThreadUtils {
   /**
    * Wrapper over newSingleThreadExecutor.
    */
-  def newDaemonSingleThreadExecutor(threadName: String): ThreadPoolExecutor = {
+  def newDaemonSingleThreadExecutor(threadName: String): ExecutorService = {
     val threadFactory = new ThreadFactoryBuilder().setDaemon(true).setNameFormat(threadName).build()
-    Executors.newFixedThreadPool(1, threadFactory).asInstanceOf[ThreadPoolExecutor]
+    Executors.newSingleThreadExecutor(threadFactory)
   }
 
   /**

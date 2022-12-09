@@ -20,11 +20,10 @@ package org.apache.spark.sql.catalyst.optimizer
 import scala.collection.mutable
 
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, AttributeSet, Expression, Literal, Or, SubqueryExpression}
-import org.apache.spark.sql.catalyst.planning.PhysicalOperation
+import org.apache.spark.sql.catalyst.planning.ScanOperation
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreePattern.CTE
-import org.apache.spark.util.collection.Utils
 
 /**
  * Infer predicates and column pruning for [[CTERelationDef]] from its reference points, and push
@@ -70,9 +69,9 @@ object PushdownPredicatesAndPruneColumnsForCTEDef extends Rule[LogicalPlan] {
         }
         gatherPredicatesAndAttributes(child, cteMap)
 
-      case PhysicalOperation(projects, predicates, ref: CTERelationRef) =>
+      case ScanOperation(projects, predicates, ref: CTERelationRef) =>
         val (cteDef, precedence, preds, attrs) = cteMap(ref.cteId)
-        val attrMapping = Utils.toMap(ref.output, cteDef.output)
+        val attrMapping = ref.output.zip(cteDef.output).map{ case (r, d) => r -> d }.toMap
         val newPredicates = if (isTruePredicate(preds)) {
           preds
         } else {
@@ -122,7 +121,7 @@ object PushdownPredicatesAndPruneColumnsForCTEDef extends Rule[LogicalPlan] {
   private def pushdownPredicatesAndAttributes(
       plan: LogicalPlan,
       cteMap: CTEMap): LogicalPlan = plan.transformWithSubqueries {
-    case cteDef @ CTERelationDef(child, id, originalPlanWithPredicates, _) =>
+    case cteDef @ CTERelationDef(child, id, originalPlanWithPredicates) =>
       val (_, _, newPreds, newAttrSet) = cteMap(id)
       val originalPlan = originalPlanWithPredicates.map(_._1).getOrElse(child)
       val preds = originalPlanWithPredicates.map(_._2).getOrElse(Seq.empty)
@@ -170,7 +169,7 @@ object PushdownPredicatesAndPruneColumnsForCTEDef extends Rule[LogicalPlan] {
 object CleanUpTempCTEInfo extends Rule[LogicalPlan] {
   override def apply(plan: LogicalPlan): LogicalPlan =
     plan.transformWithPruning(_.containsPattern(CTE)) {
-      case cteDef @ CTERelationDef(_, _, Some(_), _) =>
+      case cteDef @ CTERelationDef(_, _, Some(_)) =>
         cteDef.copy(originalPlanWithPredicates = None)
     }
 }

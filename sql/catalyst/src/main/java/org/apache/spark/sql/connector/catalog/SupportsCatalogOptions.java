@@ -17,8 +17,6 @@
 
 package org.apache.spark.sql.connector.catalog;
 
-import java.util.Optional;
-
 import org.apache.spark.annotation.Evolving;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
@@ -53,19 +51,5 @@ public interface SupportsCatalogOptions extends TableProvider {
    */
   default String extractCatalog(CaseInsensitiveStringMap options) {
     return CatalogManager.SESSION_CATALOG_NAME();
-  }
-
-  /**
-   * Extracts the timestamp string for time travel from the given options.
-   */
-  default Optional<String> extractTimeTravelTimestamp(CaseInsensitiveStringMap options) {
-    return Optional.empty();
-  }
-
-  /**
-   * Extracts the version string for time travel from the given options.
-   */
-  default Optional<String> extractTimeTravelVersion(CaseInsensitiveStringMap options) {
-    return Optional.empty();
   }
 }

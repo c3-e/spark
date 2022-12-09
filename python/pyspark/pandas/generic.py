@@ -20,11 +20,11 @@ A base class of DataFrame/Column to behave similar to pandas DataFrame/Series.
 """
 from abc import ABCMeta, abstractmethod
 from collections import Counter
+from distutils.version import LooseVersion
 from functools import reduce
 from typing import (
     Any,
     Callable,
-    Dict,
     Iterable,
     IO,
     List,
@@ -37,14 +37,15 @@ from typing import (
 )
 import warnings
 
-import numpy as np
+import numpy as np  # noqa: F401
 import pandas as pd
-from pandas.api.types import is_list_like  # type: ignore[attr-defined]
+from pandas.api.types import is_list_like
 
 from pyspark.sql import Column, functions as F
 from pyspark.sql.types import (
     BooleanType,
     DoubleType,
+    IntegralType,
     LongType,
     NumericType,
 )
@@ -73,15 +74,14 @@ from pyspark.pandas.utils import (
     validate_axis,
     validate_mode,
     SPARK_CONF_ARROW_ENABLED,
-    log_advice,
 )
 
 if TYPE_CHECKING:
-    from pyspark.pandas.frame import DataFrame
-    from pyspark.pandas.indexes.base import Index
-    from pyspark.pandas.groupby import GroupBy
-    from pyspark.pandas.series import Series
-    from pyspark.pandas.window import Rolling, Expanding, ExponentialMoving
+    from pyspark.pandas.frame import DataFrame  # noqa: F401 (SPARK-34943)
+    from pyspark.pandas.indexes.base import Index  # noqa: F401 (SPARK-34943)
+    from pyspark.pandas.groupby import GroupBy  # noqa: F401 (SPARK-34943)
+    from pyspark.pandas.series import Series  # noqa: F401 (SPARK-34943)
+    from pyspark.pandas.window import Rolling, Expanding  # noqa: F401 (SPARK-34943)
 
 
 bool_type = bool
@@ -116,8 +116,7 @@ class Frame(object, metaclass=ABCMeta):
         name: str,
         axis: Optional[Axis] = None,
         numeric_only: bool = True,
-        skipna: bool = True,
-        **kwargs: Any,
+        **kwargs: Any
     ) -> Union["Series", Scalar]:
         pass
 
@@ -128,10 +127,6 @@ class Frame(object, metaclass=ABCMeta):
 
     @abstractmethod
     def to_pandas(self) -> Union[pd.DataFrame, pd.Series]:
-        pass
-
-    @abstractmethod
-    def _to_pandas(self) -> Union[pd.DataFrame, pd.Series]:
         pass
 
     @property
@@ -578,11 +573,7 @@ class Frame(object, metaclass=ABCMeta):
         >>> ps.Series(['a', 'b', 'a']).to_numpy()
         array(['a', 'b', 'a'], dtype=object)
         """
-        log_advice(
-            "`to_numpy` loads all data into the driver's memory. "
-            "It should only be used if the resulting NumPy ndarray is expected to be small."
-        )
-        return cast(np.ndarray, self._to_pandas().values)
+        return cast(np.ndarray, self.to_pandas().values)
 
     @property
     def values(self) -> np.ndarray:
@@ -661,7 +652,7 @@ class Frame(object, metaclass=ABCMeta):
         mode: str = "w",
         partition_cols: Optional[Union[str, List[str]]] = None,
         index_col: Optional[Union[str, List[str]]] = None,
-        **options: Any,
+        **options: Any
     ) -> Optional[str]:
         r"""
         Write object to a comma-separated values (csv) file.
@@ -791,26 +782,38 @@ class Frame(object, metaclass=ABCMeta):
         ...    ...    2012-03-31 12:00:00
         """
         if "options" in options and isinstance(options.get("options"), dict) and len(options) == 1:
-            options = options.get("options")
+            options = options.get("options")  # type: ignore
 
         if path is None:
             # If path is none, just collect and use pandas's to_csv.
-            return self._to_pandas().to_csv(
-                None,
-                sep=sep,
-                na_rep=na_rep,
-                columns=columns,
-                header=header,
-                quotechar=quotechar,
-                date_format=date_format,
-                escapechar=escapechar,
-                index=False,
-            )
+            psdf_or_ser = self
+            if (LooseVersion("0.24") > LooseVersion(pd.__version__)) and isinstance(
+                self, ps.Series
+            ):
+                # 0.23 seems not having 'columns' parameter in Series' to_csv.
+                return psdf_or_ser.to_pandas().to_csv(  # type: ignore
+                    None,
+                    sep=sep,
+                    na_rep=na_rep,
+                    header=header,
+                    date_format=date_format,
+                    index=False,
+                )
+            else:
+                return psdf_or_ser.to_pandas().to_csv(  # type: ignore
+                    None,
+                    sep=sep,
+                    na_rep=na_rep,
+                    columns=columns,
+                    header=header,
+                    quotechar=quotechar,
+                    date_format=date_format,
+                    escapechar=escapechar,
+                    index=False,
+                )
 
-        if isinstance(self, ps.DataFrame):
-            psdf = self
-        else:
-            assert isinstance(self, ps.Series)
+        psdf = self
+        if isinstance(self, ps.Series):
             psdf = self.to_frame()
 
         if columns is None:
@@ -836,7 +839,7 @@ class Frame(object, metaclass=ABCMeta):
         if header is True and psdf._internal.column_labels_level > 1:
             raise ValueError("to_csv only support one-level index column now")
         elif isinstance(header, list):
-            sdf = psdf.to_spark(index_col)
+            sdf = psdf.to_spark(index_col)  # type: ignore
             sdf = sdf.select(
                 [scol_for(sdf, name_like_string(label)) for label in index_cols]
                 + [
@@ -848,7 +851,7 @@ class Frame(object, metaclass=ABCMeta):
             )
             header = True
         else:
-            sdf = psdf.to_spark(index_col)
+            sdf = psdf.to_spark(index_col)  # type: ignore
             sdf = sdf.select(
                 [scol_for(sdf, name_like_string(label)) for label in index_cols]
                 + [
@@ -890,7 +893,7 @@ class Frame(object, metaclass=ABCMeta):
         lines: bool = True,
         partition_cols: Optional[Union[str, List[str]]] = None,
         index_col: Optional[Union[str, List[str]]] = None,
-        **options: Any,
+        **options: Any
     ) -> Optional[str]:
         """
         Convert the object to a JSON string.
@@ -905,9 +908,6 @@ class Frame(object, metaclass=ABCMeta):
 
         .. note:: output JSON format is different from pandas'. It always use `orient='records'`
             for its output. This behaviour might have to change in the near future.
-
-        .. note:: Set `ignoreNullFields` keyword argument to `True` to omit `None` or `NaN` values
-            when writing JSON objects. It works only when `path` is provided.
 
         Note NaN's and None will be converted to null and datetime objects
         will be converted to UNIX timestamps.
@@ -983,10 +983,7 @@ class Frame(object, metaclass=ABCMeta):
         1         c
         """
         if "options" in options and isinstance(options.get("options"), dict) and len(options) == 1:
-            options = options.get("options")
-
-        default_options: Dict[str, Any] = {"ignoreNullFields": False}
-        options = {**default_options, **options}
+            options = options.get("options")  # type: ignore
 
         if not lines:
             raise NotImplementedError("lines=False is not implemented yet.")
@@ -997,19 +994,17 @@ class Frame(object, metaclass=ABCMeta):
         if path is None:
             # If path is none, just collect and use pandas's to_json.
             psdf_or_ser = self
-            pdf = psdf_or_ser._to_pandas()
+            pdf = psdf_or_ser.to_pandas()  # type: ignore
             if isinstance(self, ps.Series):
                 pdf = pdf.to_frame()
             # To make the format consistent and readable by `read_json`, convert it to pandas' and
             # use 'records' orient for now.
             return pdf.to_json(orient="records")
 
-        if isinstance(self, ps.DataFrame):
-            psdf = self
-        else:
-            assert isinstance(self, ps.Series)
+        psdf = self
+        if isinstance(self, ps.Series):
             psdf = self.to_frame()
-        sdf = psdf.to_spark(index_col=index_col)
+        sdf = psdf.to_spark(index_col=index_col)  # type: ignore
 
         if num_files is not None:
             warnings.warn(
@@ -1143,10 +1138,6 @@ class Frame(object, metaclass=ABCMeta):
 
         >>> df1.to_excel('output1.xlsx', engine='xlsxwriter')  # doctest: +SKIP
         """
-        log_advice(
-            "`to_excel` loads all data into the driver's memory. "
-            "It should only be used if the resulting DataFrame is expected to be small."
-        )
         # Make sure locals() call is at the top of the function so we don't capture local variables.
         args = locals()
         psdf = self
@@ -1164,7 +1155,7 @@ class Frame(object, metaclass=ABCMeta):
         )
 
     def mean(
-        self, axis: Optional[Axis] = None, skipna: bool = True, numeric_only: bool = None
+        self, axis: Optional[Axis] = None, numeric_only: bool = None
     ) -> Union[Scalar, "Series"]:
         """
         Return the mean of the values.
@@ -1173,11 +1164,6 @@ class Frame(object, metaclass=ABCMeta):
         ----------
         axis : {index (0), columns (1)}
             Axis for the function to be applied on.
-        skipna : bool, default True
-            Exclude NA/null values when computing the result.
-
-            .. versionchanged:: 3.4.0
-               Supported including NA/null values.
         numeric_only : bool, default None
             Include only float, int, boolean columns. False is not supported. This parameter
             is mainly for pandas compatibility.
@@ -1230,19 +1216,11 @@ class Frame(object, metaclass=ABCMeta):
             return F.mean(spark_column)
 
         return self._reduce_for_stat_function(
-            mean,
-            name="mean",
-            axis=axis,
-            numeric_only=numeric_only,
-            skipna=skipna,
+            mean, name="mean", axis=axis, numeric_only=numeric_only
         )
 
     def sum(
-        self,
-        axis: Optional[Axis] = None,
-        skipna: bool = True,
-        numeric_only: bool = None,
-        min_count: int = 0,
+        self, axis: Optional[Axis] = None, numeric_only: bool = None, min_count: int = 0
     ) -> Union[Scalar, "Series"]:
         """
         Return the sum of the values.
@@ -1251,11 +1229,6 @@ class Frame(object, metaclass=ABCMeta):
         ----------
         axis : {index (0), columns (1)}
             Axis for the function to be applied on.
-        skipna : bool, default True
-            Exclude NA/null values when computing the result.
-
-            .. versionchanged:: 3.4.0
-               Added *skipna* to exclude .
         numeric_only : bool, default None
             Include only float, int, boolean columns. False is not supported. This parameter
             is mainly for pandas compatibility.
@@ -1319,7 +1292,6 @@ class Frame(object, metaclass=ABCMeta):
         def sum(psser: "Series") -> Column:
             spark_type = psser.spark.data_type
             spark_column = psser.spark.column
-
             if isinstance(spark_type, BooleanType):
                 spark_column = spark_column.cast(LongType())
             elif not isinstance(spark_type, NumericType):
@@ -1328,23 +1300,14 @@ class Frame(object, metaclass=ABCMeta):
                         spark_type_to_pandas_dtype(spark_type), spark_type.simpleString()
                     )
                 )
-            return F.coalesce(F.sum(spark_column), F.lit(0))
+            return F.coalesce(F.sum(spark_column), SF.lit(0))
 
         return self._reduce_for_stat_function(
-            sum,
-            name="sum",
-            axis=axis,
-            numeric_only=numeric_only,
-            min_count=min_count,
-            skipna=skipna,
+            sum, name="sum", axis=axis, numeric_only=numeric_only, min_count=min_count
         )
 
     def product(
-        self,
-        axis: Optional[Axis] = None,
-        skipna: bool = True,
-        numeric_only: bool = None,
-        min_count: int = 0,
+        self, axis: Optional[Axis] = None, numeric_only: bool = None, min_count: int = 0
     ) -> Union[Scalar, "Series"]:
         """
         Return the product of the values.
@@ -1356,11 +1319,6 @@ class Frame(object, metaclass=ABCMeta):
         ----------
         axis : {index (0), columns (1)}
             Axis for the function to be applied on.
-        skipna : bool, default True
-            Exclude NA/null values when computing the result.
-
-            .. versionchanged:: 3.4.0
-               Supported including NA/null values.
         numeric_only : bool, default None
             Include only float, int, boolean columns. False is not supported. This parameter
             is mainly for pandas compatibility.
@@ -1421,29 +1379,36 @@ class Frame(object, metaclass=ABCMeta):
             spark_type = psser.spark.data_type
             spark_column = psser.spark.column
             if isinstance(spark_type, BooleanType):
-                spark_column = spark_column.cast(LongType())
-            elif not isinstance(spark_type, NumericType):
+                scol = F.min(F.coalesce(spark_column, SF.lit(True))).cast(LongType())
+            elif isinstance(spark_type, NumericType):
+                num_zeros = F.sum(F.when(spark_column == 0, 1).otherwise(0))
+                sign = F.when(
+                    F.sum(F.when(spark_column < 0, 1).otherwise(0)) % 2 == 0, 1
+                ).otherwise(-1)
+
+                scol = F.when(num_zeros > 0, 0).otherwise(
+                    sign * F.exp(F.sum(F.log(F.abs(spark_column))))
+                )
+
+                if isinstance(spark_type, IntegralType):
+                    scol = F.round(scol).cast(LongType())
+            else:
                 raise TypeError(
                     "Could not convert {} ({}) to numeric".format(
                         spark_type_to_pandas_dtype(spark_type), spark_type.simpleString()
                     )
                 )
 
-            return SF.product(spark_column, skipna)
+            return F.coalesce(scol, SF.lit(1))
 
         return self._reduce_for_stat_function(
-            prod,
-            name="prod",
-            axis=axis,
-            numeric_only=numeric_only,
-            min_count=min_count,
-            skipna=skipna,
+            prod, name="prod", axis=axis, numeric_only=numeric_only, min_count=min_count
         )
 
     prod = product
 
     def skew(
-        self, axis: Optional[Axis] = None, skipna: bool = True, numeric_only: bool = None
+        self, axis: Optional[Axis] = None, numeric_only: bool = None
     ) -> Union[Scalar, "Series"]:
         """
         Return unbiased skew normalized by N-1.
@@ -1452,11 +1417,6 @@ class Frame(object, metaclass=ABCMeta):
         ----------
         axis : {index (0), columns (1)}
             Axis for the function to be applied on.
-        skipna : bool, default True
-            Exclude NA/null values when computing the result.
-
-            .. versionchanged:: 3.4.0
-               Supported including NA/null values.
         numeric_only : bool, default None
             Include only float, int, boolean columns. False is not supported. This parameter
             is mainly for pandas compatibility.
@@ -1473,9 +1433,9 @@ class Frame(object, metaclass=ABCMeta):
 
         On a DataFrame:
 
-        >>> df.skew()
-        a    0.0
-        b    0.0
+        >>> df.skew()  # doctest: +SKIP
+        a    0.000000e+00
+        b   -3.319678e-16
         dtype: float64
 
         On a Series:
@@ -1500,18 +1460,22 @@ class Frame(object, metaclass=ABCMeta):
                     )
                 )
 
-            return SF.skew(spark_column)
+            count_scol = F.count(F.when(~spark_column.isNull(), 1).otherwise(None))
+            # refer to the Pandas implementation 'nanskew'
+            # https://github.com/pandas-dev/pandas/blob/main/pandas/core/nanops.py#L1152
+            return F.when(
+                count_scol > 2,
+                F.skewness(spark_column)
+                * F.sqrt(1 - 1 / count_scol)
+                * (count_scol / (count_scol - 2)),
+            ).otherwise(None)
 
         return self._reduce_for_stat_function(
-            skew,
-            name="skew",
-            axis=axis,
-            numeric_only=numeric_only,
-            skipna=skipna,
+            skew, name="skew", axis=axis, numeric_only=numeric_only
         )
 
     def kurtosis(
-        self, axis: Optional[Axis] = None, skipna: bool = True, numeric_only: bool = None
+        self, axis: Optional[Axis] = None, numeric_only: bool = None
     ) -> Union[Scalar, "Series"]:
         """
         Return unbiased kurtosis using Fisher’s definition of kurtosis (kurtosis of normal == 0.0).
@@ -1521,11 +1485,6 @@ class Frame(object, metaclass=ABCMeta):
         ----------
         axis : {index (0), columns (1)}
             Axis for the function to be applied on.
-        skipna : bool, default True
-            Exclude NA/null values when computing the result.
-
-            .. versionchanged:: 3.4.0
-               Supported including NA/null values.
         numeric_only : bool, default None
             Include only float, int, boolean columns. False is not supported. This parameter
             is mainly for pandas compatibility.
@@ -1537,20 +1496,20 @@ class Frame(object, metaclass=ABCMeta):
         Examples
         --------
 
-        >>> df = ps.DataFrame({'a': [1, 2, 3, np.nan, 6], 'b': [0.1, 0.2, 0.3, np.nan, 0.8]},
+        >>> df = ps.DataFrame({'a': [1, 2, 3, np.nan], 'b': [0.1, 0.2, 0.3, np.nan]},
         ...                   columns=['a', 'b'])
 
         On a DataFrame:
 
         >>> df.kurtosis()
-        a    1.500000
-        b    2.703924
+        a   -1.5
+        b   -1.5
         dtype: float64
 
         On a Series:
 
         >>> df['a'].kurtosis()
-        1.5
+        -1.5
         """
         axis = validate_axis(axis)
 
@@ -1568,21 +1527,16 @@ class Frame(object, metaclass=ABCMeta):
                         spark_type_to_pandas_dtype(spark_type), spark_type.simpleString()
                     )
                 )
-
-            return SF.kurt(spark_column)
+            return F.kurtosis(spark_column)
 
         return self._reduce_for_stat_function(
-            kurtosis,
-            name="kurtosis",
-            axis=axis,
-            numeric_only=numeric_only,
-            skipna=skipna,
+            kurtosis, name="kurtosis", axis=axis, numeric_only=numeric_only
         )
 
     kurt = kurtosis
 
     def min(
-        self, axis: Optional[Axis] = None, skipna: bool = True, numeric_only: bool = None
+        self, axis: Optional[Axis] = None, numeric_only: bool = None
     ) -> Union[Scalar, "Series"]:
         """
         Return the minimum of the values.
@@ -1591,11 +1545,6 @@ class Frame(object, metaclass=ABCMeta):
         ----------
         axis : {index (0), columns (1)}
             Axis for the function to be applied on.
-        skipna : bool, default True
-            Exclude NA/null values when computing the result.
-
-            .. versionchanged:: 3.4.0
-               Supported including NA/null values.
         numeric_only : bool, default None
             If True, include only float, int, boolean columns. This parameter is mainly for
             pandas compatibility. False is supported; however, the columns should
@@ -1642,11 +1591,10 @@ class Frame(object, metaclass=ABCMeta):
             name="min",
             axis=axis,
             numeric_only=numeric_only,
-            skipna=skipna,
         )
 
     def max(
-        self, axis: Optional[Axis] = None, skipna: bool = True, numeric_only: bool = None
+        self, axis: Optional[Axis] = None, numeric_only: bool = None
     ) -> Union[Scalar, "Series"]:
         """
         Return the maximum of the values.
@@ -1655,11 +1603,6 @@ class Frame(object, metaclass=ABCMeta):
         ----------
         axis : {index (0), columns (1)}
             Axis for the function to be applied on.
-        skipna : bool, default True
-            Exclude NA/null values when computing the result.
-
-            .. versionchanged:: 3.4.0
-               Supported including NA/null values.
         numeric_only : bool, default None
             If True, include only float, int, boolean columns. This parameter is mainly for
             pandas compatibility. False is supported; however, the columns should
@@ -1706,7 +1649,6 @@ class Frame(object, metaclass=ABCMeta):
             name="max",
             axis=axis,
             numeric_only=numeric_only,
-            skipna=skipna,
         )
 
     def count(
@@ -1784,32 +1726,18 @@ class Frame(object, metaclass=ABCMeta):
         )
 
     def std(
-        self,
-        axis: Optional[Axis] = None,
-        skipna: bool = True,
-        ddof: int = 1,
-        numeric_only: bool = None,
+        self, axis: Optional[Axis] = None, ddof: int = 1, numeric_only: bool = None
     ) -> Union[Scalar, "Series"]:
         """
         Return sample standard deviation.
-
-        .. versionadded:: 3.3.0
 
         Parameters
         ----------
         axis : {index (0), columns (1)}
             Axis for the function to be applied on.
-        skipna : bool, default True
-            Exclude NA/null values when computing the result.
-
-            .. versionchanged:: 3.4.0
-               Supported including NA/null values.
         ddof : int, default 1
             Delta Degrees of Freedom. The divisor used in calculations is N - ddof,
             where N represents the number of elements.
-
-            .. versionchanged:: 3.4.0
-               Supported including arbitary integers.
         numeric_only : bool, default None
             Include only float, int, boolean columns. False is not supported. This parameter
             is mainly for pandas compatibility.
@@ -1831,11 +1759,6 @@ class Frame(object, metaclass=ABCMeta):
         b    0.1
         dtype: float64
 
-        >>> df.std(ddof=2)
-        a    1.414214
-        b    0.141421
-        dtype: float64
-
         >>> df.std(axis=1)
         0    0.636396
         1    1.272792
@@ -1855,12 +1778,8 @@ class Frame(object, metaclass=ABCMeta):
 
         >>> df['a'].std(ddof=0)
         0.816496580927726
-
-        >>> df['a'].std(ddof=-1)
-        0.707106...
         """
-        if not isinstance(ddof, int):
-            raise TypeError("ddof must be integer")
+        assert ddof in (0, 1)
 
         axis = validate_axis(axis)
 
@@ -1878,10 +1797,13 @@ class Frame(object, metaclass=ABCMeta):
                         spark_type_to_pandas_dtype(spark_type), spark_type.simpleString()
                     )
                 )
-            return SF.stddev(spark_column, ddof)
+            if ddof == 0:
+                return F.stddev_pop(spark_column)
+            else:
+                return F.stddev_samp(spark_column)
 
         return self._reduce_for_stat_function(
-            std, name="std", axis=axis, numeric_only=numeric_only, ddof=ddof, skipna=skipna
+            std, name="std", axis=axis, numeric_only=numeric_only, ddof=ddof
         )
 
     def var(
@@ -1890,8 +1812,6 @@ class Frame(object, metaclass=ABCMeta):
         """
         Return unbiased variance.
 
-        .. versionadded:: 3.3.0
-
         Parameters
         ----------
         axis : {index (0), columns (1)}
@@ -1899,9 +1819,6 @@ class Frame(object, metaclass=ABCMeta):
         ddof : int, default 1
             Delta Degrees of Freedom. The divisor used in calculations is N - ddof,
             where N represents the number of elements.
-
-            .. versionchanged:: 3.4.0
-               Supported including arbitary integers.
         numeric_only : bool, default None
             Include only float, int, boolean columns. False is not supported. This parameter
             is mainly for pandas compatibility.
@@ -1923,11 +1840,6 @@ class Frame(object, metaclass=ABCMeta):
         b    0.01
         dtype: float64
 
-        >>> df.var(ddof=2)
-        a    2.00
-        b    0.02
-        dtype: float64
-
         >>> df.var(axis=1)
         0    0.405
         1    1.620
@@ -1947,12 +1859,8 @@ class Frame(object, metaclass=ABCMeta):
 
         >>> df['a'].var(ddof=0)
         0.6666666666666666
-
-        >>> df['a'].var(ddof=-2)
-        0.4
         """
-        if not isinstance(ddof, int):
-            raise TypeError("ddof must be integer")
+        assert ddof in (0, 1)
 
         axis = validate_axis(axis)
 
@@ -1970,18 +1878,17 @@ class Frame(object, metaclass=ABCMeta):
                         spark_type_to_pandas_dtype(spark_type), spark_type.simpleString()
                     )
                 )
-            return SF.var(spark_column, ddof)
+            if ddof == 0:
+                return F.var_pop(spark_column)
+            else:
+                return F.var_samp(spark_column)
 
         return self._reduce_for_stat_function(
             var, name="var", axis=axis, numeric_only=numeric_only, ddof=ddof
         )
 
     def median(
-        self,
-        axis: Optional[Axis] = None,
-        skipna: bool = True,
-        numeric_only: bool = None,
-        accuracy: int = 10000,
+        self, axis: Optional[Axis] = None, numeric_only: bool = None, accuracy: int = 10000
     ) -> Union[Scalar, "Series"]:
         """
         Return the median of the values for the requested axis.
@@ -1994,11 +1901,6 @@ class Frame(object, metaclass=ABCMeta):
         ----------
         axis : {index (0), columns (1)}
             Axis for the function to be applied on.
-        skipna : bool, default True
-            Exclude NA/null values when computing the result.
-
-            .. versionchanged:: 3.4.0
-               Supported including NA/null values.
         numeric_only : bool, default None
             Include only float, int, boolean columns. False is not supported. This parameter
             is mainly for pandas compatibility.
@@ -2093,40 +1995,22 @@ class Frame(object, metaclass=ABCMeta):
                 )
 
         return self._reduce_for_stat_function(
-            median,
-            name="median",
-            numeric_only=numeric_only,
-            axis=axis,
-            skipna=skipna,
+            median, name="median", numeric_only=numeric_only, axis=axis
         )
 
     def sem(
-        self,
-        axis: Optional[Axis] = None,
-        skipna: bool = True,
-        ddof: int = 1,
-        numeric_only: bool = None,
+        self, axis: Optional[Axis] = None, ddof: int = 1, numeric_only: bool = None
     ) -> Union[Scalar, "Series"]:
         """
         Return unbiased standard error of the mean over requested axis.
-
-        .. versionadded:: 3.3.0
 
         Parameters
         ----------
         axis : {index (0), columns (1)}
             Axis for the function to be applied on.
-        skipna : bool, default True
-            Exclude NA/null values when computing the result.
-
-            .. versionchanged:: 3.4.0
-               Supported including NA/null values.
         ddof : int, default 1
             Delta Degrees of Freedom. The divisor used in calculations is N - ddof,
             where N represents the number of elements.
-
-            .. versionchanged:: 3.4.0
-               Supported including arbitary integers.
         numeric_only : bool, default None
             Include only float, int, boolean columns. False is not supported. This parameter
             is mainly for pandas compatibility.
@@ -2154,11 +2038,6 @@ class Frame(object, metaclass=ABCMeta):
         b    0.471405
         dtype: float64
 
-        >>> psdf.sem(ddof=2)
-        a    0.816497
-        b    0.816497
-        dtype: float64
-
         >>> psdf.sem(axis=1)
         0    1.5
         1    1.5
@@ -2180,8 +2059,7 @@ class Frame(object, metaclass=ABCMeta):
         >>> psser.sem(ddof=0)
         0.47140452079103173
         """
-        if not isinstance(ddof, int):
-            raise TypeError("ddof must be integer")
+        assert ddof in (0, 1)
 
         axis = validate_axis(axis)
 
@@ -2199,18 +2077,16 @@ class Frame(object, metaclass=ABCMeta):
                         spark_type_to_pandas_dtype(spark_type), spark_type.simpleString()
                     )
                 )
-            return SF.stddev(spark_column, ddof)
+            if ddof == 0:
+                return F.stddev_pop(spark_column)
+            else:
+                return F.stddev_samp(spark_column)
 
         def sem(psser: "Series") -> Column:
-            return std(psser) / F.sqrt(Frame._count_expr(psser))
+            return std(psser) / pow(Frame._count_expr(psser), 0.5)
 
         return self._reduce_for_stat_function(
-            sem,
-            name="sem",
-            numeric_only=numeric_only,
-            axis=axis,
-            ddof=ddof,
-            skipna=skipna,
+            sem, name="sem", numeric_only=numeric_only, axis=axis, ddof=ddof
         )
 
     @property
@@ -2239,7 +2115,7 @@ class Frame(object, metaclass=ABCMeta):
         if num_columns == 0:
             return 0
         else:
-            return len(self) * num_columns  # type: ignore[arg-type]
+            return len(self) * num_columns  # type: ignore
 
     def abs(self: FrameLike) -> FrameLike:
         """
@@ -2383,11 +2259,10 @@ class Frame(object, metaclass=ABCMeta):
         2.0  2  5
         NaN  1  4
         """
-        new_by: List[Union[Label, ps.Series]]
         if isinstance(by, ps.DataFrame):
             raise ValueError("Grouper for '{}' not 1-dimensional".format(type(by).__name__))
         elif isinstance(by, ps.Series):
-            new_by = [by]
+            new_by = [by]  # type: List[Union[Label, ps.Series]]
         elif is_name_like_tuple(by):
             if isinstance(self, ps.Series):
                 raise KeyError(by)
@@ -2475,6 +2350,8 @@ class Frame(object, metaclass=ABCMeta):
             df = self
         elif isinstance(self, ps.Series):
             df = self.to_dataframe()
+        else:
+            raise TypeError("bool() expects DataFrame or Series; however, " "got [%s]" % (self,))
         return df.head(2)._to_internal_pandas().bool()
 
     def first_valid_index(self) -> Optional[Union[Scalar, Tuple[Scalar, ...]]]:
@@ -2563,11 +2440,12 @@ class Frame(object, metaclass=ABCMeta):
 
         with sql_conf({SPARK_CONF_ARROW_ENABLED: False}):
             # Disable Arrow to keep row ordering.
-            first_valid_row = (
+            first_valid_row = cast(
+                pd.DataFrame,
                 self._internal.spark_frame.filter(cond)
                 .select(self._internal.index_spark_columns)
                 .limit(1)
-                .toPandas()
+                .toPandas(),
             )
 
         # For Empty Series or DataFrame, returns None.
@@ -2740,78 +2618,6 @@ class Frame(object, metaclass=ABCMeta):
         from pyspark.pandas.window import Expanding
 
         return Expanding(self, min_periods=min_periods)
-
-    # TODO: 'adjust', 'axis', 'method' parameter should be implemented.
-    def ewm(
-        self: FrameLike,
-        com: Optional[float] = None,
-        span: Optional[float] = None,
-        halflife: Optional[float] = None,
-        alpha: Optional[float] = None,
-        min_periods: Optional[int] = None,
-        ignore_na: bool_type = False,
-    ) -> "ExponentialMoving[FrameLike]":
-        """
-        Provide exponentially weighted window transformations.
-
-        .. note:: 'min_periods' in pandas-on-Spark works as a fixed window size unlike pandas.
-            Unlike pandas, NA is also counted as the period. This might be changed
-            in the near future.
-
-        .. versionadded:: 3.4.0
-
-        Parameters
-        ----------
-        com : float, optional
-            Specify decay in terms of center of mass.
-            alpha = 1 / (1 + com), for com >= 0.
-
-        span : float, optional
-            Specify decay in terms of span.
-            alpha = 2 / (span + 1), for span >= 1.
-
-        halflife : float, optional
-            Specify decay in terms of half-life.
-            alpha = 1 - exp(-ln(2) / halflife), for halflife > 0.
-
-        alpha : float, optional
-            Specify smoothing factor alpha directly.
-            0 < alpha <= 1.
-
-        min_periods : int, default None
-            Minimum number of observations in window required to have a value
-            (otherwise result is NA).
-
-        ignore_na : bool, default False
-            Ignore missing values when calculating weights.
-
-            - When ``ignore_na=False`` (default), weights are based on absolute positions.
-              For example, the weights of :math:`x_0` and :math:`x_2` used in calculating
-              the final weighted average of [:math:`x_0`, None, :math:`x_2`] are
-              :math:`(1-\alpha)^2` and :math:`1` if ``adjust=True``, and
-              :math:`(1-\alpha)^2` and :math:`\alpha` if ``adjust=False``.
-
-            - When ``ignore_na=True``, weights are based
-              on relative positions. For example, the weights of :math:`x_0` and :math:`x_2`
-              used in calculating the final weighted average of
-              [:math:`x_0`, None, :math:`x_2`] are :math:`1-\alpha` and :math:`1` if
-              ``adjust=True``, and :math:`1-\alpha` and :math:`\alpha` if ``adjust=False``.
-
-        Returns
-        -------
-        a Window sub-classed for the particular operation
-        """
-        from pyspark.pandas.window import ExponentialMoving
-
-        return ExponentialMoving(
-            self,
-            com=com,
-            span=span,
-            halflife=halflife,
-            alpha=alpha,
-            min_periods=min_periods,
-            ignore_na=ignore_na,
-        )
 
     def get(self, key: Any, default: Optional[Any] = None) -> Any:
         """
@@ -3127,21 +2933,17 @@ class Frame(object, metaclass=ABCMeta):
 
         if isinstance(self, ps.Series):
             if indexes_increasing:
-                result = first_series(
-                    self.to_frame().loc[before:after]  # type: ignore[arg-type]
-                ).rename(self.name)
+                result = first_series(self.to_frame().loc[before:after]).rename(self.name)
             else:
-                result = first_series(
-                    self.to_frame().loc[after:before]  # type: ignore[arg-type]
-                ).rename(self.name)
+                result = first_series(self.to_frame().loc[after:before]).rename(self.name)
         elif isinstance(self, ps.DataFrame):
             if axis == 0:
                 if indexes_increasing:
-                    result = self.loc[before:after]  # type: ignore[assignment]
+                    result = self.loc[before:after]
                 else:
-                    result = self.loc[after:before]  # type: ignore[assignment]
+                    result = self.loc[after:before]
             elif axis == 1:
-                result = self.loc[:, before:after]  # type: ignore[assignment]
+                result = self.loc[:, before:after]
 
         return cast(DataFrameOrSeries, result.copy() if copy else result)
 
@@ -3194,10 +2996,11 @@ class Frame(object, metaclass=ABCMeta):
         |  0 | elk        | dog        |
         |  1 | pig        | quetzal    |
         """
-        log_advice(
-            "`to_markdown` loads all data into the driver's memory. "
-            "It should only be used if the resulting pandas object is expected to be small."
-        )
+        # `to_markdown` is supported in pandas >= 1.0.0 since it's newly added in pandas 1.0.0.
+        if LooseVersion(pd.__version__) < LooseVersion("1.0.0"):
+            raise NotImplementedError(
+                "`to_markdown()` only supported in pandas-on-Spark with pandas >= 1.0.0"
+            )
         # Make sure locals() call is at the top of the function so we don't capture local variables.
         args = locals()
         psser_or_psdf = self
@@ -3375,126 +3178,27 @@ class Frame(object, metaclass=ABCMeta):
 
     pad = ffill
 
-    # TODO: add 'axis', 'inplace', 'downcast'
-    def interpolate(
-        self: FrameLike,
-        method: str = "linear",
-        limit: Optional[int] = None,
-        limit_direction: Optional[str] = None,
-        limit_area: Optional[str] = None,
-    ) -> FrameLike:
-        """
-        Fill NaN values using an interpolation method.
-
-        .. note:: the current implementation of interpolate uses Spark's Window without
-            specifying partition specification. This leads to move all data into
-            single partition in single machine and could cause serious
-            performance degradation. Avoid this method against very large dataset.
-
-        .. versionadded:: 3.4.0
-
-        Parameters
-        ----------
-        method : str, default 'linear'
-            Interpolation technique to use. One of:
-
-            * 'linear': Ignore the index and treat the values as equally
-              spaced.
-
-        limit : int, optional
-            Maximum number of consecutive NaNs to fill. Must be greater than
-            0.
-
-        limit_direction : str, default None
-            Consecutive NaNs will be filled in this direction.
-            One of {{'forward', 'backward', 'both'}}.
-
-        limit_area : str, default None
-            If limit is specified, consecutive NaNs will be filled with this restriction. One of:
-
-            * None: No fill restriction.
-            * 'inside': Only fill NaNs surrounded by valid values (interpolate).
-            * 'outside': Only fill NaNs outside valid values (extrapolate).
-
-        Returns
-        -------
-        Series or DataFrame or None
-            Returns the same object type as the caller, interpolated at
-            some or all NA values.
-
-        See Also
-        --------
-        fillna : Fill missing values using different methods.
-
-        Examples
-        --------
-        Filling in NA via linear interpolation.
-
-        >>> s = ps.Series([0, 1, np.nan, 3])
-        >>> s
-        0    0.0
-        1    1.0
-        2    NaN
-        3    3.0
-        dtype: float64
-        >>> s.interpolate()
-        0    0.0
-        1    1.0
-        2    2.0
-        3    3.0
-        dtype: float64
-
-        Fill the DataFrame forward (that is, going down) along each column
-        using linear interpolation.
-
-        Note how the last entry in column 'a' is interpolated differently,
-        because there is no entry after it to use for interpolation.
-        Note how the first entry in column 'b' remains NA, because there
-        is no entry before it to use for interpolation.
-
-        >>> df = ps.DataFrame([(0.0, np.nan, -1.0, 1.0),
-        ...                    (np.nan, 2.0, np.nan, np.nan),
-        ...                    (2.0, 3.0, np.nan, 9.0),
-        ...                    (np.nan, 4.0, -4.0, 16.0)],
-        ...                   columns=list('abcd'))
-        >>> df
-             a    b    c     d
-        0  0.0  NaN -1.0   1.0
-        1  NaN  2.0  NaN   NaN
-        2  2.0  3.0  NaN   9.0
-        3  NaN  4.0 -4.0  16.0
-        >>> df.interpolate(method='linear')
-             a    b    c     d
-        0  0.0  NaN -1.0   1.0
-        1  1.0  2.0 -2.0   5.0
-        2  2.0  3.0 -3.0   9.0
-        3  2.0  4.0 -4.0  16.0
-        """
-        return self.interpolate(
-            method=method, limit=limit, limit_direction=limit_direction, limit_area=limit_area
-        )
-
     @property
     def at(self) -> AtIndexer:
-        return AtIndexer(self)
+        return AtIndexer(self)  # type: ignore
 
     at.__doc__ = AtIndexer.__doc__
 
     @property
     def iat(self) -> iAtIndexer:
-        return iAtIndexer(self)
+        return iAtIndexer(self)  # type: ignore
 
     iat.__doc__ = iAtIndexer.__doc__
 
     @property
     def iloc(self) -> iLocIndexer:
-        return iLocIndexer(self)
+        return iLocIndexer(self)  # type: ignore
 
     iloc.__doc__ = iLocIndexer.__doc__
 
     @property
     def loc(self) -> LocIndexer:
-        return LocIndexer(self)
+        return LocIndexer(self)  # type: ignore
 
     loc.__doc__ = LocIndexer.__doc__
 

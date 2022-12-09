@@ -55,7 +55,7 @@ trait TestPrematureExit {
 
   /** Simple PrintStream that reads data into a buffer */
   private class BufferPrintStream extends PrintStream(noOpOutputStream) {
-    val lineBuffer = ArrayBuffer[String]()
+    var lineBuffer = ArrayBuffer[String]()
     // scalastyle:off println
     override def println(line: String): Unit = {
       lineBuffer += line
@@ -1520,7 +1520,7 @@ class SparkSubmitSuite
 
 object JarCreationTest extends Logging {
   def main(args: Array[String]): Unit = {
-    TestUtils.configTestLog4j2("INFO")
+    TestUtils.configTestLog4j("INFO")
     val conf = new SparkConf()
     val sc = new SparkContext(conf)
     val result = sc.makeRDD(1 to 100, 10).mapPartitions { x =>
@@ -1544,7 +1544,7 @@ object JarCreationTest extends Logging {
 
 object SimpleApplicationTest {
   def main(args: Array[String]): Unit = {
-    TestUtils.configTestLog4j2("INFO")
+    TestUtils.configTestLog4j("INFO")
     val conf = new SparkConf()
     val sc = new SparkContext(conf)
     val configs = Seq("spark.master", "spark.app.name")
@@ -1556,8 +1556,7 @@ object SimpleApplicationTest {
         .collect()
         .distinct
       if (executorValues.size != 1) {
-        throw new SparkException(s"Inconsistent values for $config: " +
-          s"${executorValues.mkString("values(", ", ", ")")}")
+        throw new SparkException(s"Inconsistent values for $config: $executorValues")
       }
       val executorValue = executorValues(0)
       if (executorValue != masterValue) {

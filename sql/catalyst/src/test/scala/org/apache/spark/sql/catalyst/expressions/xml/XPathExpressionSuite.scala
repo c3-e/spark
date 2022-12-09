@@ -18,7 +18,6 @@
 package org.apache.spark.sql.catalyst.expressions.xml
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.types.StringType
 
@@ -196,13 +195,7 @@ class XPathExpressionSuite extends SparkFunSuite with ExpressionEvalHelper {
 
       // Validate that non-foldable paths are not supported.
       val nonLitPath = exprCtor(Literal("abcd"), NonFoldableLiteral("/"))
-      assert(nonLitPath.checkInputDataTypes() == DataTypeMismatch(
-        errorSubClass = "NON_FOLDABLE_INPUT",
-        messageParameters = Map(
-          "inputName" -> "path",
-          "inputType" -> "\"STRING\"",
-          "inputExpr" -> "\"nonfoldableliteral()\"")
-      ))
+      assert(nonLitPath.checkInputDataTypes().isFailure)
     }
 
     testExpr(XPathBoolean)

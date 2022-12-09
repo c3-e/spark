@@ -25,14 +25,13 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.catalyst.{FunctionIdentifier, TableIdentifier}
 import org.apache.spark.sql.catalyst.analysis._
 import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils._
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.util.StringUtils
-import org.apache.spark.sql.connector.catalog.SupportsNamespaces.PROP_OWNER
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.util.Utils
 
 /**
  * An in-memory (ephemeral) implementation of the system catalog.
@@ -90,7 +89,7 @@ class InMemoryCatalog(
       specs: Seq[TablePartitionSpec]): Unit = {
     specs.foreach { s =>
       if (partitionExists(db, table, s)) {
-        throw new PartitionsAlreadyExistException(db = db, table = table, spec = s)
+        throw new PartitionAlreadyExistsException(db = db, table = table, spec = s)
       }
     }
   }
@@ -125,9 +124,7 @@ class InMemoryCatalog(
           throw QueryExecutionErrors.unableToCreateDatabaseAsFailedToCreateDirectoryError(
             dbDefinition, e)
       }
-      val newDb = dbDefinition.copy(
-        properties = dbDefinition.properties ++ Map(PROP_OWNER -> Utils.getCurrentUserName))
-      catalog.put(dbDefinition.name, new DatabaseDesc(newDb))
+      catalog.put(dbDefinition.name, new DatabaseDesc(dbDefinition))
     }
   }
 
@@ -138,8 +135,11 @@ class InMemoryCatalog(
     if (catalog.contains(db)) {
       if (!cascade) {
         // If cascade is false, make sure the database is empty.
-        if (catalog(db).tables.nonEmpty || catalog(db).functions.nonEmpty) {
-          throw QueryCompilationErrors.cannotDropNonemptyDatabaseError(db)
+        if (catalog(db).tables.nonEmpty) {
+          throw QueryCompilationErrors.databaseNotEmptyError(db, "tables")
+        }
+        if (catalog(db).functions.nonEmpty) {
+          throw QueryCompilationErrors.databaseNotEmptyError(db, "functions")
         }
       }
       // Remove the database.
@@ -280,7 +280,7 @@ class InMemoryCatalog(
     requireTableExists(db, oldName)
     requireTableNotExists(db, newName)
     val oldDesc = catalog(db).tables(oldName)
-    oldDesc.table = oldDesc.table.copy(identifier = oldDesc.table.identifier.copy(table = newName))
+    oldDesc.table = oldDesc.table.copy(identifier = TableIdentifier(newName, Some(db)))
 
     if (oldDesc.table.tableType == CatalogTableType.MANAGED) {
       assert(oldDesc.table.storage.locationUri.isDefined,
@@ -631,8 +631,7 @@ class InMemoryCatalog(
       newName: String): Unit = synchronized {
     requireFunctionExists(db, oldName)
     requireFunctionNotExists(db, newName)
-    val oldFunc = getFunction(db, oldName)
-    val newFunc = oldFunc.copy(identifier = oldFunc.identifier.copy(funcName = newName))
+    val newFunc = getFunction(db, oldName).copy(identifier = FunctionIdentifier(newName, Some(db)))
     catalog(db).functions.remove(oldName)
     catalog(db).functions.put(newName, newFunc)
   }

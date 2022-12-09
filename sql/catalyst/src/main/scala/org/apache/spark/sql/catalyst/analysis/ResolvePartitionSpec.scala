@@ -25,9 +25,8 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreePattern.COMMAND
 import org.apache.spark.sql.catalyst.util.CharVarcharUtils
 import org.apache.spark.sql.connector.catalog.SupportsPartitionManagement
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.util.PartitioningUtils.{castPartitionSpec, normalizePartitionSpec, requireExactMatchedPartitionSpec}
+import org.apache.spark.sql.util.PartitioningUtils.{normalizePartitionSpec, requireExactMatchedPartitionSpec}
 
 /**
  * Resolve [[UnresolvedPartitionSpec]] to [[ResolvedPartitionSpec]] in partition related commands.
@@ -79,11 +78,7 @@ object ResolvePartitionSpec extends Rule[LogicalPlan] {
     val partValues = schema.map { part =>
       val raw = partitionSpec.get(part.name).orNull
       val dt = CharVarcharUtils.replaceCharVarcharWithString(part.dataType)
-      if (SQLConf.get.getConf(SQLConf.SKIP_TYPE_VALIDATION_ON_ALTER_PARTITION)) {
-        Cast(Literal.create(raw, StringType), dt, Some(conf.sessionLocalTimeZone)).eval()
-      } else {
-        castPartitionSpec(raw, dt, conf).eval()
-      }
+      Cast(Literal.create(raw, StringType), dt, Some(conf.sessionLocalTimeZone)).eval()
     }
     InternalRow.fromSeq(partValues)
   }

@@ -624,8 +624,8 @@ public abstract class ThriftCLIService extends AbstractService implements TCLISe
       throws TException {
     TGetResultSetMetadataResp resp = new TGetResultSetMetadataResp();
     try {
-      TTableSchema schema = cliService.getResultSetMetadata(new OperationHandle(req.getOperationHandle()));
-      resp.setSchema(schema);
+      TableSchema schema = cliService.getResultSetMetadata(new OperationHandle(req.getOperationHandle()));
+      resp.setSchema(schema.toTTableSchema());
       resp.setStatus(OK_STATUS);
     } catch (Exception e) {
       LOG.warn("Error getting result set metadata: ", e);
@@ -638,12 +638,12 @@ public abstract class ThriftCLIService extends AbstractService implements TCLISe
   public TFetchResultsResp FetchResults(TFetchResultsReq req) throws TException {
     TFetchResultsResp resp = new TFetchResultsResp();
     try {
-      TRowSet rowSet = cliService.fetchResults(
+      RowSet rowSet = cliService.fetchResults(
           new OperationHandle(req.getOperationHandle()),
           FetchOrientation.getFetchOrientation(req.getOrientation()),
           req.getMaxRows(),
           FetchType.getFetchType(req.getFetchType()));
-      resp.setResults(rowSet);
+      resp.setResults(rowSet.toTRowSet());
       resp.setHasMoreRows(false);
       resp.setStatus(OK_STATUS);
     } catch (Exception e) {

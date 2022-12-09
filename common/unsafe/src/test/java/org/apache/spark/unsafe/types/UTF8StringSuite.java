@@ -400,34 +400,12 @@ public class UTF8StringSuite {
   public void split() {
     UTF8String[] negativeAndZeroLimitCase =
       new UTF8String[]{fromString("ab"), fromString("def"), fromString("ghi"), fromString("")};
-    assertArrayEquals(
-      negativeAndZeroLimitCase,
-      fromString("ab,def,ghi,").split(fromString(","), 0));
-    assertArrayEquals(
-      negativeAndZeroLimitCase,
-      fromString("ab,def,ghi,").split(fromString(","), -1));
-    assertArrayEquals(
-      new UTF8String[]{fromString("ab"), fromString("def,ghi,")},
-      fromString("ab,def,ghi,").split(fromString(","), 2));
-    // Split with empty pattern ignores trailing empty spaces.
-    assertArrayEquals(
-      new UTF8String[]{fromString("a"), fromString("b")},
-      fromString("ab").split(fromString(""), 0));
-    assertArrayEquals(
-      new UTF8String[]{fromString("a"), fromString("b")},
-      fromString("ab").split(fromString(""), -1));
-    assertArrayEquals(
-      new UTF8String[]{fromString("a"), fromString("b")},
-      fromString("ab").split(fromString(""), 2));
-    assertArrayEquals(
-      new UTF8String[]{fromString("a"), fromString("b")},
-      fromString("ab").split(fromString(""), 100));
-    assertArrayEquals(
-      new UTF8String[]{fromString("a")},
-      fromString("ab").split(fromString(""), 1));
-    assertArrayEquals(
-      new UTF8String[]{fromString("")},
-      fromString("").split(fromString(""), 0));
+    assertTrue(Arrays.equals(fromString("ab,def,ghi,").split(fromString(","), 0),
+      negativeAndZeroLimitCase));
+    assertTrue(Arrays.equals(fromString("ab,def,ghi,").split(fromString(","), -1),
+      negativeAndZeroLimitCase));
+    assertTrue(Arrays.equals(fromString("ab,def,ghi,").split(fromString(","), 2),
+      new UTF8String[]{fromString("ab"), fromString("def,ghi,")}));
   }
 
   @Test
@@ -632,8 +610,12 @@ public class UTF8StringSuite {
 
     for (final long offset : offsets) {
       try {
-        assertThrows(ArrayIndexOutOfBoundsException.class,
-          () -> fromAddress(test, BYTE_ARRAY_OFFSET + offset, test.length).writeTo(outputStream));
+        fromAddress(test, BYTE_ARRAY_OFFSET + offset, test.length)
+            .writeTo(outputStream);
+
+        throw new IllegalStateException(Long.toString(offset));
+      } catch (ArrayIndexOutOfBoundsException e) {
+        // ignore
       } finally {
         outputStream.reset();
       }
@@ -870,8 +852,8 @@ public class UTF8StringSuite {
     };
     byte[] c = new byte[1];
 
-    for (int wrongFirstByte : wrongFirstBytes) {
-      c[0] = (byte) wrongFirstByte;
+    for (int i = 0; i < wrongFirstBytes.length; ++i) {
+      c[0] = (byte)wrongFirstBytes[i];
       assertEquals(1, fromBytes(c).numChars());
     }
   }

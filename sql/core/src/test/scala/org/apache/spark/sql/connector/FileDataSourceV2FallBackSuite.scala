@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.connector
 
+import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
 import org.apache.spark.SparkConf
@@ -55,7 +56,7 @@ class DummyReadOnlyFileTable extends Table with SupportsRead {
   }
 
   override def capabilities(): java.util.Set[TableCapability] =
-    java.util.EnumSet.of(TableCapability.BATCH_READ, TableCapability.ACCEPT_ANY_SCHEMA)
+    Set(TableCapability.BATCH_READ, TableCapability.ACCEPT_ANY_SCHEMA).asJava
 }
 
 class DummyWriteOnlyFileDataSourceV2 extends FileDataSourceV2 {
@@ -78,7 +79,7 @@ class DummyWriteOnlyFileTable extends Table with SupportsWrite {
     throw new AnalysisException("Dummy file writer")
 
   override def capabilities(): java.util.Set[TableCapability] =
-    java.util.EnumSet.of(TableCapability.BATCH_WRITE, TableCapability.ACCEPT_ANY_SCHEMA)
+    Set(TableCapability.BATCH_WRITE, TableCapability.ACCEPT_ANY_SCHEMA).asJava
 }
 
 class FileDataSourceV2FallBackSuite extends QueryTest with SharedSparkSession {
@@ -184,7 +185,7 @@ class FileDataSourceV2FallBackSuite extends QueryTest with SharedSparkSession {
             val df = spark.read.format(format).load(path.getCanonicalPath)
             checkAnswer(df, inputData.toDF())
             assert(
-              df.queryExecution.executedPlan.exists(_.isInstanceOf[FileSourceScanExec]))
+              df.queryExecution.executedPlan.find(_.isInstanceOf[FileSourceScanExec]).isDefined)
           }
         } finally {
           spark.listenerManager.unregister(listener)

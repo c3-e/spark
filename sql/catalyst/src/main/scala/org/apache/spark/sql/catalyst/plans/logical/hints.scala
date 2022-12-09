@@ -62,8 +62,6 @@ case class ResolvedHint(child: LogicalPlan, hints: HintInfo = HintInfo())
  */
 case class JoinHint(leftHint: Option[HintInfo], rightHint: Option[HintInfo]) {
 
-  def isEmpty: Boolean = leftHint.isEmpty && rightHint.isEmpty
-
   override def toString: String = {
     Seq(
       leftHint.map("leftHint=" + _),
@@ -214,12 +212,6 @@ trait HintErrorHandler {
    * @param hint the [[HintInfo]]
    */
   def joinNotFoundForJoinHint(hint: HintInfo): Unit
-
-  /**
-   * Callback for a join hint specified on a join that doesn't support this build side or
-   * doesn't have equi-join keys for equi-join.
-   */
-  def joinHintNotSupported(hint: HintInfo, reason: String): Unit
 
   /**
    * Callback for a hint being overridden by another conflicting hint of the same kind.

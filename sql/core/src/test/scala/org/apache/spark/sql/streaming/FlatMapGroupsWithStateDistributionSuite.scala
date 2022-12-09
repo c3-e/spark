@@ -25,15 +25,15 @@ import org.apache.spark.sql.catalyst.streaming.InternalOutputModes.Update
 import org.apache.spark.sql.execution.streaming.{FlatMapGroupsWithStateExec, MemoryStream}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.streaming.GroupStateTimeout.ProcessingTimeTimeout
-import org.apache.spark.sql.streaming.util.{StatefulOpClusteredDistributionTestHelper, StreamManualClock}
+import org.apache.spark.sql.streaming.util.{HashClusteredDistributionTestHelper, StreamManualClock}
 import org.apache.spark.util.Utils
 
 class FlatMapGroupsWithStateDistributionSuite extends StreamTest
-  with StatefulOpClusteredDistributionTestHelper {
+  with HashClusteredDistributionTestHelper {
 
   import testImplicits._
 
-  test("SPARK-38204: flatMapGroupsWithState should require StatefulOpClusteredDistribution " +
+  test("SPARK-38204: flatMapGroupsWithState should require HashClusteredDistribution " +
     "from children - with initial state") {
     // function will return -1 on timeout and returns count of the state otherwise
     val stateFunc =
@@ -80,7 +80,7 @@ class FlatMapGroupsWithStateDistributionSuite extends StreamTest
         }
 
         assert(flatMapGroupsWithStateExecs.length === 1)
-        assert(requireStatefulOpClusteredDistribution(
+        assert(requireHashClusteredDistribution(
           flatMapGroupsWithStateExecs.head, Seq(Seq("_1", "_2"), Seq("_1", "_2")), numPartitions))
         assert(hasDesiredHashPartitioningInChildren(
           flatMapGroupsWithStateExecs.head, Seq(Seq("_1", "_2"), Seq("_1", "_2")), numPartitions))
@@ -88,7 +88,7 @@ class FlatMapGroupsWithStateDistributionSuite extends StreamTest
     )
   }
 
-  test("SPARK-38204: flatMapGroupsWithState should require StatefulOpClusteredDistribution " +
+  test("SPARK-38204: flatMapGroupsWithState should require HashClusteredDistribution " +
     "from children - without initial state") {
     // function will return -1 on timeout and returns count of the state otherwise
     val stateFunc =
@@ -131,7 +131,7 @@ class FlatMapGroupsWithStateDistributionSuite extends StreamTest
         }
 
         assert(flatMapGroupsWithStateExecs.length === 1)
-        assert(requireStatefulOpClusteredDistribution(
+        assert(requireHashClusteredDistribution(
           flatMapGroupsWithStateExecs.head, Seq(Seq("_1", "_2"), Seq("_1", "_2")), numPartitions))
         assert(hasDesiredHashPartitioningInChildren(
           flatMapGroupsWithStateExecs.head, Seq(Seq("_1", "_2"), Seq("_1", "_2")), numPartitions))

@@ -263,5 +263,4 @@ WHERE zip_code > 94500;
 * [LIMIT Clause](sql-ref-syntax-qry-select-limit.html)
 * [CASE Clause](sql-ref-syntax-qry-select-case.html)
 * [PIVOT Clause](sql-ref-syntax-qry-select-pivot.html)
-* [UNPIVOT Clause](sql-ref-syntax-qry-select-unpivot.html)
 * [LATERAL VIEW Clause](sql-ref-syntax-qry-select-lateral-view.html)

@@ -57,7 +57,7 @@ class UDFRegistration private[sql] (functionRegistry: FunctionRegistry) extends 
       s"""
         | Registering new PythonUDF:
         | name: $name
-        | command: ${udf.func.command}
+        | command: ${udf.func.command.toSeq}
         | envVars: ${udf.func.envVars}
         | pythonIncludes: ${udf.func.pythonIncludes}
         | pythonExec: ${udf.func.pythonExec}
@@ -145,7 +145,8 @@ class UDFRegistration private[sql] (functionRegistry: FunctionRegistry) extends 
         |  def builder(e: Seq[Expression]) = if (e.length == $x) {
         |    finalUdf.createScalaUDF(e)
         |  } else {
-        |    throw QueryCompilationErrors.invalidFunctionArgumentsError(name, "$x", e.length)
+        |    throw new AnalysisException("Invalid number of arguments for function " + name +
+        |      ". Expected: $x; Found: " + e.length)
         |  }
         |  functionRegistry.createOrReplaceTempFunction(name, builder, "scala_udf")
         |  finalUdf
@@ -170,7 +171,8 @@ class UDFRegistration private[sql] (functionRegistry: FunctionRegistry) extends 
         |  def builder(e: Seq[Expression]) = if (e.length == $i) {
         |    ScalaUDF(func, replaced, e, Nil, udfName = Some(name))
         |  } else {
-        |    throw QueryCompilationErrors.invalidFunctionArgumentsError(name, "$i", e.length)
+        |    throw new AnalysisException("Invalid number of arguments for function " + name +
+        |      ". Expected: $i; Found: " + e.length)
         |  }
         |  functionRegistry.createOrReplaceTempFunction(name, builder, "java_udf")
         |}""".stripMargin)
@@ -659,7 +661,7 @@ class UDFRegistration private[sql] (functionRegistry: FunctionRegistry) extends 
       if (udfInterfaces.length == 0) {
         throw QueryCompilationErrors.udfClassDoesNotImplementAnyUDFInterfaceError(className)
       } else if (udfInterfaces.length > 1) {
-        throw QueryCompilationErrors.udfClassImplementMultiUDFInterfacesError(className)
+        throw QueryCompilationErrors.udfClassNotAllowedToImplementMultiUDFInterfacesError(className)
       } else {
         try {
           val udf = clazz.getConstructor().newInstance()

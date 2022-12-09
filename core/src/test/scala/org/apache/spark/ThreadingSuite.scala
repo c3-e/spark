@@ -20,6 +20,8 @@ package org.apache.spark
 import java.util.concurrent.{Semaphore, TimeUnit}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 
+import org.apache.spark.internal.Logging
+
 /**
  * Holds state shared across task threads in some ThreadingSuite tests.
  */
@@ -33,7 +35,7 @@ object ThreadingSuiteState {
   }
 }
 
-class ThreadingSuite extends SparkFunSuite with LocalSparkContext {
+class ThreadingSuite extends SparkFunSuite with LocalSparkContext with Logging {
 
   test("accessing SparkContext form a different thread") {
     sc = new SparkContext("local", "test")

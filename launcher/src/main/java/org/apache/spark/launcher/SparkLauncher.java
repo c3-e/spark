@@ -30,6 +30,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import static org.apache.spark.launcher.CommandBuilderUtils.*;
+import static org.apache.spark.launcher.CommandBuilderUtils.join;
 
 /**
  * Launcher for Spark applications.

@@ -34,7 +34,7 @@ from pyspark.sql.types import StringType, StructType, StructField
 # $example off:programmatic_schema$
 
 
-def basic_df_example(spark: SparkSession) -> None:
+def basic_df_example(spark):
     # $example on:create_df$
     # spark is an existing SparkSession
     df = spark.read.json("examples/src/main/resources/people.json")
@@ -137,7 +137,7 @@ def basic_df_example(spark: SparkSession) -> None:
     # $example off:global_temp_view$
 
 
-def schema_inference_example(spark: SparkSession) -> None:
+def schema_inference_example(spark):
     # $example on:schema_inferring$
     sc = spark.sparkContext
 
@@ -162,7 +162,7 @@ def schema_inference_example(spark: SparkSession) -> None:
     # $example off:schema_inferring$
 
 
-def programmatic_schema_example(spark: SparkSession) -> None:
+def programmatic_schema_example(spark):
     # $example on:programmatic_schema$
     sc = spark.sparkContext
 
@@ -196,7 +196,6 @@ def programmatic_schema_example(spark: SparkSession) -> None:
     # | Justin|
     # +-------+
     # $example off:programmatic_schema$
-
 
 if __name__ == "__main__":
     # $example on:init_session$

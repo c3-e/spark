@@ -24,9 +24,7 @@ import java.util.concurrent.TimeoutException
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.{Future, Promise}
-// scalastyle:off executioncontextglobal
 import scala.concurrent.ExecutionContext.Implicits.global
-// scalastyle:on executioncontextglobal
 import scala.concurrent.duration._
 import scala.sys.process._
 

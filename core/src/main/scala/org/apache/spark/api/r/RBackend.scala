@@ -23,7 +23,9 @@ import java.util.concurrent.TimeUnit
 
 import io.netty.bootstrap.ServerBootstrap
 import io.netty.channel.{ChannelFuture, ChannelInitializer, EventLoopGroup}
+import io.netty.channel.nio.NioEventLoopGroup
 import io.netty.channel.socket.SocketChannel
+import io.netty.channel.socket.nio.NioServerSocketChannel
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder
 import io.netty.handler.codec.bytes.{ByteArrayDecoder, ByteArrayEncoder}
 import io.netty.handler.timeout.ReadTimeoutHandler
@@ -31,7 +33,6 @@ import io.netty.handler.timeout.ReadTimeoutHandler
 import org.apache.spark.{SparkConf, SparkEnv}
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config.R._
-import org.apache.spark.network.util.{IOMode, NettyUtils}
 
 /**
  * Netty-based backend server that is used to communicate between R and Java.
@@ -48,15 +49,14 @@ private[spark] class RBackend {
   def init(): (Int, RAuthHelper) = {
     val conf = Option(SparkEnv.get).map(_.conf).getOrElse(new SparkConf())
     val backendConnectionTimeout = conf.get(R_BACKEND_CONNECTION_TIMEOUT)
-    bossGroup = NettyUtils.createEventLoop(IOMode.NIO, conf.get(R_NUM_BACKEND_THREADS), "RBackend")
+    bossGroup = new NioEventLoopGroup(conf.get(R_NUM_BACKEND_THREADS))
     val workerGroup = bossGroup
     val handler = new RBackendHandler(this)
     val authHelper = new RAuthHelper(conf)
-    val channelClass = NettyUtils.getServerChannelClass(IOMode.NIO)
 
     bootstrap = new ServerBootstrap()
       .group(bossGroup, workerGroup)
-      .channel(channelClass)
+      .channel(classOf[NioServerSocketChannel])
 
     bootstrap.childHandler(new ChannelInitializer[SocketChannel]() {
       def initChannel(ch: SocketChannel): Unit = {

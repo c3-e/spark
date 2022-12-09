@@ -17,17 +17,6 @@
 import array
 from abc import ABCMeta
 import copy
-from typing import (
-    Any,
-    Callable,
-    Generic,
-    List,
-    Optional,
-    overload,
-    TypeVar,
-    Union,
-    TYPE_CHECKING,
-)
 
 import numpy as np
 from py4j.java_gateway import JavaObject
@@ -36,29 +25,17 @@ from pyspark.ml.linalg import DenseVector, Vector, Matrix
 from pyspark.ml.util import Identifiable
 
 
-if TYPE_CHECKING:
-    from pyspark.ml._typing import ParamMap
-
-__all__ = ["Param", "Params", "TypeConverters"]
-
-T = TypeVar("T")
-P = TypeVar("P", bound="Params")
+__all__ = ['Param', 'Params', 'TypeConverters']
 
 
-class Param(Generic[T]):
+class Param(object):
     """
     A param with self-contained documentation.
 
     .. versionadded:: 1.3.0
     """
 
-    def __init__(
-        self,
-        parent: Identifiable,
-        name: str,
-        doc: str,
-        typeConverter: Optional[Callable[[Any], T]] = None,
-    ):
+    def __init__(self, parent, name, doc, typeConverter=None):
         if not isinstance(parent, Identifiable):
             raise TypeError("Parent must be an Identifiable but got type %s." % type(parent))
         self.parent = parent.uid
@@ -66,7 +43,7 @@ class Param(Generic[T]):
         self.doc = str(doc)
         self.typeConverter = TypeConverters.identity if typeConverter is None else typeConverter
 
-    def _copy_new_parent(self, parent: Any) -> "Param":
+    def _copy_new_parent(self, parent):
         """Copy the current param to a new parent, must be a dummy param."""
         if self.parent == "undefined":
             param = copy.copy(self)
@@ -75,23 +52,23 @@ class Param(Generic[T]):
         else:
             raise ValueError("Cannot copy from non-dummy parent %s." % parent)
 
-    def __str__(self) -> str:
+    def __str__(self):
         return str(self.parent) + "__" + self.name
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return "Param(parent=%r, name=%r, doc=%r)" % (self.parent, self.name, self.doc)
 
-    def __hash__(self) -> int:
+    def __hash__(self):
         return hash(str(self))
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other):
         if isinstance(other, Param):
             return self.parent == other.parent and self.name == other.name
         else:
             return False
 
 
-class TypeConverters:
+class TypeConverters(object):
     """
     Factory methods for common type conversion functions for `Param.typeConverter`.
 
@@ -99,33 +76,33 @@ class TypeConverters:
     """
 
     @staticmethod
-    def _is_numeric(value: Any) -> bool:
+    def _is_numeric(value):
         vtype = type(value)
-        return vtype in [int, float, np.float64, np.int64] or vtype.__name__ == "long"
+        return vtype in [int, float, np.float64, np.int64] or vtype.__name__ == 'long'
 
     @staticmethod
-    def _is_integer(value: Any) -> bool:
+    def _is_integer(value):
         return TypeConverters._is_numeric(value) and float(value).is_integer()
 
     @staticmethod
-    def _can_convert_to_list(value: Any) -> bool:
+    def _can_convert_to_list(value):
         vtype = type(value)
         return vtype in [list, np.ndarray, tuple, range, array.array] or isinstance(value, Vector)
 
     @staticmethod
-    def _can_convert_to_string(value: Any) -> bool:
+    def _can_convert_to_string(value):
         vtype = type(value)
         return isinstance(value, str) or vtype in [np.unicode_, np.string_, np.str_]
 
     @staticmethod
-    def identity(value: "T") -> "T":
+    def identity(value):
         """
         Dummy converter that just returns value.
         """
         return value
 
     @staticmethod
-    def toList(value: Any) -> List:
+    def toList(value):
         """
         Convert a value to a list, if possible.
         """
@@ -139,7 +116,7 @@ class TypeConverters:
             raise TypeError("Could not convert %s to list" % value)
 
     @staticmethod
-    def toListFloat(value: Any) -> List[float]:
+    def toListFloat(value):
         """
         Convert a value to list of floats, if possible.
         """
@@ -150,7 +127,7 @@ class TypeConverters:
         raise TypeError("Could not convert %s to list of floats" % value)
 
     @staticmethod
-    def toListListFloat(value: Any) -> List[List[float]]:
+    def toListListFloat(value):
         """
         Convert a value to list of list of floats, if possible.
         """
@@ -160,7 +137,7 @@ class TypeConverters:
         raise TypeError("Could not convert %s to list of list of floats" % value)
 
     @staticmethod
-    def toListInt(value: Any) -> List[int]:
+    def toListInt(value):
         """
         Convert a value to list of ints, if possible.
         """
@@ -171,7 +148,7 @@ class TypeConverters:
         raise TypeError("Could not convert %s to list of ints" % value)
 
     @staticmethod
-    def toListString(value: Any) -> List[str]:
+    def toListString(value):
         """
         Convert a value to list of strings, if possible.
         """
@@ -182,7 +159,7 @@ class TypeConverters:
         raise TypeError("Could not convert %s to list of strings" % value)
 
     @staticmethod
-    def toVector(value: Any) -> Vector:
+    def toVector(value):
         """
         Convert a value to a MLlib Vector, if possible.
         """
@@ -195,7 +172,7 @@ class TypeConverters:
         raise TypeError("Could not convert %s to vector" % value)
 
     @staticmethod
-    def toMatrix(value: Any) -> Matrix:
+    def toMatrix(value):
         """
         Convert a value to a MLlib Matrix, if possible.
         """
@@ -204,7 +181,7 @@ class TypeConverters:
         raise TypeError("Could not convert %s to matrix" % value)
 
     @staticmethod
-    def toFloat(value: Any) -> float:
+    def toFloat(value):
         """
         Convert a value to a float, if possible.
         """
@@ -214,7 +191,7 @@ class TypeConverters:
             raise TypeError("Could not convert %s to float" % value)
 
     @staticmethod
-    def toInt(value: Any) -> int:
+    def toInt(value):
         """
         Convert a value to an int, if possible.
         """
@@ -224,7 +201,7 @@ class TypeConverters:
             raise TypeError("Could not convert %s to int" % value)
 
     @staticmethod
-    def toString(value: Any) -> str:
+    def toString(value):
         """
         Convert a value to a string, if possible.
         """
@@ -236,7 +213,7 @@ class TypeConverters:
             raise TypeError("Could not convert %s to string type" % type(value))
 
     @staticmethod
-    def toBoolean(value: Any) -> bool:
+    def toBoolean(value):
         """
         Convert a value to a boolean, if possible.
         """
@@ -254,21 +231,21 @@ class Params(Identifiable, metaclass=ABCMeta):
     .. versionadded:: 1.3.0
     """
 
-    def __init__(self) -> None:
+    def __init__(self):
         super(Params, self).__init__()
         #: internal param map for user-supplied values param map
-        self._paramMap: "ParamMap" = {}
+        self._paramMap = {}
 
         #: internal param map for default values
-        self._defaultParamMap: "ParamMap" = {}
+        self._defaultParamMap = {}
 
         #: value returned by :py:func:`params`
-        self._params: Optional[List[Param]] = None
+        self._params = None
 
         # Copy the params from the class to the object
         self._copy_params()
 
-    def _copy_params(self) -> None:
+    def _copy_params(self):
         """
         Copy all params defined on the class to current object.
         """
@@ -279,26 +256,19 @@ class Params(Identifiable, metaclass=ABCMeta):
             setattr(self, name, param._copy_new_parent(self))
 
     @property
-    def params(self) -> List[Param]:
+    def params(self):
         """
         Returns all params ordered by name. The default implementation
         uses :py:func:`dir` to get all attributes of type
         :py:class:`Param`.
         """
         if self._params is None:
-            self._params = list(
-                filter(
-                    lambda attr: isinstance(attr, Param),
-                    [
-                        getattr(self, x)
-                        for x in dir(self)
-                        if x != "params" and not isinstance(getattr(type(self), x, None), property)
-                    ],
-                )
-            )
+            self._params = list(filter(lambda attr: isinstance(attr, Param),
+                                       [getattr(self, x) for x in dir(self) if x != "params" and
+                                        not isinstance(getattr(type(self), x, None), property)]))
         return self._params
 
-    def explainParam(self, param: Union[str, Param]) -> str:
+    def explainParam(self, param):
         """
         Explains a single param and returns its name, doc, and optional
         default value and user-supplied value in a string.
@@ -315,14 +285,14 @@ class Params(Identifiable, metaclass=ABCMeta):
         valueStr = "(" + ", ".join(values) + ")"
         return "%s: %s %s" % (param.name, param.doc, valueStr)
 
-    def explainParams(self) -> str:
+    def explainParams(self):
         """
         Returns the documentation of all params with their optionally
         default values and user-supplied values.
         """
         return "\n".join([self.explainParam(param) for param in self.params])
 
-    def getParam(self, paramName: str) -> Param:
+    def getParam(self, paramName):
         """
         Gets a param by its name.
         """
@@ -332,28 +302,28 @@ class Params(Identifiable, metaclass=ABCMeta):
         else:
             raise ValueError("Cannot find param with name %s." % paramName)
 
-    def isSet(self, param: Union[str, Param[Any]]) -> bool:
+    def isSet(self, param):
         """
         Checks whether a param is explicitly set by user.
         """
         param = self._resolveParam(param)
         return param in self._paramMap
 
-    def hasDefault(self, param: Union[str, Param[Any]]) -> bool:
+    def hasDefault(self, param):
         """
         Checks whether a param has a default value.
         """
         param = self._resolveParam(param)
         return param in self._defaultParamMap
 
-    def isDefined(self, param: Union[str, Param[Any]]) -> bool:
+    def isDefined(self, param):
         """
         Checks whether a param is explicitly set by user or has
         a default value.
         """
         return self.isSet(param) or self.hasDefault(param)
 
-    def hasParam(self, paramName: str) -> bool:
+    def hasParam(self, paramName):
         """
         Tests whether this instance contains a param with a given
         (string) name.
@@ -364,16 +334,7 @@ class Params(Identifiable, metaclass=ABCMeta):
         else:
             raise TypeError("hasParam(): paramName must be a string")
 
-    @overload
-    def getOrDefault(self, param: str) -> Any:
-        ...
-
-    @overload
-    def getOrDefault(self, param: Param[T]) -> T:
-        ...
-
-    def getOrDefault(self, param: Union[str, Param[T]]) -> Union[Any, T]:
-
+    def getOrDefault(self, param):
         """
         Gets the value of a param in the user-supplied param map or its
         default value. Raises an error if neither is set.
@@ -384,7 +345,7 @@ class Params(Identifiable, metaclass=ABCMeta):
         else:
             return self._defaultParamMap[param]
 
-    def extractParamMap(self, extra: Optional["ParamMap"] = None) -> "ParamMap":
+    def extractParamMap(self, extra=None):
         """
         Extracts the embedded default param values and user-supplied
         values, and then merges them with extra values from input into
@@ -409,7 +370,7 @@ class Params(Identifiable, metaclass=ABCMeta):
         paramMap.update(extra)
         return paramMap
 
-    def copy(self: P, extra: Optional["ParamMap"] = None) -> P:
+    def copy(self, extra=None):
         """
         Creates a copy of this instance with the same uid and some
         extra params. The default implementation creates a
@@ -435,7 +396,7 @@ class Params(Identifiable, metaclass=ABCMeta):
         that._defaultParamMap = {}
         return self._copyValues(that, extra)
 
-    def set(self, param: Param, value: Any) -> None:
+    def set(self, param, value):
         """
         Sets a parameter in the embedded param map.
         """
@@ -446,14 +407,14 @@ class Params(Identifiable, metaclass=ABCMeta):
             raise ValueError('Invalid param value given for param "%s". %s' % (param.name, e))
         self._paramMap[param] = value
 
-    def _shouldOwn(self, param: Param) -> None:
+    def _shouldOwn(self, param):
         """
         Validates that the input param belongs to this Params instance.
         """
         if not (self.uid == param.parent and self.hasParam(param.name)):
             raise ValueError("Param %r does not belong to %r." % (param, self))
 
-    def _resolveParam(self, param: Union[str, Param]) -> Param:
+    def _resolveParam(self, param):
         """
         Resolves a param and validates the ownership.
 
@@ -476,14 +437,14 @@ class Params(Identifiable, metaclass=ABCMeta):
         else:
             raise TypeError("Cannot resolve %r as a param." % param)
 
-    def _testOwnParam(self, param_parent: str, param_name: str) -> bool:
+    def _testOwnParam(self, param_parent, param_name):
         """
         Test the ownership. Return True or False
         """
         return self.uid == param_parent and self.hasParam(param_name)
 
     @staticmethod
-    def _dummy() -> "Params":
+    def _dummy():
         """
         Returns a dummy Params instance used as a placeholder to
         generate docs.
@@ -492,7 +453,7 @@ class Params(Identifiable, metaclass=ABCMeta):
         dummy.uid = "undefined"
         return dummy
 
-    def _set(self: P, **kwargs: Any) -> P:
+    def _set(self, **kwargs):
         """
         Sets user-supplied params.
         """
@@ -506,14 +467,14 @@ class Params(Identifiable, metaclass=ABCMeta):
             self._paramMap[p] = value
         return self
 
-    def clear(self, param: Param) -> None:
+    def clear(self, param):
         """
         Clears a param from the param map if it has been explicitly set.
         """
         if self.isSet(param):
             del self._paramMap[param]
 
-    def _setDefault(self: P, **kwargs: Any) -> P:
+    def _setDefault(self, **kwargs):
         """
         Sets default params.
         """
@@ -523,13 +484,12 @@ class Params(Identifiable, metaclass=ABCMeta):
                 try:
                     value = p.typeConverter(value)
                 except TypeError as e:
-                    raise TypeError(
-                        'Invalid default param value given for param "%s". %s' % (p.name, e)
-                    )
+                    raise TypeError('Invalid default param value given for param "%s". %s'
+                                    % (p.name, e))
             self._defaultParamMap[p] = value
         return self
 
-    def _copyValues(self, to: P, extra: Optional["ParamMap"] = None) -> P:
+    def _copyValues(self, to, extra=None):
         """
         Copies param values from this instance to another instance for
         params shared by them.
@@ -552,13 +512,11 @@ class Params(Identifiable, metaclass=ABCMeta):
                 if isinstance(param, Param):
                     paramMap[param] = value
                 else:
-                    raise TypeError(
-                        "Expecting a valid instance of Param, but received: {}".format(param)
-                    )
+                    raise TypeError("Expecting a valid instance of Param, but received: {}"
+                                    .format(param))
         elif extra is not None:
-            raise TypeError(
-                "Expecting a dict, but received an object of type {}.".format(type(extra))
-            )
+            raise TypeError("Expecting a dict, but received an object of type {}."
+                            .format(type(extra)))
         for param in self.params:
             # copy default params
             if param in self._defaultParamMap and to.hasParam(param.name):
@@ -568,7 +526,7 @@ class Params(Identifiable, metaclass=ABCMeta):
                 to._set(**{param.name: paramMap[param]})
         return to
 
-    def _resetUid(self: P, newUid: Any) -> P:
+    def _resetUid(self, newUid):
         """
         Changes the uid of this instance. This updates both
         the stored uid and the parent uid of params and param maps.

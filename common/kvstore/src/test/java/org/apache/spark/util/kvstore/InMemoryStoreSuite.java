@@ -34,14 +34,24 @@ public class InMemoryStoreSuite {
     t.id = "id";
     t.name = "name";
 
-    assertThrows(NoSuchElementException.class, () -> store.read(CustomType1.class, t.key));
+    try {
+      store.read(CustomType1.class, t.key);
+      fail("Expected exception for non-existent object.");
+    } catch (NoSuchElementException nsee) {
+      // Expected.
+    }
 
     store.write(t);
     assertEquals(t, store.read(t.getClass(), t.key));
     assertEquals(1L, store.count(t.getClass()));
 
     store.delete(t.getClass(), t.key);
-    assertThrows(NoSuchElementException.class, () -> store.read(t.getClass(), t.key));
+    try {
+      store.read(t.getClass(), t.key);
+      fail("Expected exception for deleted object.");
+    } catch (NoSuchElementException nsee) {
+      // Expected.
+    }
   }
 
   @Test
@@ -68,7 +78,12 @@ public class InMemoryStoreSuite {
     store.delete(t1.getClass(), t1.key);
     assertEquals(t2, store.read(t2.getClass(), t2.key));
     store.delete(t2.getClass(), t2.key);
-    assertThrows(NoSuchElementException.class, () -> store.read(t2.getClass(), t2.key));
+    try {
+      store.read(t2.getClass(), t2.key);
+      fail("Expected exception for deleted object.");
+    } catch (NoSuchElementException nsee) {
+      // Expected.
+    }
   }
 
   @Test
@@ -144,25 +159,25 @@ public class InMemoryStoreSuite {
     assertEquals(9, store.count(ArrayKeyIndexType.class));
 
     // Try removing non-existing keys
-    assertFalse(store.removeAllByIndexValues(
+    assert(!store.removeAllByIndexValues(
       ArrayKeyIndexType.class,
       KVIndex.NATURAL_INDEX_NAME,
       ImmutableSet.of(new int[] {10, 10, 10}, new int[] { 3, 3, 3 })));
     assertEquals(9, store.count(ArrayKeyIndexType.class));
 
-    assertTrue(store.removeAllByIndexValues(
+    assert(store.removeAllByIndexValues(
       ArrayKeyIndexType.class,
       KVIndex.NATURAL_INDEX_NAME,
       ImmutableSet.of(new int[] {0, 0, 0}, new int[] { 2, 2, 2 })));
     assertEquals(7, store.count(ArrayKeyIndexType.class));
 
-    assertTrue(store.removeAllByIndexValues(
+    assert(store.removeAllByIndexValues(
       ArrayKeyIndexType.class,
       "id",
       ImmutableSet.of(new String [] { "things" })));
     assertEquals(4, store.count(ArrayKeyIndexType.class));
 
-    assertTrue(store.removeAllByIndexValues(
+    assert(store.removeAllByIndexValues(
       ArrayKeyIndexType.class,
       "id",
       ImmutableSet.of(new String [] { "more things" })));

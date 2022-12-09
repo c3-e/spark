@@ -17,6 +17,9 @@
 
 package org.apache.spark.sql.sources
 
+import java.io.File
+import java.net.URI
+
 import scala.util.Random
 
 import org.apache.spark.sql._
@@ -33,6 +36,7 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.StaticSQLConf.CATALOG_IMPLEMENTATION
 import org.apache.spark.sql.test.{SharedSparkSession, SQLTestUtils}
+import org.apache.spark.util.Utils
 import org.apache.spark.util.collection.BitSet
 
 class BucketedReadWithoutHiveSupportSuite
@@ -49,7 +53,7 @@ abstract class BucketedReadSuite extends QueryTest with SQLTestUtils with Adapti
 
   protected override def beforeAll(): Unit = {
     super.beforeAll()
-    spark.conf.set(SQLConf.LEGACY_BUCKETED_TABLE_SCAN_OUTPUT_ORDERING, true)
+    spark.sessionState.conf.setConf(SQLConf.LEGACY_BUCKETED_TABLE_SCAN_OUTPUT_ORDERING, true)
   }
 
   protected override def afterAll(): Unit = {
@@ -278,7 +282,7 @@ abstract class BucketedReadSuite extends QueryTest with SQLTestUtils with Adapti
     withTable("bucketed_table") {
       val numBuckets = NumBucketsForPruningNullDf
       val bucketSpec = BucketSpec(numBuckets, Seq("j"), Nil)
-      val naNDF = nullDF.selectExpr("i", "try_cast(if(isnull(j), 'NaN', j) as double) as j", "k")
+      val naNDF = nullDF.selectExpr("i", "cast(if(isnull(j), 'NaN', j) as double) as j", "k")
       // json does not support predicate push-down, and thus json is used here
       naNDF.write
         .format("json")
@@ -459,18 +463,18 @@ abstract class BucketedReadSuite extends QueryTest with SQLTestUtils with Adapti
 
         // check existence of shuffle
         assert(
-          joinOperator.left.exists(_.isInstanceOf[ShuffleExchangeExec]) == shuffleLeft,
+          joinOperator.left.find(_.isInstanceOf[ShuffleExchangeExec]).isDefined == shuffleLeft,
           s"expected shuffle in plan to be $shuffleLeft but found\n${joinOperator.left}")
         assert(
-          joinOperator.right.exists(_.isInstanceOf[ShuffleExchangeExec]) == shuffleRight,
+          joinOperator.right.find(_.isInstanceOf[ShuffleExchangeExec]).isDefined == shuffleRight,
           s"expected shuffle in plan to be $shuffleRight but found\n${joinOperator.right}")
 
         // check existence of sort
         assert(
-          joinOperator.left.exists(_.isInstanceOf[SortExec]) == sortLeft,
+          joinOperator.left.find(_.isInstanceOf[SortExec]).isDefined == sortLeft,
           s"expected sort in the left child to be $sortLeft but found\n${joinOperator.left}")
         assert(
-          joinOperator.right.exists(_.isInstanceOf[SortExec]) == sortRight,
+          joinOperator.right.find(_.isInstanceOf[SortExec]).isDefined == sortRight,
           s"expected sort in the right child to be $sortRight but found\n${joinOperator.right}")
 
         // check the output partitioning
@@ -674,7 +678,7 @@ abstract class BucketedReadSuite extends QueryTest with SQLTestUtils with Adapti
         df1.groupBy("i", "j").agg(max("k")).sort("i", "j"))
 
       assert(
-        !aggregated.queryExecution.executedPlan.exists(_.isInstanceOf[ShuffleExchangeExec]))
+        aggregated.queryExecution.executedPlan.find(_.isInstanceOf[ShuffleExchangeExec]).isEmpty)
     }
   }
 
@@ -715,7 +719,7 @@ abstract class BucketedReadSuite extends QueryTest with SQLTestUtils with Adapti
         df1.groupBy("i", "j").agg(max("k")).sort("i", "j"))
 
       assert(
-        !aggregated.queryExecution.executedPlan.exists(_.isInstanceOf[ShuffleExchangeExec]))
+        aggregated.queryExecution.executedPlan.find(_.isInstanceOf[ShuffleExchangeExec]).isEmpty)
     }
   }
 
@@ -825,6 +829,23 @@ abstract class BucketedReadSuite extends QueryTest with SQLTestUtils with Adapti
                 |ON a.i = c.i
               """.stripMargin))
       }
+    }
+  }
+
+  test("error if there exists any malformed bucket files") {
+    withTable("bucketed_table") {
+      df1.write.format("parquet").bucketBy(8, "i").saveAsTable("bucketed_table")
+      val warehouseFilePath = new URI(spark.sessionState.conf.warehousePath).getPath
+      val tableDir = new File(warehouseFilePath, "bucketed_table")
+      Utils.deleteRecursively(tableDir)
+      df1.write.parquet(tableDir.getAbsolutePath)
+
+      val aggregated = spark.table("bucketed_table").groupBy("i").count()
+      val error = intercept[Exception] {
+        aggregated.count()
+      }
+
+      assert(error.toString contains "Invalid bucket file")
     }
   }
 

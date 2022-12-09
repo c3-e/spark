@@ -33,9 +33,11 @@ import org.apache.spark.util.collection.OpenHashSet
 
 /**
  * A trait that allows a class to give [[SizeEstimator]] more accurate size estimation.
- * When a class extends it, [[SizeEstimator]] will query the `estimatedSize`, and use
- * the returned size as the size of the object. The difference between a [[KnownSizeEstimation]]
- * and [[org.apache.spark.util.collection.SizeTracker]] is that, a
+ * When a class extends it, [[SizeEstimator]] will query the `estimatedSize` first.
+ * If `estimatedSize` does not return `None`, [[SizeEstimator]] will use the returned size
+ * as the size of the object. Otherwise, [[SizeEstimator]] will do the estimation work.
+ * The difference between a [[KnownSizeEstimation]] and
+ * [[org.apache.spark.util.collection.SizeTracker]] is that, a
  * [[org.apache.spark.util.collection.SizeTracker]] still uses [[SizeEstimator]] to
  * estimate the size. However, a [[KnownSizeEstimation]] can provide a better estimation without
  * using [[SizeEstimator]].
@@ -50,7 +52,7 @@ private[spark] trait KnownSizeEstimation {
  * memory-aware caches.
  *
  * Based on the following JavaWorld article:
- * https://www.infoworld.com/article/2077408/sizeof-for-java.html
+ * http://www.javaworld.com/javaworld/javaqa/2003-12/02-qa-1226-sizeof.html
  */
 @DeveloperApi
 object SizeEstimator extends Logging {
@@ -156,7 +158,7 @@ object SizeEstimator extends Logging {
         val guess = Runtime.getRuntime.maxMemory < (32L*1024*1024*1024)
         val guessInWords = if (guess) "yes" else "not"
         logWarning("Failed to check whether UseCompressedOops is set; assuming " + guessInWords)
-        guess
+        return guess
     }
   }
 
@@ -262,7 +264,7 @@ object SizeEstimator extends Logging {
         val s2 = sampleArray(array, state, rand, drawn, length)
         val size = math.min(s1, s2)
         state.size += math.max(s1, s2) +
-          (size * ((length - ARRAY_SAMPLE_SIZE) / ARRAY_SAMPLE_SIZE))
+          (size * ((length - ARRAY_SAMPLE_SIZE) / (ARRAY_SAMPLE_SIZE))).toLong
       }
     }
   }
@@ -282,7 +284,7 @@ object SizeEstimator extends Logging {
       drawn.add(index)
       val obj = ScalaRunTime.array_apply(array, index).asInstanceOf[AnyRef]
       if (obj != null) {
-        size += SizeEstimator.estimate(obj, state.visited)
+        size += SizeEstimator.estimate(obj, state.visited).toLong
       }
     }
     size

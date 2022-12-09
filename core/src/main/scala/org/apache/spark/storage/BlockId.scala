@@ -21,7 +21,6 @@ import java.util.UUID
 
 import org.apache.spark.SparkException
 import org.apache.spark.annotation.{DeveloperApi, Since}
-import org.apache.spark.errors.SparkCoreErrors
 import org.apache.spark.network.shuffle.RemoteBlockPushResolver
 
 /**
@@ -251,6 +250,7 @@ object BlockId {
       TempShuffleBlockId(UUID.fromString(uuid))
     case TEST(value) =>
       TestBlockId(value)
-    case _ => throw SparkCoreErrors.unrecognizedBlockIdError(name)
+    case _ =>
+      throw new UnrecognizedBlockId(name)
   }
 }

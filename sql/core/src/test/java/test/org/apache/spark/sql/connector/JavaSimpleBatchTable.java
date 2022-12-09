@@ -17,7 +17,8 @@
 
 package test.org.apache.spark.sql.connector;
 
-import java.util.EnumSet;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Set;
 
 import org.apache.spark.sql.connector.TestingV2Source;
@@ -28,7 +29,7 @@ import org.apache.spark.sql.types.StructType;
 
 abstract class JavaSimpleBatchTable implements Table, SupportsRead {
   private static final Set<TableCapability> CAPABILITIES =
-      EnumSet.of(TableCapability.BATCH_READ);
+      new HashSet<>(Collections.singletonList(TableCapability.BATCH_READ));
   @Override
   public StructType schema() {
     return TestingV2Source.schema();

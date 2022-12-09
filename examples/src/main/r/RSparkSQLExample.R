@@ -101,19 +101,11 @@ df <- sql("SELECT * FROM table")
 
 # Ignore corrupt files
 # $example on:ignore_corrupt_files$
-# enable ignore corrupt files via the data source option
-# dir1/file3.json is corrupt from parquet's view
-testCorruptDF0 <- read.parquet(c("examples/src/main/resources/dir1/", "examples/src/main/resources/dir1/dir2/"), ignoreCorruptFiles = "true")
-head(testCorruptDF0)
-#            file
-# 1 file1.parquet
-# 2 file2.parquet
-
-# enable ignore corrupt files via the configuration
+# enable ignore corrupt files
 sql("set spark.sql.files.ignoreCorruptFiles=true")
 # dir1/file3.json is corrupt from parquet's view
-testCorruptDF1 <- read.parquet(c("examples/src/main/resources/dir1/", "examples/src/main/resources/dir1/dir2/"))
-head(testCorruptDF1)
+testCorruptDF <- read.parquet(c("examples/src/main/resources/dir1/", "examples/src/main/resources/dir1/dir2/"))
+head(testCorruptDF)
 #            file
 # 1 file1.parquet
 # 2 file2.parquet

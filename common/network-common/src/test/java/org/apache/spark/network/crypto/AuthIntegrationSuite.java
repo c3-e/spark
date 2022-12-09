@@ -72,9 +72,13 @@ public class AuthIntegrationSuite {
     ctx = new AuthTestCtx();
     ctx.createServer("server");
 
-    assertThrows(Exception.class, () -> ctx.createClient("client"));
-    assertFalse(ctx.authRpcHandler.isAuthenticated());
-    assertFalse(ctx.serverChannel.isActive());
+    try {
+      ctx.createClient("client");
+      fail("Should have failed to create client.");
+    } catch (Exception e) {
+      assertFalse(ctx.authRpcHandler.isAuthenticated());
+      assertFalse(ctx.serverChannel.isActive());
+    }
   }
 
   @Test
@@ -111,9 +115,13 @@ public class AuthIntegrationSuite {
 
     assertNotNull(ctx.client.getChannel().pipeline()
       .remove(TransportCipher.ENCRYPTION_HANDLER_NAME));
-    assertThrows(Exception.class,
-      () -> ctx.client.sendRpcSync(JavaUtils.stringToBytes("Ping"), 5000));
-    assertTrue(ctx.authRpcHandler.isAuthenticated());
+
+    try {
+      ctx.client.sendRpcSync(JavaUtils.stringToBytes("Ping"), 5000);
+      fail("Should have failed unencrypted RPC.");
+    } catch (Exception e) {
+      assertTrue(ctx.authRpcHandler.isAuthenticated());
+    }
   }
 
   @Test
@@ -139,17 +147,20 @@ public class AuthIntegrationSuite {
     ctx.createServer("secret");
     ctx.createClient("secret");
 
-    Exception e = assertThrows(Exception.class,
-      () -> ctx.client.sendRpcSync(JavaUtils.stringToBytes("Ping"), 5000));
-    assertTrue(ctx.authRpcHandler.isAuthenticated());
-    assertTrue(e.getMessage() + " is not an expected error", e.getMessage().contains("DDDDD"));
-    // Verify we receive the complete error message
-    int messageStart = e.getMessage().indexOf("DDDDD");
-    int messageEnd = e.getMessage().lastIndexOf("DDDDD") + 5;
-    assertEquals(testErrorMessageLength, messageEnd - messageStart);
+    try {
+      ctx.client.sendRpcSync(JavaUtils.stringToBytes("Ping"), 5000);
+      fail("Should have failed unencrypted RPC.");
+    } catch (Exception e) {
+      assertTrue(ctx.authRpcHandler.isAuthenticated());
+      assertTrue(e.getMessage() + " is not an expected error", e.getMessage().contains("DDDDD"));
+      // Verify we receive the complete error message
+      int messageStart = e.getMessage().indexOf("DDDDD");
+      int messageEnd = e.getMessage().lastIndexOf("DDDDD") + 5;
+      assertEquals(testErrorMessageLength, messageEnd - messageStart);
+    }
   }
 
-  private static class AuthTestCtx {
+  private class AuthTestCtx {
 
     private final String appId = "testAppId";
     private final TransportConf conf;

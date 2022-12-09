@@ -33,7 +33,6 @@ case class TextScanBuilder(
   extends FileScanBuilder(sparkSession, fileIndex, dataSchema) {
 
   override def build(): Scan = {
-    TextScan(sparkSession, fileIndex, dataSchema, readDataSchema(), readPartitionSchema(), options,
-      partitionFilters, dataFilters)
+    TextScan(sparkSession, fileIndex, readDataSchema(), readPartitionSchema(), options)
   }
 }

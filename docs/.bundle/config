@@ -1,3 +1,2 @@
 ---
 BUNDLE_PATH: ".local_ruby_bundle"
-BUNDLE_BUILD__FFI: "--enable-libffi-alloc"

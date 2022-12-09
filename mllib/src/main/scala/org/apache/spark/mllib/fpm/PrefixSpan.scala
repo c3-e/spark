@@ -40,7 +40,6 @@ import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.catalyst.ScalaReflection
 import org.apache.spark.sql.types._
 import org.apache.spark.storage.StorageLevel
-import org.apache.spark.util.collection.Utils
 
 /**
  * A parallel PrefixSpan algorithm to mine frequent sequential patterns.
@@ -148,7 +147,7 @@ class PrefixSpan private (
     logInfo(s"number of frequent items: ${freqItems.length}")
 
     // Keep only frequent items from input sequences and convert them to internal storage.
-    val itemToInt = Utils.toMapWithIndex(freqItems)
+    val itemToInt = freqItems.zipWithIndex.toMap
     val dataInternalRepr = toDatabaseInternalRepr(data, itemToInt)
       .persist(StorageLevel.MEMORY_AND_DISK)
 
@@ -221,7 +220,7 @@ object PrefixSpan extends Logging {
     data.flatMap { itemsets =>
       val uniqItems = mutable.Set.empty[Item]
       itemsets.foreach(set => uniqItems ++= set)
-      uniqItems.iterator.map((_, 1L))
+      uniqItems.toIterator.map((_, 1L))
     }.reduceByKey(_ + _).filter { case (_, count) =>
       count >= minCount
     }.sortBy(-_._2).map(_._1).collect()
@@ -479,7 +478,7 @@ object PrefixSpan extends Logging {
         }
         i += 1
       }
-      prefixes.iterator
+      prefixes.toIterator
     }
 
     /** Tests whether this postfix is non-empty. */

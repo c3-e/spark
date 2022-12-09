@@ -49,8 +49,6 @@ trait FileScan extends Scan
 
   def fileIndex: PartitioningAwareFileIndex
 
-  def dataSchema: StructType
-
   /**
    * Returns the required data schema
    */
@@ -72,6 +70,12 @@ trait FileScan extends Scan
   def dataFilters: Seq[Expression]
 
   /**
+   * Create a new `FileScan` instance from the current one
+   * with different `partitionFilters` and `dataFilters`
+   */
+  def withFilters(partitionFilters: Seq[Expression], dataFilters: Seq[Expression]): FileScan
+
+  /**
    * If a file with `path` is unsplittable, return the unsplittable reason,
    * otherwise return `None`.
    */
@@ -83,14 +87,15 @@ trait FileScan extends Scan
   protected def seqToString(seq: Seq[Any]): String = seq.mkString("[", ", ", "]")
 
   private lazy val (normalizedPartitionFilters, normalizedDataFilters) = {
+    val output = readSchema().toAttributes
     val partitionFilterAttributes = AttributeSet(partitionFilters).map(a => a.name -> a).toMap
-    val normalizedPartitionFilters = ExpressionSet(partitionFilters.map(
-      QueryPlan.normalizeExpressions(_, fileIndex.partitionSchema.toAttributes
-        .map(a => partitionFilterAttributes.getOrElse(a.name, a)))))
     val dataFiltersAttributes = AttributeSet(dataFilters).map(a => a.name -> a).toMap
+    val normalizedPartitionFilters = ExpressionSet(partitionFilters.map(
+      QueryPlan.normalizeExpressions(_,
+        output.map(a => partitionFilterAttributes.getOrElse(a.name, a)))))
     val normalizedDataFilters = ExpressionSet(dataFilters.map(
-      QueryPlan.normalizeExpressions(_, dataSchema.toAttributes
-        .map(a => dataFiltersAttributes.getOrElse(a.name, a)))))
+      QueryPlan.normalizeExpressions(_,
+        output.map(a => dataFiltersAttributes.getOrElse(a.name, a)))))
     (normalizedPartitionFilters, normalizedDataFilters)
   }
 
@@ -135,10 +140,10 @@ trait FileScan extends Scan
     val partitionAttributes = fileIndex.partitionSchema.toAttributes
     val attributeMap = partitionAttributes.map(a => normalizeName(a.name) -> a).toMap
     val readPartitionAttributes = readPartitionSchema.map { readField =>
-      attributeMap.getOrElse(normalizeName(readField.name),
+      attributeMap.get(normalizeName(readField.name)).getOrElse {
         throw QueryCompilationErrors.cannotFindPartitionColumnInPartitionSchemaError(
           readField, fileIndex.partitionSchema)
-      )
+      }
     }
     lazy val partitionValueProject =
       GenerateUnsafeProjection.generate(readPartitionAttributes, partitionAttributes)
@@ -182,10 +187,7 @@ trait FileScan extends Scan
     new Statistics {
       override def sizeInBytes(): OptionalLong = {
         val compressionFactor = sparkSession.sessionState.conf.fileCompressionFactor
-        val size = (compressionFactor * fileIndex.sizeInBytes /
-          (dataSchema.defaultSize + fileIndex.partitionSchema.defaultSize) *
-          (readDataSchema.defaultSize + readPartitionSchema.defaultSize)).toLong
-
+        val size = (compressionFactor * fileIndex.sizeInBytes).toLong
         OptionalLong.of(size)
       }
 

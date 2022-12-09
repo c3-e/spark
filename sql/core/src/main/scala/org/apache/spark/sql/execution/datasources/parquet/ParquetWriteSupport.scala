@@ -184,11 +184,11 @@ class ParquetWriteSupport extends WriteSupport[InternalRow] with Logging {
         (row: SpecializedGetters, ordinal: Int) =>
           recordConsumer.addInteger(dateRebaseFunc(row.getInt(ordinal)))
 
-      case IntegerType | _: YearMonthIntervalType =>
+      case IntegerType =>
         (row: SpecializedGetters, ordinal: Int) =>
           recordConsumer.addInteger(row.getInt(ordinal))
 
-      case LongType | _: DayTimeIntervalType =>
+      case LongType =>
         (row: SpecializedGetters, ordinal: Int) =>
           recordConsumer.addLong(row.getLong(ordinal))
 
@@ -227,11 +227,6 @@ class ParquetWriteSupport extends WriteSupport[InternalRow] with Logging {
               recordConsumer.addLong(millis)
         }
 
-      case TimestampNTZType =>
-        // For TimestampNTZType column, Spark always output as INT64 with Timestamp annotation in
-        // MICROS time unit.
-        (row: SpecializedGetters, ordinal: Int) => recordConsumer.addLong(row.getLong(ordinal))
-
       case BinaryType =>
         (row: SpecializedGetters, ordinal: Int) =>
           recordConsumer.addBinary(Binary.fromReusedByteArray(row.getBinary(ordinal)))
@@ -252,7 +247,8 @@ class ParquetWriteSupport extends WriteSupport[InternalRow] with Logging {
 
       case t: UserDefinedType[_] => makeWriter(t.sqlType)
 
-      case _ => throw new IllegalStateException(s"Unsupported data type $dataType.")
+      // TODO Adds IntervalType support
+      case _ => sys.error(s"Unsupported data type $dataType.")
     }
   }
 

@@ -190,25 +190,6 @@ class UnwrapCastInComparisonEndToEndSuite extends QueryTest with SharedSparkSess
     }
   }
 
-  test("SPARK-36607: Support BooleanType in UnwrapCastInBinaryComparison") {
-    // If ANSI mode is on, Spark disallows comparing Int with Boolean.
-    if (!conf.ansiEnabled) {
-      withTable(t) {
-        Seq(Some(true), Some(false), None).toDF().write.saveAsTable(t)
-        val df = spark.table(t)
-
-        checkAnswer(df.where("value = -1"), Seq.empty)
-        checkAnswer(df.where("value = 0"), Row(false))
-        checkAnswer(df.where("value = 1"), Row(true))
-        checkAnswer(df.where("value = 2"), Seq.empty)
-        checkAnswer(df.where("value <=> -1"), Seq.empty)
-        checkAnswer(df.where("value <=> 0"), Row(false))
-        checkAnswer(df.where("value <=> 1"), Row(true))
-        checkAnswer(df.where("value <=> 2"), Seq.empty)
-      }
-    }
-  }
-
   test("SPARK-39476: Should not unwrap cast from Long to Double/Float") {
     withTable(t) {
       Seq((6470759586864300301L))

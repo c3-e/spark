@@ -39,7 +39,6 @@ import org.apache.hadoop.io.{ArrayWritable, BooleanWritable, BytesWritable, Doub
 import org.apache.hadoop.mapred.{FileInputFormat, InputFormat, JobConf, SequenceFileInputFormat, TextInputFormat}
 import org.apache.hadoop.mapreduce.{InputFormat => NewInputFormat, Job => NewHadoopJob}
 import org.apache.hadoop.mapreduce.lib.input.{FileInputFormat => NewFileInputFormat}
-import org.apache.logging.log4j.Level
 
 import org.apache.spark.annotation.{DeveloperApi, Experimental}
 import org.apache.spark.broadcast.Broadcast
@@ -52,7 +51,6 @@ import org.apache.spark.internal.config.Tests._
 import org.apache.spark.internal.config.UI._
 import org.apache.spark.internal.plugin.PluginContainer
 import org.apache.spark.io.CompressionCodec
-import org.apache.spark.launcher.JavaModuleOptions
 import org.apache.spark.metrics.source.JVMCPUSource
 import org.apache.spark.partial.{ApproximateEvaluator, PartialResult}
 import org.apache.spark.rdd._
@@ -276,12 +274,7 @@ class SparkContext(config: SparkConf) extends Logging {
       conf: SparkConf,
       isLocal: Boolean,
       listenerBus: LiveListenerBus): SparkEnv = {
-    SparkEnv.createDriverEnv(
-      conf,
-      isLocal,
-      listenerBus,
-      SparkContext.numDriverCores(master, conf),
-      this)
+    SparkEnv.createDriverEnv(conf, isLocal, listenerBus, SparkContext.numDriverCores(master, conf))
   }
 
   private[spark] def env: SparkEnv = _env
@@ -359,7 +352,7 @@ class SparkContext(config: SparkConf) extends Logging {
 
   // Thread Local variable that can be used by users to pass information down the stack
   protected[spark] val localProperties = new InheritableThreadLocal[Properties] {
-    override def childValue(parent: Properties): Properties = {
+    override protected def childValue(parent: Properties): Properties = {
       // Note: make a clone such that changes in the parent properties aren't reflected in
       // the those of the children threads, which has confusing semantics (SPARK-10563).
       Utils.cloneProperties(parent)
@@ -373,6 +366,12 @@ class SparkContext(config: SparkConf) extends Logging {
    | stop() method to be called.                                                           |
    * ------------------------------------------------------------------------------------- */
 
+  private def warnSparkMem(value: String): String = {
+    logWarning("Using SPARK_MEM to set amount of memory to use per executor process is " +
+      "deprecated, please use spark.executor.memory instead.")
+    value
+  }
+
   /** Control our logLevel. This overrides any user-defined log settings.
    * @param logLevel The desired log level as a string.
    * Valid log levels include: ALL, DEBUG, ERROR, FATAL, INFO, OFF, TRACE, WARN
@@ -383,7 +382,7 @@ class SparkContext(config: SparkConf) extends Logging {
     require(SparkContext.VALID_LOG_LEVELS.contains(upperCased),
       s"Supplied level $logLevel did not match one of:" +
         s" ${SparkContext.VALID_LOG_LEVELS.mkString(",")}")
-    Utils.setLogLevel(Level.toLevel(upperCased))
+    Utils.setLogLevel(org.apache.log4j.Level.toLevel(upperCased))
   }
 
   try {
@@ -399,9 +398,6 @@ class SparkContext(config: SparkConf) extends Logging {
     }
     // This should be set as early as possible.
     SparkContext.fillMissingMagicCommitterConfsIfNeeded(_conf)
-
-    SparkContext.supplementJavaModuleOptions(_conf)
-    SparkContext.supplementJavaIPv6Options(_conf)
 
     _driverLogger = DriverLogger(_conf)
 
@@ -524,7 +520,12 @@ class SparkContext(config: SparkConf) extends Logging {
       }
     }
 
-    _executorMemory = SparkContext.executorMemoryInMb(_conf)
+    _executorMemory = _conf.getOption(EXECUTOR_MEMORY.key)
+      .orElse(Option(System.getenv("SPARK_EXECUTOR_MEMORY")))
+      .orElse(Option(System.getenv("SPARK_MEM"))
+      .map(warnSparkMem))
+      .map(Utils.memoryStringToMb)
+      .getOrElse(1024)
 
     // Convert java options to env vars as a work around
     // since we can't set env vars directly in sbt.
@@ -541,16 +542,6 @@ class SparkContext(config: SparkConf) extends Logging {
     executorEnvs ++= _conf.getExecutorEnv
     executorEnvs("SPARK_USER") = sparkUser
 
-    if (_conf.getOption("spark.executorEnv.OMP_NUM_THREADS").isEmpty) {
-      // if OMP_NUM_THREADS is not explicitly set, override it with the value of "spark.task.cpus"
-      // SPARK-41188: limit the thread number for OpenBLAS routine to the number of cores assigned
-      // to this executor because some spark ML algorithms calls OpenBlAS via netlib-java
-      // SPARK-28843: limit the OpenMP thread pool to the number of cores assigned to this executor
-      // this avoids high memory consumption with pandas/numpy because of a large OpenMP thread pool
-      // see https://github.com/numpy/numpy/issues/10455
-      executorEnvs.put("OMP_NUM_THREADS", _conf.get("spark.task.cpus", "1"))
-    }
-
     _shuffleDriverComponents = ShuffleDataIOUtils.loadShuffleDataIO(config).driver()
     _shuffleDriverComponents.initializeApplication().asScala.foreach { case (k, v) =>
       _conf.set(ShuffleDataIOUtils.SHUFFLE_SPARK_CONF_PREFIX + k, v)
@@ -565,7 +556,7 @@ class SparkContext(config: SparkConf) extends Logging {
     _plugins = PluginContainer(this, _resources.asJava)
 
     // Create and start the scheduler
-    val (sched, ts) = SparkContext.createTaskScheduler(this, master)
+    val (sched, ts) = SparkContext.createTaskScheduler(this, master, deployMode)
     _schedulerBackend = sched
     _taskScheduler = ts
     _dagScheduler = new DAGScheduler(this)
@@ -597,8 +588,9 @@ class SparkContext(config: SparkConf) extends Logging {
       _env.blockManager.blockStoreClient.setAppAttemptId(attemptId)
     }
     if (_conf.get(UI_REVERSE_PROXY)) {
-      val proxyUrl = _conf.get(UI_REVERSE_PROXY_URL).getOrElse("").stripSuffix("/")
-      System.setProperty("spark.ui.proxyBase", proxyUrl + "/proxy/" + _applicationId)
+      val proxyUrl = _conf.get(UI_REVERSE_PROXY_URL.key, "").stripSuffix("/") +
+        "/proxy/" + _applicationId
+      System.setProperty("spark.ui.proxyBase", proxyUrl)
     }
     _ui.foreach(_.setAppId(_applicationId))
     _env.blockManager.initialize(_applicationId)
@@ -607,6 +599,8 @@ class SparkContext(config: SparkConf) extends Logging {
     // The metrics system for Driver need to be set spark.app.id to app ID.
     // So it should start after we get app ID from the task scheduler and set spark.app.id.
     _env.metricsSystem.start(_conf.get(METRICS_STATIC_SOURCES_ENABLED))
+    // Attach the driver metrics servlet handler to the web ui after the metrics system is started.
+    _env.metricsSystem.getServletHandlers.foreach(handler => ui.foreach(_.attachHandler(handler)))
 
     _eventLogger =
       if (isEventLogEnabled) {
@@ -648,26 +642,6 @@ class SparkContext(config: SparkConf) extends Logging {
     postEnvironmentUpdate()
     postApplicationStart()
 
-    // After application started, attach handlers to started server and start handler.
-    _ui.foreach(_.attachAllHandler())
-    // Attach the driver metrics servlet handler to the web ui after the metrics system is started.
-    _env.metricsSystem.getServletHandlers.foreach(handler => ui.foreach(_.attachHandler(handler)))
-
-    // Make sure the context is stopped if the user forgets about it. This avoids leaving
-    // unfinished event logs around after the JVM exits cleanly. It doesn't help if the JVM
-    // is killed, though.
-    logDebug("Adding shutdown hook") // force eager creation of logger
-    _shutdownHookRef = ShutdownHookManager.addShutdownHook(
-      ShutdownHookManager.SPARK_CONTEXT_SHUTDOWN_PRIORITY) { () =>
-      logInfo("Invoking stop() from shutdown hook")
-      try {
-        stop()
-      } catch {
-        case e: Throwable =>
-          logWarning("Ignoring Exception while stopping SparkContext from shutdown hook", e)
-      }
-    }
-
     // Post init
     _taskScheduler.postStartHook()
     if (isLocal) {
@@ -682,6 +656,20 @@ class SparkContext(config: SparkConf) extends Logging {
     }
     appStatusSource.foreach(_env.metricsSystem.registerSource(_))
     _plugins.foreach(_.registerMetrics(applicationId))
+    // Make sure the context is stopped if the user forgets about it. This avoids leaving
+    // unfinished event logs around after the JVM exits cleanly. It doesn't help if the JVM
+    // is killed, though.
+    logDebug("Adding shutdown hook") // force eager creation of logger
+    _shutdownHookRef = ShutdownHookManager.addShutdownHook(
+      ShutdownHookManager.SPARK_CONTEXT_SHUTDOWN_PRIORITY) { () =>
+      logInfo("Invoking stop() from shutdown hook")
+      try {
+        stop()
+      } catch {
+        case e: Throwable =>
+          logWarning("Ignoring Exception while stopping SparkContext from shutdown hook", e)
+      }
+    }
   } catch {
     case NonFatal(e) =>
       logError("Error initializing SparkContext.", e)
@@ -706,14 +694,8 @@ class SparkContext(config: SparkConf) extends Logging {
       if (executorId == SparkContext.DRIVER_IDENTIFIER) {
         Some(Utils.getThreadDump())
       } else {
-        env.blockManager.master.getExecutorEndpointRef(executorId) match {
-          case Some(endpointRef) =>
-            Some(endpointRef.askSync[Array[ThreadStackTrace]](TriggerThreadDump))
-          case None =>
-            logWarning(s"Executor $executorId might already have stopped and " +
-              "can not request thread dump from it.")
-            None
-        }
+        val endpointRef = env.blockManager.master.getExecutorEndpointRef(executorId).get
+        Some(endpointRef.askSync[Array[ThreadStackTrace]](TriggerThreadDump))
       }
     } catch {
       case e: Exception =>
@@ -1521,31 +1503,16 @@ class SparkContext(config: SparkConf) extends Logging {
   /**
    * Broadcast a read-only variable to the cluster, returning a
    * [[org.apache.spark.broadcast.Broadcast]] object for reading it in distributed functions.
-   * The variable will be sent to each executor only once.
+   * The variable will be sent to each cluster only once.
    *
    * @param value value to broadcast to the Spark nodes
    * @return `Broadcast` object, a read-only variable cached on each machine
    */
   def broadcast[T: ClassTag](value: T): Broadcast[T] = {
-    broadcastInternal(value, serializedOnly = false)
-  }
-
-  /**
-   * Internal version of broadcast - broadcast a read-only variable to the cluster, returning a
-   * [[org.apache.spark.broadcast.Broadcast]] object for reading it in distributed functions.
-   * The variable will be sent to each executor only once.
-   *
-   * @param value value to broadcast to the Spark nodes
-   * @param serializedOnly if true, do not cache the unserialized value on the driver
-   * @return `Broadcast` object, a read-only variable cached on each machine
-   */
-  private[spark] def broadcastInternal[T: ClassTag](
-      value: T,
-      serializedOnly: Boolean): Broadcast[T] = {
     assertNotStopped()
     require(!classOf[RDD[_]].isAssignableFrom(classTag[T].runtimeClass),
       "Can not directly broadcast RDDs; instead, call collect() and broadcast the result.")
-    val bc = env.broadcastManager.newBroadcast[T](value, isLocal, serializedOnly)
+    val bc = env.broadcastManager.newBroadcast[T](value, isLocal)
     val callSite = getCallSite
     logInfo("Created broadcast " + bc.id + " from " + callSite.shortForm)
     cleaner.foreach(_.registerBroadcastForCleanup(bc))
@@ -2042,7 +2009,7 @@ class SparkContext(config: SparkConf) extends Logging {
         }
         if (existed.nonEmpty) {
           val jarMessage = if (scheme != "ivy") "JAR" else "dependency jars of Ivy URI"
-          logWarning(s"The $jarMessage $path at ${existed.mkString(",")} has been added already." +
+          logInfo(s"The $jarMessage $path at ${existed.mkString(",")} has been added already." +
             " Overwriting of added jar is not supported in the current version.")
         }
       }
@@ -2078,20 +2045,7 @@ class SparkContext(config: SparkConf) extends Logging {
   /**
    * Shut down the SparkContext.
    */
-  def stop(): Unit = stop(0)
-
-  /**
-   * Shut down the SparkContext with exit code that will passed to scheduler backend.
-   * In client mode, client side may call `SparkContext.stop()` to clean up but exit with
-   * code not equal to 0. This behavior cause resource scheduler such as `ApplicationMaster`
-   * exit with success status but client side exited with failed status. Spark can call
-   * this method to stop SparkContext and pass client side correct exit code to scheduler backend.
-   * Then scheduler backend should send the exit code to corresponding resource scheduler
-   * to keep consistent.
-   *
-   * @param exitCode Specified exit code that will passed to scheduler backend in client mode.
-   */
-  def stop(exitCode: Int): Unit = {
+  def stop(): Unit = {
     if (LiveListenerBus.withinListenerThread.value) {
       throw new SparkException(s"Cannot stop SparkContext within listener bus thread.")
     }
@@ -2116,6 +2070,11 @@ class SparkContext(config: SparkConf) extends Logging {
     Utils.tryLogNonFatalError {
       _ui.foreach(_.stop())
     }
+    if (env != null) {
+      Utils.tryLogNonFatalError {
+        env.metricsSystem.report()
+      }
+    }
     Utils.tryLogNonFatalError {
       _cleaner.foreach(_.stop())
     }
@@ -2124,7 +2083,7 @@ class SparkContext(config: SparkConf) extends Logging {
     }
     if (_dagScheduler != null) {
       Utils.tryLogNonFatalError {
-        _dagScheduler.stop(exitCode)
+        _dagScheduler.stop()
       }
       _dagScheduler = null
     }
@@ -2134,17 +2093,10 @@ class SparkContext(config: SparkConf) extends Logging {
         _listenerBusStarted = false
       }
     }
-    if (env != null) {
-      Utils.tryLogNonFatalError {
-        env.metricsSystem.report()
-      }
-    }
     Utils.tryLogNonFatalError {
       _plugins.foreach(_.shutdown())
     }
-    Utils.tryLogNonFatalError {
-      FallbackStorage.cleanUp(_conf, _hadoopConfiguration)
-    }
+    FallbackStorage.cleanUp(_conf, _hadoopConfiguration)
     Utils.tryLogNonFatalError {
       _eventLogger.foreach(_.stop())
     }
@@ -2312,7 +2264,7 @@ class SparkContext(config: SparkConf) extends Logging {
    * a result from one partition)
    */
   def runJob[T, U: ClassTag](rdd: RDD[T], func: (TaskContext, Iterator[T]) => U): Array[U] = {
-    runJob(rdd, func, rdd.partitions.indices)
+    runJob(rdd, func, 0 until rdd.partitions.length)
   }
 
   /**
@@ -2324,7 +2276,7 @@ class SparkContext(config: SparkConf) extends Logging {
    * a result from one partition)
    */
   def runJob[T, U: ClassTag](rdd: RDD[T], func: Iterator[T] => U): Array[U] = {
-    runJob(rdd, func, rdd.partitions.indices)
+    runJob(rdd, func, 0 until rdd.partitions.length)
   }
 
   /**
@@ -2339,7 +2291,7 @@ class SparkContext(config: SparkConf) extends Logging {
     rdd: RDD[T],
     processPartition: (TaskContext, Iterator[T]) => U,
     resultHandler: (Int, U) => Unit): Unit = {
-    runJob[T, U](rdd, processPartition, rdd.partitions.indices, resultHandler)
+    runJob[T, U](rdd, processPartition, 0 until rdd.partitions.length, resultHandler)
   }
 
   /**
@@ -2354,7 +2306,7 @@ class SparkContext(config: SparkConf) extends Logging {
       processPartition: Iterator[T] => U,
       resultHandler: (Int, U) => Unit): Unit = {
     val processFunc = (context: TaskContext, iter: Iterator[T]) => processPartition(iter)
-    runJob[T, U](rdd, processFunc, rdd.partitions.indices, resultHandler)
+    runJob[T, U](rdd, processFunc, 0 until rdd.partitions.length, resultHandler)
   }
 
   /**
@@ -2625,8 +2577,7 @@ class SparkContext(config: SparkConf) extends Logging {
       val addedFilePaths = addedFiles.keys.toSeq
       val addedArchivePaths = addedArchives.keys.toSeq
       val environmentDetails = SparkEnv.environmentDetails(conf, hadoopConfiguration,
-        schedulingMode, addedJarPaths, addedFilePaths, addedArchivePaths,
-        env.metricsSystem.metricsProperties.asScala.toMap)
+        schedulingMode, addedJarPaths, addedFilePaths, addedArchivePaths)
       val environmentUpdate = SparkListenerEnvironmentUpdate(environmentDetails)
       listenerBus.post(environmentUpdate)
     }
@@ -2716,7 +2667,7 @@ object SparkContext extends Logging {
    * Throws an exception if a SparkContext is about to be created in executors.
    */
   private def assertOnDriver(): Unit = {
-    if (Utils.isInRunningSparkTask) {
+    if (TaskContext.get != null) {
       // we're accessing it during task execution, fail.
       throw new IllegalStateException(
         "SparkContext should only be created and accessed on the driver.")
@@ -2919,28 +2870,14 @@ object SparkContext extends Logging {
     }
   }
 
-  private[spark] def executorMemoryInMb(conf: SparkConf): Int = {
-    conf.getOption(EXECUTOR_MEMORY.key)
-      .orElse(Option(System.getenv("SPARK_EXECUTOR_MEMORY")))
-      .orElse(Option(System.getenv("SPARK_MEM"))
-      .map(warnSparkMem))
-      .map(Utils.memoryStringToMb)
-      .getOrElse(1024)
-  }
-
-  private def warnSparkMem(value: String): String = {
-    logWarning("Using SPARK_MEM to set amount of memory to use per executor process is " +
-      "deprecated, please use spark.executor.memory instead.")
-    value
-  }
-
   /**
    * Create a task scheduler based on a given master URL.
    * Return a 2-tuple of the scheduler backend and the task scheduler.
    */
   private def createTaskScheduler(
       sc: SparkContext,
-      master: String): (SchedulerBackend, TaskScheduler) = {
+      master: String,
+      deployMode: String): (SchedulerBackend, TaskScheduler) = {
     import SparkMasterRegex._
 
     // When running locally, don't try to re-execute tasks on failure.
@@ -3003,7 +2940,7 @@ object SparkContext extends Logging {
         val memoryPerWorkerInt = memoryPerWorker.toInt
         if (sc.executorMemory > memoryPerWorkerInt) {
           throw new SparkException(
-            "Asked to launch cluster with %d MiB/worker but requested %d MiB/executor".format(
+            "Asked to launch cluster with %d MiB RAM / worker but requested %d MiB/worker".format(
               memoryPerWorkerInt, sc.executorMemory))
         }
 
@@ -3016,7 +2953,7 @@ object SparkContext extends Logging {
         sc.conf.setIfMissing(SHUFFLE_HOST_LOCAL_DISK_READING_ENABLED, false)
 
         val scheduler = new TaskSchedulerImpl(sc)
-        val localCluster = LocalSparkCluster(
+        val localCluster = new LocalSparkCluster(
           numWorkers.toInt, coresPerWorker.toInt, memoryPerWorkerInt, sc.conf)
         val masterUrls = localCluster.start()
         val backend = new StandaloneSchedulerBackend(scheduler, sc, masterUrls)
@@ -3077,34 +3014,6 @@ object SparkContext extends Logging {
           "org.apache.spark.internal.io.cloud.PathOutputCommitProtocol")
       }
     }
-  }
-
-  /**
-   * SPARK-36796: This is a helper function to supplement `--add-opens` options to
-   * `spark.driver.extraJavaOptions` and `spark.executor.extraJavaOptions`.
-   */
-  private def supplementJavaModuleOptions(conf: SparkConf): Unit = {
-    def supplement(key: OptionalConfigEntry[String]): Unit = {
-      val v = conf.get(key) match {
-        case Some(opts) => s"${JavaModuleOptions.defaultModuleOptions()} $opts"
-        case None => JavaModuleOptions.defaultModuleOptions()
-      }
-      conf.set(key.key, v)
-    }
-    supplement(DRIVER_JAVA_OPTIONS)
-    supplement(EXECUTOR_JAVA_OPTIONS)
-  }
-
-  private def supplementJavaIPv6Options(conf: SparkConf): Unit = {
-    def supplement(key: OptionalConfigEntry[String]): Unit = {
-      val v = conf.get(key) match {
-        case Some(opts) => s"-Djava.net.preferIPv6Addresses=${Utils.preferIPv6} $opts"
-        case None => s"-Djava.net.preferIPv6Addresses=${Utils.preferIPv6}"
-      }
-      conf.set(key.key, v)
-    }
-    supplement(DRIVER_JAVA_OPTIONS)
-    supplement(EXECUTOR_JAVA_OPTIONS)
   }
 }
 

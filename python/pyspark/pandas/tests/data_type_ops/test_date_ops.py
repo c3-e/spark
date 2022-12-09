@@ -21,10 +21,11 @@ import pandas as pd
 from pandas.api.types import CategoricalDtype
 
 from pyspark import pandas as ps
-from pyspark.pandas.tests.data_type_ops.testing_utils import OpsTestBase
+from pyspark.pandas.tests.data_type_ops.testing_utils import TestCasesUtils
+from pyspark.testing.pandasutils import PandasOnSparkTestCase
 
 
-class DateOpsTest(OpsTestBase):
+class DateOpsTest(PandasOnSparkTestCase, TestCasesUtils):
     @property
     def pser(self):
         return pd.Series(
@@ -111,11 +112,11 @@ class DateOpsTest(OpsTestBase):
 
     def test_pow(self):
         self.assertRaises(TypeError, lambda: self.psser ** "x")
-        self.assertRaises(TypeError, lambda: self.psser**1)
-        self.assertRaises(TypeError, lambda: self.psser**self.some_date)
+        self.assertRaises(TypeError, lambda: self.psser ** 1)
+        self.assertRaises(TypeError, lambda: self.psser ** self.some_date)
 
         for psser in self.pssers:
-            self.assertRaises(TypeError, lambda: self.psser**psser)
+            self.assertRaises(TypeError, lambda: self.psser ** psser)
 
     def test_radd(self):
         self.assertRaises(TypeError, lambda: "x" + self.psser)
@@ -151,8 +152,8 @@ class DateOpsTest(OpsTestBase):
 
     def test_rpow(self):
         self.assertRaises(TypeError, lambda: "x" ** self.psser)
-        self.assertRaises(TypeError, lambda: 1**self.psser)
-        self.assertRaises(TypeError, lambda: self.some_date**self.psser)
+        self.assertRaises(TypeError, lambda: 1 ** self.psser)
+        self.assertRaises(TypeError, lambda: self.some_date ** self.psser)
 
     def test_and(self):
         self.assertRaises(TypeError, lambda: self.psser & True)
@@ -176,7 +177,7 @@ class DateOpsTest(OpsTestBase):
         data = [datetime.date(1994, 1, 31), datetime.date(1994, 2, 1), datetime.date(1994, 2, 2)]
         pser = pd.Series(data)
         psser = ps.Series(data)
-        self.assert_eq(pser, psser._to_pandas())
+        self.assert_eq(pser, psser.to_pandas())
         self.assert_eq(ps.from_pandas(pser), psser)
 
     def test_isnull(self):

@@ -26,7 +26,6 @@ import org.apache.parquet.hadoop.ParquetOutputFormat
 
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.util.VersionUtils
 
 class ParquetCompressionCodecPrecedenceSuite extends ParquetTest with SharedSparkSession {
   test("Test `spark.sql.parquet.compression.codec` config") {
@@ -106,10 +105,7 @@ class ParquetCompressionCodecPrecedenceSuite extends ParquetTest with SharedSpar
 
   test("Create parquet table with compression") {
     Seq(true, false).foreach { isPartitioned =>
-      val codecs = Seq("UNCOMPRESSED", "SNAPPY", "GZIP", "ZSTD") ++ {
-        if (VersionUtils.isHadoop3) Seq("LZ4") else Seq()
-      }
-      codecs.foreach { compressionCodec =>
+      Seq("UNCOMPRESSED", "SNAPPY", "GZIP").foreach { compressionCodec =>
         checkCompressionCodec(compressionCodec, isPartitioned)
       }
     }

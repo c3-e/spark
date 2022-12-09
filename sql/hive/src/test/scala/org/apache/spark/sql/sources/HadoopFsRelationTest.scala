@@ -26,7 +26,6 @@ import org.apache.hadoop.fs.Path
 
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.sql._
-import org.apache.spark.sql.connector.catalog.CatalogManager.SESSION_CATALOG_NAME
 import org.apache.spark.sql.execution.DataSourceScanExec
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.hive.test.TestHiveSingleton
@@ -382,10 +381,10 @@ abstract class HadoopFsRelationTest extends QueryTest with SQLTestUtils with Tes
   test("saveAsTable()/load() - non-partitioned table - ErrorIfExists") {
     withTable("t") {
       sql(s"CREATE TABLE t(i INT) USING $dataSourceName")
-      val e = intercept[AnalysisException] {
+      val msg = intercept[AnalysisException] {
         testDF.write.format(dataSourceName).mode(SaveMode.ErrorIfExists).saveAsTable("t")
-      }
-      checkErrorTableAlreadyExists(e, s"`$SESSION_CATALOG_NAME`.`default`.`t`")
+      }.getMessage
+      assert(msg.contains("Table `t` already exists"))
     }
   }
 

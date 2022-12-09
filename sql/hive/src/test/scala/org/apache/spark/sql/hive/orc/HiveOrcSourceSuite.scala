@@ -112,28 +112,22 @@ class HiveOrcSourceSuite extends OrcSuite with TestHiveSingleton {
     withTempDir { dir =>
       val orcDir = new File(dir, "orc").getCanonicalPath
 
-      def validateErrorMessage(msg: String, column: String, dt: String, format: String): Unit = {
-        val excepted = s"Column `$column` has a data type of $dt, " +
-          s"which is not supported by $format."
-        assert(msg.contains(excepted))
-      }
-
       // write path
       var msg = intercept[AnalysisException] {
         sql("select interval 1 days").write.mode("overwrite").orc(orcDir)
       }.getMessage
-      validateErrorMessage(msg, "INTERVAL '1' DAY", "interval day", "ORC")
+      assert(msg.contains("Cannot save interval data type into external storage."))
 
       msg = intercept[AnalysisException] {
         sql("select null").write.mode("overwrite").orc(orcDir)
       }.getMessage
-      validateErrorMessage(msg, "NULL", "void", "ORC")
+      assert(msg.contains("ORC data source does not support void data type."))
 
       msg = intercept[AnalysisException] {
         spark.udf.register("testType", () => new IntervalData())
         sql("select testType()").write.mode("overwrite").orc(orcDir)
       }.getMessage
-      validateErrorMessage(msg, "testType()", "interval", "ORC")
+      assert(msg.contains("ORC data source does not support interval data type."))
 
       // read path
       msg = intercept[AnalysisException] {
@@ -141,14 +135,14 @@ class HiveOrcSourceSuite extends OrcSuite with TestHiveSingleton {
         spark.range(1).write.mode("overwrite").orc(orcDir)
         spark.read.schema(schema).orc(orcDir).collect()
       }.getMessage
-      validateErrorMessage(msg, "a", "interval", "ORC")
+      assert(msg.contains("ORC data source does not support interval data type."))
 
       msg = intercept[AnalysisException] {
         val schema = StructType(StructField("a", new IntervalUDT(), true) :: Nil)
         spark.range(1).write.mode("overwrite").orc(orcDir)
         spark.read.schema(schema).orc(orcDir).collect()
       }.getMessage
-      validateErrorMessage(msg, "a", "interval", "ORC")
+      assert(msg.contains("ORC data source does not support interval data type."))
     }
   }
 

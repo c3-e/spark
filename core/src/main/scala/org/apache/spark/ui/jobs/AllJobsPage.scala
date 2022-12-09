@@ -41,7 +41,6 @@ private[ui] class AllJobsPage(parent: JobsTab, store: AppStatusStore) extends We
 
   import ApiHelper._
 
-  private val TIMELINE_ENABLED = parent.conf.get(UI_TIMELINE_ENABLED)
   private val MAX_TIMELINE_JOBS = parent.conf.get(UI_TIMELINE_JOBS_MAXIMUM)
   private val MAX_TIMELINE_EXECUTORS = parent.conf.get(UI_TIMELINE_EXECUTORS_MAXIMUM)
 
@@ -174,8 +173,6 @@ private[ui] class AllJobsPage(parent: JobsTab, store: AppStatusStore) extends We
       jobs: Seq[v1.JobData],
       executors: Seq[v1.ExecutorSummary],
       startTime: Long): Seq[Node] = {
-
-    if (!TIMELINE_ENABLED) return Seq.empty[Node]
 
     val jobEventJsonAsStrSeq = makeJobEvent(jobs)
     val executorEventJsonAsStrSeq = makeExecutorEvent(executors)

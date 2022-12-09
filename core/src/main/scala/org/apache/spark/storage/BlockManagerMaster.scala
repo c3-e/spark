@@ -21,8 +21,7 @@ import scala.collection.generic.CanBuildFrom
 import scala.collection.immutable.Iterable
 import scala.concurrent.Future
 
-import org.apache.spark.SparkConf
-import org.apache.spark.errors.SparkCoreErrors
+import org.apache.spark.{SparkConf, SparkException}
 import org.apache.spark.internal.Logging
 import org.apache.spark.rpc.RpcEndpointRef
 import org.apache.spark.storage.BlockManagerMessages._
@@ -241,7 +240,7 @@ class BlockManagerMaster(
     val blockStatus = timeout.awaitResult(
       Future.sequence(futures)(cbf, ThreadUtils.sameThread))
     if (blockStatus == null) {
-      throw SparkCoreErrors.blockStatusQueryReturnedNullError(blockId)
+      throw new SparkException("BlockManager returned null for BlockStatus query: " + blockId)
     }
     blockManagerIds.zip(blockStatus).flatMap { case (blockManagerId, status) =>
       status.map { s => (blockManagerId, s) }
@@ -281,7 +280,7 @@ class BlockManagerMaster(
   /** Send a one-way message to the master endpoint, to which we expect it to reply with true. */
   private def tell(message: Any): Unit = {
     if (!driverEndpoint.askSync[Boolean](message)) {
-      throw SparkCoreErrors.unexpectedBlockManagerMasterEndpointResultError()
+      throw new SparkException("BlockManagerMasterEndpoint returned false, expected true.")
     }
   }
 

@@ -18,7 +18,6 @@
 package org.apache.spark.sql.execution.benchmark
 
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
-import org.apache.spark.internal.config.MAX_RESULT_SIZE
 import org.apache.spark.internal.config.UI.UI_ENABLED
 import org.apache.spark.sql.{Dataset, SparkSession}
 import org.apache.spark.sql.SaveMode.Overwrite
@@ -42,7 +41,6 @@ trait SqlBasedBenchmark extends BenchmarkBase with SQLHelper {
       .config(SQLConf.SHUFFLE_PARTITIONS.key, 1)
       .config(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key, 1)
       .config(UI_ENABLED.key, false)
-      .config(MAX_RESULT_SIZE.key, "3g")
       .getOrCreate()
   }
 

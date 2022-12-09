@@ -32,7 +32,6 @@ import org.apache.spark.sql.connector.catalog.TableCapability._
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.DataSource
-import org.apache.spark.sql.execution.datasources.json.JsonUtils.checkJsonSchema
 import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Utils, FileDataSourceV2}
 import org.apache.spark.sql.execution.streaming.StreamingRelation
 import org.apache.spark.sql.sources.StreamSourceProvider
@@ -231,10 +230,7 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
    *
    * @since 2.0.0
    */
-  def json(path: String): DataFrame = {
-    userSpecifiedSchema.foreach(checkJsonSchema)
-    format("json").load(path)
-  }
+  def json(path: String): DataFrame = format("json").load(path)
 
   /**
    * Loads a CSV file stream and returns the result as a `DataFrame`.

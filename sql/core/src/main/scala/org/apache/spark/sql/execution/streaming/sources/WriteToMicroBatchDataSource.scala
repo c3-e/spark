@@ -19,31 +19,27 @@ package org.apache.spark.sql.execution.streaming.sources
 
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
-import org.apache.spark.sql.connector.catalog.SupportsWrite
-import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
-import org.apache.spark.sql.streaming.OutputMode
+import org.apache.spark.sql.connector.metric.CustomMetric
+import org.apache.spark.sql.connector.write.streaming.StreamingWrite
+import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Relation, WriteToDataSourceV2}
 
 /**
  * The logical plan for writing data to a micro-batch stream.
  *
  * Note that this logical plan does not have a corresponding physical plan, as it will be converted
- * to [[org.apache.spark.sql.execution.datasources.v2.WriteToDataSourceV2 WriteToDataSourceV2]]
- * with [[MicroBatchWrite]] before execution.
+ * to [[WriteToDataSourceV2]] with [[MicroBatchWrite]] before execution.
  */
 case class WriteToMicroBatchDataSource(
     relation: Option[DataSourceV2Relation],
-    table: SupportsWrite,
+    write: StreamingWrite,
     query: LogicalPlan,
-    queryId: String,
-    writeOptions: Map[String, String],
-    outputMode: OutputMode,
-    batchId: Option[Long] = None)
+    customMetrics: Seq[CustomMetric])
   extends UnaryNode {
   override def child: LogicalPlan = query
   override def output: Seq[Attribute] = Nil
 
-  def withNewBatchId(batchId: Long): WriteToMicroBatchDataSource = {
-    copy(batchId = Some(batchId))
+  def createPlan(batchId: Long): WriteToDataSourceV2 = {
+    WriteToDataSourceV2(relation, new MicroBatchWrite(batchId, write), query, customMetrics)
   }
 
   override protected def withNewChildInternal(newChild: LogicalPlan): WriteToMicroBatchDataSource =

@@ -21,6 +21,7 @@ import scala.io.{Codec, Source}
 import scala.util.control.NonFatal
 
 import org.apache.hadoop.fs.{FileSystem, Path}
+import org.json4s.jackson.JsonMethods.parse
 
 import org.apache.spark.deploy.history.EventFilter.FilterStatistics
 import org.apache.spark.internal.Logging
@@ -80,7 +81,7 @@ private[spark] object EventFilter extends Logging {
       lines.zipWithIndex.foreach { case (line, lineNum) =>
         try {
           val event = try {
-            Some(JsonProtocol.sparkEventFromJson(line))
+            Some(JsonProtocol.sparkEventFromJson(parse(line)))
           } catch {
             // ignore any exception occurred from unidentified json
             case NonFatal(_) =>

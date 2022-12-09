@@ -19,10 +19,11 @@ import pandas as pd
 from pandas.api.types import CategoricalDtype
 
 from pyspark import pandas as ps
-from pyspark.pandas.tests.data_type_ops.testing_utils import OpsTestBase
+from pyspark.pandas.tests.data_type_ops.testing_utils import TestCasesUtils
+from pyspark.testing.pandasutils import PandasOnSparkTestCase
 
 
-class BinaryOpsTest(OpsTestBase):
+class BinaryOpsTest(PandasOnSparkTestCase, TestCasesUtils):
     @property
     def pser(self):
         return pd.Series([b"1", b"2", b"3"])
@@ -97,10 +98,10 @@ class BinaryOpsTest(OpsTestBase):
 
     def test_pow(self):
         self.assertRaises(TypeError, lambda: self.psser ** "x")
-        self.assertRaises(TypeError, lambda: self.psser**1)
+        self.assertRaises(TypeError, lambda: self.psser ** 1)
 
         for psser in self.pssers:
-            self.assertRaises(TypeError, lambda: self.psser**psser)
+            self.assertRaises(TypeError, lambda: self.psser ** psser)
 
     def test_radd(self):
         self.assert_eq(b"1" + self.psser, b"1" + self.pser)
@@ -128,7 +129,7 @@ class BinaryOpsTest(OpsTestBase):
 
     def test_rpow(self):
         self.assertRaises(TypeError, lambda: "x" ** self.psser)
-        self.assertRaises(TypeError, lambda: 1**self.psser)
+        self.assertRaises(TypeError, lambda: 1 ** self.psser)
 
     def test_and(self):
         self.assertRaises(TypeError, lambda: self.psser & True)
@@ -152,7 +153,7 @@ class BinaryOpsTest(OpsTestBase):
         data = [b"1", b"2", b"3"]
         pser = pd.Series(data)
         psser = ps.Series(data)
-        self.assert_eq(pser, psser._to_pandas())
+        self.assert_eq(pser, psser.to_pandas())
         self.assert_eq(ps.from_pandas(pser), psser)
 
     def test_isnull(self):

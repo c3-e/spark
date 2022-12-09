@@ -109,15 +109,13 @@ public class TransportCipher {
 
   @VisibleForTesting
   static class EncryptionHandler extends ChannelOutboundHandlerAdapter {
-    private final ByteArrayWritableChannel byteEncChannel;
+    private final ByteArrayWritableChannel byteChannel;
     private final CryptoOutputStream cos;
-    private final ByteArrayWritableChannel byteRawChannel;
     private boolean isCipherValid;
 
     EncryptionHandler(TransportCipher cipher) throws IOException {
-      byteEncChannel = new ByteArrayWritableChannel(STREAM_BUFFER_SIZE);
-      cos = cipher.createOutputStream(byteEncChannel);
-      byteRawChannel = new ByteArrayWritableChannel(STREAM_BUFFER_SIZE);
+      byteChannel = new ByteArrayWritableChannel(STREAM_BUFFER_SIZE);
+      cos = cipher.createOutputStream(byteChannel);
       isCipherValid = true;
     }
 
@@ -129,7 +127,7 @@ public class TransportCipher {
 
     @VisibleForTesting
     EncryptedMessage createEncryptedMessage(Object msg) {
-      return new EncryptedMessage(this, cos, msg, byteEncChannel, byteRawChannel);
+      return new EncryptedMessage(this, cos, msg, byteChannel);
     }
 
     @Override
@@ -225,8 +223,8 @@ public class TransportCipher {
     // Due to streaming issue CRYPTO-125: https://issues.apache.org/jira/browse/CRYPTO-125, it has
     // to utilize two helper ByteArrayWritableChannel for streaming. One is used to receive raw data
     // from upper handler, another is used to store encrypted data.
-    private final ByteArrayWritableChannel byteEncChannel;
-    private final ByteArrayWritableChannel byteRawChannel;
+    private ByteArrayWritableChannel byteEncChannel;
+    private ByteArrayWritableChannel byteRawChannel;
 
     private ByteBuffer currentEncrypted;
 
@@ -234,8 +232,7 @@ public class TransportCipher {
         EncryptionHandler handler,
         CryptoOutputStream cos,
         Object msg,
-        ByteArrayWritableChannel byteEncChannel,
-        ByteArrayWritableChannel byteRawChannel) {
+        ByteArrayWritableChannel ch) {
       Preconditions.checkArgument(msg instanceof ByteBuf || msg instanceof FileRegion,
         "Unrecognized message type: %s", msg.getClass().getName());
       this.handler = handler;
@@ -243,9 +240,9 @@ public class TransportCipher {
       this.buf = isByteBuf ? (ByteBuf) msg : null;
       this.region = isByteBuf ? null : (FileRegion) msg;
       this.transferred = 0;
+      this.byteRawChannel = new ByteArrayWritableChannel(STREAM_BUFFER_SIZE);
       this.cos = cos;
-      this.byteEncChannel = byteEncChannel;
-      this.byteRawChannel = byteRawChannel;
+      this.byteEncChannel = ch;
       this.count = isByteBuf ? buf.readableBytes() : region.count();
     }
 

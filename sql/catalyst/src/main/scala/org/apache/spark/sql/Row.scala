@@ -584,8 +584,6 @@ trait Row extends Serializable {
       case (i: CalendarInterval, _) => JString(i.toString)
       case (a: Array[_], ArrayType(elementType, _)) =>
         iteratorToJsonArray(a.iterator, elementType)
-      case (a: mutable.ArraySeq[_], ArrayType(elementType, _)) =>
-        iteratorToJsonArray(a.iterator, elementType)
       case (s: Seq[_], ArrayType(elementType, _)) =>
         iteratorToJsonArray(s.iterator, elementType)
       case (m: Map[String @unchecked, _], MapType(StringType, valueType, _)) =>
@@ -608,7 +606,7 @@ trait Row extends Serializable {
 
     // Convert the row fields to json
     var n = 0
-    val elements = new mutable.ListBuffer[JField]
+    var elements = new mutable.ListBuffer[JField]
     val len = length
     while (n < len) {
       val field = schema(n)

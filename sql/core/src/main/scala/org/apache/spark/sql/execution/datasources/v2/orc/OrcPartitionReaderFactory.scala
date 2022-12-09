@@ -23,21 +23,19 @@ import org.apache.hadoop.fs.Path
 import org.apache.hadoop.mapreduce.{JobID, TaskAttemptID, TaskID, TaskType}
 import org.apache.hadoop.mapreduce.lib.input.FileSplit
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
-import org.apache.orc.{OrcConf, OrcFile, Reader, TypeDescription}
+import org.apache.orc.{OrcConf, OrcFile, TypeDescription}
 import org.apache.orc.mapred.OrcStruct
 import org.apache.orc.mapreduce.OrcInputFormat
 
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.connector.expressions.aggregate.Aggregation
 import org.apache.spark.sql.connector.read.{InputPartition, PartitionReader}
-import org.apache.spark.sql.execution.WholeStageCodegenExec
-import org.apache.spark.sql.execution.datasources.{AggregatePushDownUtils, PartitionedFile}
-import org.apache.spark.sql.execution.datasources.orc.{OrcColumnarBatchReader, OrcDeserializer, OrcFilters, OrcOptions, OrcUtils}
+import org.apache.spark.sql.execution.datasources.PartitionedFile
+import org.apache.spark.sql.execution.datasources.orc.{OrcColumnarBatchReader, OrcDeserializer, OrcFilters, OrcUtils}
 import org.apache.spark.sql.execution.datasources.v2._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{AtomicType, StructType}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.{SerializableConfiguration, Utils}
 
@@ -49,7 +47,6 @@ import org.apache.spark.util.{SerializableConfiguration, Utils}
  * @param dataSchema Schema of orc files.
  * @param readDataSchema Required data schema in the batch scan.
  * @param partitionSchema Schema of partitions.
- * @param options Options for parsing ORC files.
  */
 case class OrcPartitionReaderFactory(
     sqlConf: SQLConf,
@@ -57,40 +54,45 @@ case class OrcPartitionReaderFactory(
     dataSchema: StructType,
     readDataSchema: StructType,
     partitionSchema: StructType,
-    filters: Array[Filter],
-    aggregation: Option[Aggregation],
-    options: OrcOptions) extends FilePartitionReaderFactory {
+    filters: Array[Filter]) extends FilePartitionReaderFactory {
   private val resultSchema = StructType(readDataSchema.fields ++ partitionSchema.fields)
   private val isCaseSensitive = sqlConf.caseSensitiveAnalysis
   private val capacity = sqlConf.orcVectorizedReaderBatchSize
   private val orcFilterPushDown = sqlConf.orcFilterPushDown
+  private val ignoreCorruptFiles = sqlConf.ignoreCorruptFiles
 
   override def supportColumnarReads(partition: InputPartition): Boolean = {
     sqlConf.orcVectorizedReaderEnabled && sqlConf.wholeStageEnabled &&
-      !WholeStageCodegenExec.isTooManyFields(sqlConf, resultSchema) &&
-      resultSchema.forall(s => OrcUtils.supportColumnarReads(
-        s.dataType, sqlConf.orcVectorizedReaderNestedColumnEnabled))
+      resultSchema.length <= sqlConf.wholeStageMaxNumFields &&
+      resultSchema.forall(_.dataType.isInstanceOf[AtomicType])
   }
 
-  private def pushDownPredicates(orcSchema: TypeDescription, conf: Configuration): Unit = {
+  private def pushDownPredicates(filePath: Path, conf: Configuration): Unit = {
     if (orcFilterPushDown && filters.nonEmpty) {
-      val fileSchema = OrcUtils.toCatalystSchema(orcSchema)
-      OrcFilters.createFilter(fileSchema, filters).foreach { f =>
-        OrcInputFormat.setSearchArgument(conf, f, fileSchema.fieldNames)
+      OrcUtils.readCatalystSchema(filePath, conf, ignoreCorruptFiles).foreach { fileSchema =>
+        OrcFilters.createFilter(fileSchema, filters).foreach { f =>
+          OrcInputFormat.setSearchArgument(conf, f, fileSchema.fieldNames)
+        }
       }
     }
   }
 
   override def buildReader(file: PartitionedFile): PartitionReader[InternalRow] = {
     val conf = broadcastedConf.value.value
-    if (aggregation.nonEmpty) {
-      return buildReaderWithAggregates(file, conf)
-    }
+
+    OrcConf.IS_SCHEMA_EVOLUTION_CASE_SENSITIVE.setBoolean(conf, isCaseSensitive)
+
     val filePath = new Path(new URI(file.filePath))
 
-    val orcSchema = Utils.tryWithResource(createORCReader(filePath, conf))(_.getSchema)
-    val resultedColPruneInfo = OrcUtils.requestedColumnIds(
-      isCaseSensitive, dataSchema, readDataSchema, orcSchema, conf)
+    pushDownPredicates(filePath, conf)
+
+    val fs = filePath.getFileSystem(conf)
+    val readerOptions = OrcFile.readerOptions(conf).filesystem(fs)
+    val resultedColPruneInfo =
+      Utils.tryWithResource(OrcFile.createReader(filePath, readerOptions)) { reader =>
+        OrcUtils.requestedColumnIds(
+          isCaseSensitive, dataSchema, readDataSchema, reader, conf)
+      }
 
     if (resultedColPruneInfo.isEmpty) {
       new EmptyPartitionReader[InternalRow]
@@ -124,14 +126,20 @@ case class OrcPartitionReaderFactory(
 
   override def buildColumnarReader(file: PartitionedFile): PartitionReader[ColumnarBatch] = {
     val conf = broadcastedConf.value.value
-    if (aggregation.nonEmpty) {
-      return buildColumnarReaderWithAggregates(file, conf)
-    }
+
+    OrcConf.IS_SCHEMA_EVOLUTION_CASE_SENSITIVE.setBoolean(conf, isCaseSensitive)
+
     val filePath = new Path(new URI(file.filePath))
 
-    val orcSchema = Utils.tryWithResource(createORCReader(filePath, conf))(_.getSchema)
-    val resultedColPruneInfo = OrcUtils.requestedColumnIds(
-      isCaseSensitive, dataSchema, readDataSchema, orcSchema, conf)
+    pushDownPredicates(filePath, conf)
+
+    val fs = filePath.getFileSystem(conf)
+    val readerOptions = OrcFile.readerOptions(conf).filesystem(fs)
+    val resultedColPruneInfo =
+      Utils.tryWithResource(OrcFile.createReader(filePath, readerOptions)) { reader =>
+        OrcUtils.requestedColumnIds(
+          isCaseSensitive, dataSchema, readDataSchema, reader, conf)
+      }
 
     if (resultedColPruneInfo.isEmpty) {
       new EmptyPartitionReader
@@ -163,72 +171,4 @@ case class OrcPartitionReaderFactory(
     }
   }
 
-  private def createORCReader(filePath: Path, conf: Configuration): Reader = {
-    OrcConf.IS_SCHEMA_EVOLUTION_CASE_SENSITIVE.setBoolean(conf, isCaseSensitive)
-
-    val fs = filePath.getFileSystem(conf)
-    val readerOptions = OrcFile.readerOptions(conf).filesystem(fs)
-    val reader = OrcFile.createReader(filePath, readerOptions)
-
-    pushDownPredicates(reader.getSchema, conf)
-
-    reader
-  }
-
-  /**
-   * Build reader with aggregate push down.
-   */
-  private def buildReaderWithAggregates(
-      file: PartitionedFile,
-      conf: Configuration): PartitionReader[InternalRow] = {
-    val filePath = new Path(new URI(file.filePath))
-    new PartitionReader[InternalRow] {
-      private var hasNext = true
-      private lazy val row: InternalRow = {
-        Utils.tryWithResource(createORCReader(filePath, conf)) { reader =>
-          OrcUtils.createAggInternalRowFromFooter(
-            reader, filePath.toString, dataSchema, partitionSchema, aggregation.get,
-            readDataSchema, file.partitionValues)
-        }
-      }
-
-      override def next(): Boolean = hasNext
-
-      override def get(): InternalRow = {
-        hasNext = false
-        row
-      }
-
-      override def close(): Unit = {}
-    }
-  }
-
-  /**
-   * Build columnar reader with aggregate push down.
-   */
-  private def buildColumnarReaderWithAggregates(
-      file: PartitionedFile,
-      conf: Configuration): PartitionReader[ColumnarBatch] = {
-    val filePath = new Path(new URI(file.filePath))
-    new PartitionReader[ColumnarBatch] {
-      private var hasNext = true
-      private lazy val batch: ColumnarBatch = {
-        Utils.tryWithResource(createORCReader(filePath, conf)) { reader =>
-          val row = OrcUtils.createAggInternalRowFromFooter(
-            reader, filePath.toString, dataSchema, partitionSchema, aggregation.get,
-            readDataSchema, file.partitionValues)
-          AggregatePushDownUtils.convertAggregatesRowToBatch(row, readDataSchema, offHeap = false)
-        }
-      }
-
-      override def next(): Boolean = hasNext
-
-      override def get(): ColumnarBatch = {
-        hasNext = false
-        batch
-      }
-
-      override def close(): Unit = {}
-    }
-  }
 }

@@ -17,17 +17,19 @@
 
 package org.apache.spark.storage
 
+import org.junit.Assert.assertTrue
+
 import org.apache.spark.{SparkConf, SparkFunSuite}
 
 class BlockManagerMasterSuite extends SparkFunSuite {
 
   test("SPARK-31422: getMemoryStatus should not fail after BlockManagerMaster stops") {
     val bmm = new BlockManagerMaster(null, null, new SparkConf, true)
-    assert(bmm.getMemoryStatus.isEmpty)
+    assertTrue(bmm.getMemoryStatus.isEmpty)
   }
 
   test("SPARK-31422: getStorageStatus should not fail after BlockManagerMaster stops") {
     val bmm = new BlockManagerMaster(null, null, new SparkConf, true)
-    assert(bmm.getStorageStatus.isEmpty)
+    assertTrue(bmm.getStorageStatus.isEmpty)
   }
 }

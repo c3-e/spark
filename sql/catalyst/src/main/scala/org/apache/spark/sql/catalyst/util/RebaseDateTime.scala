@@ -25,7 +25,7 @@ import java.util.Calendar.{DAY_OF_MONTH, DST_OFFSET, ERA, HOUR_OF_DAY, MINUTE, M
 import scala.collection.mutable.AnyRefMap
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.scala.{ClassTagExtensions, DefaultScalaModule}
+import com.fasterxml.jackson.module.scala.{DefaultScalaModule, ScalaObjectMapper}
 
 import org.apache.spark.sql.catalyst.util.DateTimeConstants._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils._
@@ -268,17 +268,13 @@ object RebaseDateTime {
     micros + rebaseInfo.diffs(i)
   }
 
-  private lazy val mapper = {
-    val mapper = new ObjectMapper() with ClassTagExtensions
-    mapper.registerModule(DefaultScalaModule)
-    mapper
-  }
-
   // Loads rebasing info from an JSON file. JSON records in the files should conform to
   // `JsonRebaseRecord`. AnyRefMap is used here instead of Scala's immutable map because
   // it is 2 times faster in DateTimeRebaseBenchmark.
   private[sql] def loadRebaseRecords(fileName: String): AnyRefMap[String, RebaseInfo] = {
     val file = Utils.getSparkClassLoader.getResource(fileName)
+    val mapper = new ObjectMapper() with ScalaObjectMapper
+    mapper.registerModule(DefaultScalaModule)
     val jsonRebaseRecords = mapper.readValue[Seq[JsonRebaseRecord]](file)
     val anyRefMap = new AnyRefMap[String, RebaseInfo]((3 * jsonRebaseRecords.size) / 2)
     jsonRebaseRecords.foreach { jsonRecord =>

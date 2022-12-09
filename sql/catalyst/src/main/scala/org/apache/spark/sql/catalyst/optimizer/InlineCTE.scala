@@ -64,11 +64,11 @@ case class InlineCTE(alwaysInline: Boolean = false) extends Rule[LogicalPlan] {
     // 1) It is fine to inline a CTE if it references another CTE that is non-deterministic;
     // 2) Any `CTERelationRef` that contains `OuterReference` would have been inlined first.
     refCount == 1 ||
-      cteDef.deterministic ||
-      cteDef.child.exists(_.expressions.exists(_.isInstanceOf[OuterReference]))
+      cteDef.child.find(_.expressions.exists(!_.deterministic)).isEmpty ||
+      cteDef.child.find(_.expressions.exists(_.isInstanceOf[OuterReference])).isDefined
   }
 
-  def buildCTEMap(
+  private def buildCTEMap(
       plan: LogicalPlan,
       cteMap: mutable.HashMap[Long, (CTERelationDef, Int)]): Unit = {
     plan match {
@@ -128,11 +128,7 @@ case class InlineCTE(alwaysInline: Boolean = false) extends Rule[LogicalPlan] {
             val ctePlan = DeduplicateRelations(
               Join(cteDef.child, cteDef.child, Inner, None, JoinHint(None, None))).children(1)
             val projectList = ref.output.zip(ctePlan.output).map { case (tgtAttr, srcAttr) =>
-              if (srcAttr.semanticEquals(tgtAttr)) {
-                tgtAttr
-              } else {
-                Alias(srcAttr, tgtAttr.name)(exprId = tgtAttr.exprId)
-              }
+              Alias(srcAttr, tgtAttr.name)(exprId = tgtAttr.exprId)
             }
             Project(projectList, ctePlan)
           }

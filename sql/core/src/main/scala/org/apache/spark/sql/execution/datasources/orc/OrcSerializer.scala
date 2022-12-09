@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution.datasources.orc
 
 import org.apache.hadoop.io._
+import org.apache.orc.TypeDescription
 import org.apache.orc.mapred.{OrcList, OrcMap, OrcStruct, OrcTimestamp}
 
 import org.apache.spark.sql.catalyst.InternalRow
@@ -87,7 +88,7 @@ class OrcSerializer(dataSchema: StructType) {
         (getter, ordinal) => new ShortWritable(getter.getShort(ordinal))
       }
 
-    case IntegerType | _: YearMonthIntervalType =>
+    case IntegerType =>
       if (reuseObj) {
         val result = new IntWritable()
         (getter, ordinal) =>
@@ -98,7 +99,7 @@ class OrcSerializer(dataSchema: StructType) {
       }
 
 
-    case LongType | _: DayTimeIntervalType | _: TimestampNTZType =>
+    case LongType =>
       if (reuseObj) {
         val result = new LongWritable()
         (getter, ordinal) =>
@@ -152,7 +153,7 @@ class OrcSerializer(dataSchema: StructType) {
 
     case st: StructType => (getter, ordinal) =>
       val result = createOrcValue(st).asInstanceOf[OrcStruct]
-      val fieldConverters = st.map(_.dataType).map(newConverter(_)).toArray
+      val fieldConverters = st.map(_.dataType).map(newConverter(_))
       val numFields = st.length
       val struct = getter.getStruct(ordinal, numFields)
       var i = 0
@@ -213,6 +214,6 @@ class OrcSerializer(dataSchema: StructType) {
    * Return a Orc value object for the given Spark schema.
    */
   private def createOrcValue(dataType: DataType) = {
-    OrcStruct.createValue(OrcUtils.orcTypeDescription(dataType))
+    OrcStruct.createValue(TypeDescription.fromString(OrcFileFormat.getQuotedSchemaString(dataType)))
   }
 }

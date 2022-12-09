@@ -157,7 +157,6 @@ class CsvTest(PandasOnSparkTestCase, TestUtils):
             check(index_col=["amount"])
             check(header=None, index_col=[1])
             check(names=["n", "a"], index_col=["a"])
-            check(names=["n", "a"], index_col="a")
 
             # check with pyspark patch.
             expected = pd.read_csv(fn)
@@ -238,13 +237,6 @@ class CsvTest(PandasOnSparkTestCase, TestUtils):
         with self.csv_file(self.csv_text_with_comments) as fn:
             expected = pd.read_csv(fn, comment="#", nrows=2)
             actual = ps.read_csv(fn, comment="#", nrows=2)
-            self.assert_eq(expected, actual, almost=True)
-
-    def test_read_csv_with_encoding(self):
-        # SPARK-37181: Read csv supporting latin-1 encoding.
-        with self.csv_file(self.csv_text) as fn:
-            expected = pd.read_csv(fn, encoding="latin-1")
-            actual = ps.read_csv(fn, encoding="latin-1")
             self.assert_eq(expected, actual, almost=True)
 
     def test_read_csv_with_sep(self):

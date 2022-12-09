@@ -35,6 +35,7 @@ public class JavaVectorsSuite {
 
   @Test
   public void sparseArrayConstruction() {
+    @SuppressWarnings("unchecked")
     Vector v = Vectors.sparse(3, Arrays.asList(
       new Tuple2<>(0, 2.0),
       new Tuple2<>(2, 3.0)));

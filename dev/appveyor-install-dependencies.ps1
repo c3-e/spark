@@ -79,32 +79,18 @@ if (!(Test-Path $tools)) {
 }
 
 # ========================== Maven
-# Push-Location $tools
-#
-# $mavenVer = "3.8.6"
-# Start-FileDownload "https://archive.apache.org/dist/maven/maven-3/$mavenVer/binaries/apache-maven-$mavenVer-bin.zip" "maven.zip"
-#
-# # extract
-# Invoke-Expression "7z.exe x maven.zip"
-#
-# # add maven to environment variables
-# $env:PATH = "$tools\apache-maven-$mavenVer\bin;" + $env:PATH
-# $env:M2_HOME = "$tools\apache-maven-$mavenVer"
-# $env:MAVEN_OPTS = "-Xmx2g -XX:ReservedCodeCacheSize=1g"
-#
-# Pop-Location
-
-# ========================== SBT
 Push-Location $tools
 
-$sbtVer = "1.8.0"
-Start-FileDownload "https://github.com/sbt/sbt/releases/download/v$sbtVer/sbt-$sbtVer.zip" "sbt.zip"
+$mavenVer = "3.6.3"
+Start-FileDownload "https://archive.apache.org/dist/maven/maven-3/$mavenVer/binaries/apache-maven-$mavenVer-bin.zip" "maven.zip"
 
 # extract
-Invoke-Expression "7z.exe x sbt.zip"
+Invoke-Expression "7z.exe x maven.zip"
 
-# add sbt to environment variables
-$env:PATH = "$tools\sbt\bin;" + $env:PATH
+# add maven to environment variables
+$env:PATH = "$tools\apache-maven-$mavenVer\bin;" + $env:PATH
+$env:M2_HOME = "$tools\apache-maven-$mavenVer"
+$env:MAVEN_OPTS = "-Xmx2g -XX:ReservedCodeCacheSize=1g"
 
 Pop-Location
 
@@ -129,7 +115,7 @@ $env:PATH = "$env:HADOOP_HOME\bin;" + $env:PATH
 Pop-Location
 
 # ========================== R
-$rVer = "4.2.0"
+$rVer = "4.0.2"
 $rToolsVer = "4.0.2"
 
 InstallR

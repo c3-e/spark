@@ -18,6 +18,7 @@ from pyspark.testing.utils import ReusedPySparkTestCase
 
 
 class JoinTests(ReusedPySparkTestCase):
+
     def test_narrow_dependency_in_join(self):
         rdd = self.sc.parallelize(range(10)).map(lambda x: (x, x))
         parted = rdd.partitionBy(2)
@@ -62,8 +63,7 @@ if __name__ == "__main__":
 
     try:
         import xmlrunner  # type: ignore[import]
-
-        testRunner = xmlrunner.XMLTestRunner(output="target/test-reports", verbosity=2)
+        testRunner = xmlrunner.XMLTestRunner(output='target/test-reports', verbosity=2)
     except ImportError:
         testRunner = None
     unittest.main(testRunner=testRunner, verbosity=2)

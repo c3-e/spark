@@ -18,13 +18,14 @@ package org.apache.spark.scheduler
 
 import org.mockito.ArgumentMatchers.isA
 import org.mockito.Mockito.{never, verify}
+import org.scalatest.BeforeAndAfterEach
 import org.scalatestplus.mockito.MockitoSugar
 
 import org.apache.spark.{SparkConf, SparkFunSuite}
 import org.apache.spark.internal.config
 import org.apache.spark.util.ManualClock
 
-class TaskSetExcludelistSuite extends SparkFunSuite with MockitoSugar {
+class TaskSetExcludelistSuite extends SparkFunSuite with BeforeAndAfterEach with MockitoSugar {
 
   private var listenerBusMock: LiveListenerBus = _
 

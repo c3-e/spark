@@ -93,7 +93,7 @@ private[thriftserver] class HiveThriftServer2Listener(
     val execList = executionList.values().asScala.filter(_.groupId == groupId).toSeq
     if (execList.nonEmpty) {
       execList.foreach { exec =>
-        exec.jobId += jobId
+        exec.jobId += jobId.toString
         updateLiveStore(exec)
       }
     } else {
@@ -101,12 +101,11 @@ private[thriftserver] class HiveThriftServer2Listener(
       // Execution end event (Refer SPARK-27019). To handle that situation, if occurs in
       // Thriftserver, following code will take care. Here will come only if JobStart event comes
       // after Execution End event.
-      val storeExecInfo = KVUtils.viewToSeq(
-        kvstore.view(classOf[ExecutionInfo]), Int.MaxValue)(_.groupId == groupId)
+      val storeExecInfo = kvstore.view(classOf[ExecutionInfo]).asScala.filter(_.groupId == groupId)
       storeExecInfo.foreach { exec =>
         val liveExec = getOrCreateExecution(exec.execId, exec.statement, exec.sessionId,
           exec.startTimestamp, exec.userName)
-        liveExec.jobId += jobId
+        liveExec.jobId += jobId.toString
         updateStoreWithTriggerEnabled(liveExec)
         executionList.remove(liveExec.execId)
       }

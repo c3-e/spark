@@ -109,22 +109,18 @@ class DataSourceSuite extends SharedSparkSession with PrivateMethodTester {
   }
 
   test("test non existent paths") {
-    checkError(
-      exception = intercept[AnalysisException](
-        DataSource.checkAndGlobPathIfNecessary(
-          Seq(
-            path1.toString,
-            path2.toString,
-            nonExistentPath.toString
-          ),
-          hadoopConf,
-          checkEmptyGlobPath = true,
-          checkFilesExist = true,
-          enableGlobbing = true
-        )
-      ),
-      errorClass = "PATH_NOT_FOUND",
-      parameters = Map("path" -> nonExistentPath.toString)
+    assertThrows[AnalysisException](
+      DataSource.checkAndGlobPathIfNecessary(
+        Seq(
+          path1.toString,
+          path2.toString,
+          nonExistentPath.toString
+        ),
+        hadoopConf,
+        checkEmptyGlobPath = true,
+        checkFilesExist = true,
+        enableGlobbing = true
+      )
     )
   }
 
@@ -147,8 +143,7 @@ class DataSourceSuite extends SharedSparkSession with PrivateMethodTester {
   test("Data source options should be propagated in method checkAndGlobPathIfNecessary") {
     val dataSourceOptions = Map("fs.defaultFS" -> "nonexistentFs://nonexistentFs")
     val dataSource = DataSource(spark, "parquet", Seq("/path3"), options = dataSourceOptions)
-    val checkAndGlobPathIfNecessary =
-      PrivateMethod[Seq[Path]](Symbol("checkAndGlobPathIfNecessary"))
+    val checkAndGlobPathIfNecessary = PrivateMethod[Seq[Path]]('checkAndGlobPathIfNecessary)
 
     val message = intercept[java.io.IOException] {
       dataSource invokePrivate checkAndGlobPathIfNecessary(false, false)
