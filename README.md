@@ -1,3 +1,15 @@
+# Spark customization (Updated on 12/08)
+
+Building Spark 3.2.2 with Hadoop 3.3.4
+
+    ./build/mvn -Pyarn -Dhadoop.version=3.3.4 -DskipTests clean package
+    
+Generate distribution package
+
+    ./dev/make-distribution.sh --name custom-spark --pip --tgz -Psparkr -Dhadoop.version=3.3.4 -Phive -Phive-thriftserver -Pmesos -Pyarn -Pkubernetes
+
+
+
 # Apache Spark
 
 Spark is a unified analytics engine for large-scale data processing. It provides
