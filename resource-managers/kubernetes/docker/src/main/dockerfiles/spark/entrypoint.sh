@@ -67,12 +67,22 @@ elif ! [ -z ${SPARK_HOME+x} ]; then
   SPARK_CLASSPATH="$SPARK_HOME/conf:$SPARK_CLASSPATH";
 fi
 
+# C3 customization
+mkdir /tmp/c3 || true
+ln -s /opt/c3/* /tmp/c3/ || true
+mkdir /tmp/spark || true
+ln -s /opt/spark/* /tmp/spark/ || true
+# end C3 customization
+
 case "$1" in
   driver)
     shift 1
     CMD=(
       "$SPARK_HOME/bin/spark-submit"
       --conf "spark.driver.bindAddress=$SPARK_DRIVER_BIND_ADDRESS"
+      # C3 customization
+      --conf "spark.kubernetes.driver.pod.name=$C3_K8S_SPARK_DRIVER_POD_NAME"
+      # end C3 customization
       --deploy-mode client
       "$@"
     )
