@@ -74,11 +74,11 @@
     </dependency>
 
     <!-- Required by kubernetes-client but we exclude it -->
-<!--    <dependency>-->
-<!--      <groupId>com.fasterxml.jackson.dataformat</groupId>-->
-<!--      <artifactId>jackson-dataformat-yaml</artifactId>-->
-<!--      <version>${fasterxml.jackson.version}</version>-->
-<!--    </dependency>-->
+    <dependency>
+      <groupId>com.fasterxml.jackson.dataformat</groupId>
+      <artifactId>jackson-dataformat-yaml</artifactId>
+      <version>2.15.0-rc2</version>
+    </dependency>
 
     <!-- Explicitly depend on shaded dependencies from the parent, since shaded deps aren't transitive -->
     <dependency>
