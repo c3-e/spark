@@ -8,6 +8,7 @@
 *.swp
 *~
 .DS_Store
+.vscode
 .bsp/
 .cache
 .classpath
