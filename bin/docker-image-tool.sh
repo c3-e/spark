@@ -97,15 +97,9 @@ function create_dev_build_context {(
   cp -r "resource-managers/kubernetes/integration-tests/tests" \
     "$BASE_CTX/kubernetes/tests"
 
-  mkdir "$BASE_CTX/examples"
-  cp -r "examples/src" "$BASE_CTX/examples/src"
-  # Copy just needed examples jars instead of everything.
-  mkdir "$BASE_CTX/examples/jars"
-  for i in examples/target/scala-$SPARK_SCALA_VERSION/jars/*; do
-    if [ ! -f "$BASE_CTX/jars/$(basename $i)" ]; then
-      cp $i "$BASE_CTX/examples/jars"
-    fi
-  done
+  mkdir "$BASE_CTX/python"
+  cp -r "python/lib" "$BASE_CTX/python/lib"
+  cp -r "python/pyspark" "$BASE_CTX/python/pyspark"
 
   for other in bin sbin data; do
     cp -r "$other" "$BASE_CTX/$other"
