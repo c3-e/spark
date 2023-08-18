@@ -64,6 +64,7 @@ ENV CONDA_ENV vad
 
 # install all of the expected Openjdk package as one-to-one mappings of the debian to dnf packages,
 # then the standard Spark install but adapted for microdnf, then the Python packages via Miniconda and Pip
+# this line adds 1.66 GB to the image [1/4/23]
 RUN set -x && \
     echo "install OpenJDK packages missing from ubi8-minimal" \
     microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils python3-devel libstdc++6 && \
@@ -92,8 +93,10 @@ RUN set -x && \
     conda install -c conda-forge -n vad -y pystan=2.19.1.1 && \
     conda install -c conda-forge -n vad -y prophet=1.0.1 && \
     conda install -c conda-forge -n vad -y scipy=1.7.3 && \
-    conda install -c conda-forge -n vad -y statsmodels && \
-    conda install -c conda-forge -n vad -y seaborn && \
+    conda install -c conda-forge -n vad -y statsmodels=0.13.5 && \
+    conda install -c conda-forge -n vad -y seaborn=0.12.2 && \
+    conda install -c conda-forge -n vad -y backports=1.1 && \
+    conda install -c conda-forge -n vad -y backports.zoneinfo=0.2.1 && \
     conda install -c conda-forge -n vad -y scikit-learn=1.1.1 && \
     conda install -c conda-forge -n vad -y pyarrow=9.0.0 && \
     conda clean --all --force-pkgs-dirs --yes && \
@@ -123,10 +126,6 @@ COPY kubernetes/dockerfiles/spark/decom.sh /opt/
 # C3 customization - removed examples, kubernetes/tests, and data copying
 
 ENV SPARK_HOME /opt/spark
-
-# C3 customization - copy Hadoop 3.3.4 until we switch to a version using Hadoop 3.3.4
-# COPY hadoop-3.3.4 /opt/hadoop3.3.4
-# ENV HADOOP_HOME="/opt/hadoop3.3.4"
 
 WORKDIR /opt/spark/work-dir
 RUN chmod g+w /opt/spark/work-dir
