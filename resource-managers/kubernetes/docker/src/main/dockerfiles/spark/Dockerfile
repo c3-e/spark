@@ -92,7 +92,7 @@ RUN set -x && \
     conda install -c conda-forge -n vad -y numpy=1.21.2 && \
     conda install -c conda-forge -n vad -y pystan=2.19.1.1 && \
     conda install -c conda-forge -n vad -y prophet=1.0.1 && \
-    conda install -c conda-forge -n vad -y scipy=1.7.3 && \
+    conda install -c conda-forge -n vad -y scipy=1.8.0 && \
     conda install -c conda-forge -n vad -y statsmodels=0.13.5 && \
     conda install -c conda-forge -n vad -y seaborn=0.12.2 && \
     conda install -c conda-forge -n vad -y backports=1.1 && \
