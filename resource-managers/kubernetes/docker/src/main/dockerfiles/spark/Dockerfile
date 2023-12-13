@@ -16,7 +16,7 @@
 #
 
 # C3 customization
-FROM aksdevc3.azurecr.io/ubi/ubi8-minimal:8.9.1029.1
+FROM locked-registry.c3.ai/ubi/ubi8-minimal:8.9.1029.1
 # end C3 customization
 
 # Before building the docker image, first build and make a Spark distribution following
@@ -66,8 +66,7 @@ RUN echo "install packages missing from ubi8-minimal" \
     ln -sv /bin/bash /bin/sh && \
     echo "auth required pam_wheel.so use_uid" >> /etc/pam.d/su && \
     chgrp root /etc/passwd && chmod ug+rw /etc/passwd && \
-    rm -rf /var/cache/apt/* && rm -rf /var/lib/apt/lists/*
-
+    rm -rf /var/cache/apt/* && rm -rf /var/lib/apt/lists/* \
     dnf update-minimal --nodocs -y --security --sec-severity=Important --sec-severity=Critical --skip-broken && \
     echo "C3 conda installation code" && \
     wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh && \
