@@ -78,6 +78,13 @@ fi
 # SPARK-43540: add current working directory into executor classpath
 SPARK_CLASSPATH="$SPARK_CLASSPATH:$PWD"
 
+# C3 customization
+mkdir /tmp/c3 || true
+ln -s /opt/c3/* /tmp/c3/ || true
+mkdir /tmp/spark || true
+ln -s /opt/spark/* /tmp/spark/ || true
+# end C3 customization
+
 case "$1" in
   driver)
     shift 1
@@ -85,6 +92,9 @@ case "$1" in
       "$SPARK_HOME/bin/spark-submit"
       --conf "spark.driver.bindAddress=$SPARK_DRIVER_BIND_ADDRESS"
       --conf "spark.executorEnv.SPARK_DRIVER_POD_IP=$SPARK_DRIVER_BIND_ADDRESS"
+      # C3 customization - this allows executor pods to remove themselves when driver pod disappears
+      --conf "spark.kubernetes.driver.pod.name=$C3_K8S_SPARK_DRIVER_POD_NAME"
+      # end C3 customization
       --deploy-mode client
       "$@"
     )
