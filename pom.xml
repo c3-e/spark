@@ -3293,6 +3293,10 @@
             <relocation>
               <pattern>com.google.common</pattern>
               <shadedPattern>${spark.shade.packageName}.guava</shadedPattern>
+              <excludes>
+                <!-- temporary fix: https://issues.apache.org/jira/browse/SPARK-45201 -->
+                <exclude>com.google.common.util.concurrent.internal.**</exclude>
+              </excludes>
             </relocation>
             <relocation>
               <pattern>org.dmg.pmml</pattern>
