@@ -41,10 +41,7 @@ RUN set -ex && \
     mkdir /usr/java && \
     ln -s -f /usr/lib/jvm/java-11-amazon-corretto /usr/java/latest && \
     ln -s -f /usr/java/latest /usr/java/default && \
-    rm -f ${CORRETTO_RPM} && \
-    microdnf clean all && \
-    [ ! -d /var/cache/yum ] || rm -rf /var/cache/yum && \
-    [ ! -d /var/cache/dnf ] || rm -rf /var/cache/dnf
+    rm -f ${CORRETTO_RPM}
 
 ENV JAVA_HOME /usr/java/default
 ENV LANG en_US.UTF-8
@@ -54,7 +51,7 @@ ENV PATH=$PATH:/miniconda/condabin:/miniconda/bin
 ENV CONDA_HOME /miniconda
 ENV CONDA_ENV vad
 
-RUN echo "install packages missing from ubi8-minimal" \
+RUN echo "install packages missing from ubi8-minimal" && \
     microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils python3-devel && \
     echo "standard Spark install but adapted for microdnf from ubi8-minimal" && \
     ln -s /lib /lib64 && \
@@ -67,8 +64,6 @@ RUN echo "install packages missing from ubi8-minimal" \
     ln -sv /bin/bash /bin/sh && \
     echo "auth required pam_wheel.so use_uid" >> /etc/pam.d/su && \
     chgrp root /etc/passwd && chmod ug+rw /etc/passwd && \
-    rm -rf /var/cache/apt/* && rm -rf /var/lib/apt/lists/* && \
-    dnf update-minimal --nodocs -y --security --sec-severity=Important --sec-severity=Critical --skip-broken && \
     echo "C3 conda installation code" && \
     wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh && \
     bash Miniconda3-latest-Linux-x86_64.sh -b -p /miniconda && \
