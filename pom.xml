@@ -2775,6 +2775,11 @@
         <artifactId>arpack</artifactId>
         <version>${netlib.ludovic.dev.version}</version>
       </dependency>
+      <dependency>
+        <groupId>com.google.flatbuffers</groupId>
+        <artifactId>flatbuffers-java</artifactId>
+        <version>2.0.8</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
