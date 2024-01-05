@@ -81,6 +81,11 @@
       <version>${kubernetes-client.version}</version>
     </dependency>
     <dependency>
+      <groupId>com.squareup.okhttp3</groupId>
+      <artifactId>okhttp</artifactId>
+      <version>4.12.0</version> <!-- kubernetes-httpclient-okhttp depends on 3.12.12, which has a CVE -->
+    </dependency>
+    <dependency>
       <groupId>io.fabric8</groupId>
       <artifactId>kubernetes-client</artifactId>
       <version>${kubernetes-client.version}</version>
