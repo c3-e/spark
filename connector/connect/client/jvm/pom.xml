@@ -112,8 +112,16 @@
               </includes>
             </relocation>
             <relocation>
+              <pattern>com.google.common</pattern>
+              <shadedPattern>${spark.shade.packageName}.connect.guava</shadedPattern>
+            </relocation>
+            <relocation>
               <pattern>com.google</pattern>
-              <shadedPattern>${spark.shade.packageName}.connect.client.com.google</shadedPattern>
+              <shadedPattern>${spark.shade.packageName}.com.google</shadedPattern>
+              <excludes>
+                <!-- Guava is relocated to ${spark.shade.packageName}.guava (see the parent pom.xml) -->
+                <exclude>com.google.common.**</exclude>
+              </excludes>
             </relocation>
             <relocation>
               <pattern>io.netty</pattern>
