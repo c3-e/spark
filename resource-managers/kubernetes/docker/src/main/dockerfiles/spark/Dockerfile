@@ -69,8 +69,8 @@ RUN echo "install packages missing from ubi8-minimal" && \
     rm Miniconda3-latest-Linux-x86_64.sh && \
     echo 'export PATH=$PATH:/miniconda/condabin:/miniconda/bin' >> /root/.bashrc && \
     echo "source activate vad" >> /root/.bashrc && \
-    yes | conda create -n vad python=3.8 && \
-    conda install -c conda-forge -n vad -y pillow=9.5.0 && \
+    yes | conda create -n vad python=3.9 && \
+    conda install -c conda-forge -n vad -y pillow=10.2.0 && \
     conda install -c conda-forge -n vad -y pandas=1.3.3 && \
     conda install -c conda-forge -n vad -y numpy=1.21.2 && \
     conda install -c conda-forge -n vad -y pystan=2.19.1.1 && \
