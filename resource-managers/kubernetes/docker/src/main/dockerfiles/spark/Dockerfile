@@ -71,6 +71,7 @@ RUN echo "install packages missing from ubi8-minimal" && \
     echo "source activate vad" >> /root/.bashrc && \
     yes | conda create -n vad python=3.9 && \
     conda install -c conda-forge -n vad -y pillow=10.2.0 && \
+    conda install -c conda-forge -n vad -y setuptools=68.2.2 && \
     conda install -c conda-forge -n vad -y pandas=1.3.3 && \
     conda install -c conda-forge -n vad -y numpy=1.21.2 && \
     conda install -c conda-forge -n vad -y pystan=2.19.1.1 && \
@@ -82,17 +83,18 @@ RUN echo "install packages missing from ubi8-minimal" && \
     conda install -c conda-forge -n vad -y backports.zoneinfo=0.2.1 && \
     conda install -c conda-forge -n vad -y scikit-learn=1.1.1 && \
     conda install -c conda-forge -n vad -y pyarrow=14.0.1 && \
-    conda install -c conda-forge -n vad -y cryptography=42.0.5 && \
     conda clean --all --force-pkgs-dirs --yes && \
-    source activate vad && pip3 install --no-cache-dir jep==3.9.1 && \
+    source activate vad && \
+    pip3 install --no-cache-dir jep==3.9.1 && \
+    conda remove --force cryptography=41.0.7 \ # INFOSEC-2110 - this version has a CVE, but gets installed to /miniconda/pkgs/ during miniconda install
     dnf clean all && microdnf remove dnf && \
     microdnf clean all && \
     [ ! -d /var/cache/yum ] || rm -rf /var/cache/yum && \
     [ ! -d /var/cache/dnf ] || rm -rf /var/cache/dnf && \
     rm -r /usr/share/doc/
 
-ENV LD_LIBRARY_PATH /miniconda/envs/vad/lib:/miniconda/envs/vad/lib/python3.8/site-packages/jep
-ENV LD_PRELOAD /miniconda/envs/vad/lib/libpython3.8.so
+ENV LD_LIBRARY_PATH /miniconda/envs/vad/lib:/miniconda/envs/vad/lib/python3.9/site-packages/jep
+ENV LD_PRELOAD /miniconda/envs/vad/lib/libpython3.9.so
 
 # tini is installed here (not included in ubi8-minimal)
 ENV TINI_VERSION v0.19.0
