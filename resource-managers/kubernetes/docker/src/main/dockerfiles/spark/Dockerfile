@@ -64,11 +64,12 @@ RUN echo "install packages missing from ubi8-minimal" && \
     echo "auth required pam_wheel.so use_uid" >> /etc/pam.d/su && \
     chgrp root /etc/passwd && chmod ug+rw /etc/passwd && \
     echo "C3 conda installation code" && \
-    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh && \
-    bash Miniconda3-latest-Linux-x86_64.sh -b -p /miniconda && \
-    rm Miniconda3-latest-Linux-x86_64.sh && \
+    wget https://repo.anaconda.com/miniconda/Miniconda3-py39_24.1.2-0-Linux-x86_64.sh && \
+    bash Miniconda3-py39_24.1.2-0-Linux-x86_64.sh -b -p /miniconda && \
+    rm Miniconda3-py39_24.1.2-0-Linux-x86_64.sh && \
     echo 'export PATH=$PATH:/miniconda/condabin:/miniconda/bin' >> /root/.bashrc && \
     echo "source activate vad" >> /root/.bashrc && \
+    conda install -c conda-forge cryptography=42.0.5 --yes && \
     yes | conda create -n vad python=3.9 && \
     conda install -c conda-forge -n vad -y pillow=10.2.0 && \
     conda install -c conda-forge -n vad -y setuptools=68.2.2 && \
@@ -86,7 +87,6 @@ RUN echo "install packages missing from ubi8-minimal" && \
     conda clean --all --force-pkgs-dirs --yes && \
     source activate vad && \
     pip3 install --no-cache-dir jep==3.9.1 && \
-    conda remove --force cryptography=41.0.7 && \
     dnf clean all && microdnf remove dnf && \
     microdnf clean all && \
     [ ! -d /var/cache/yum ] || rm -rf /var/cache/yum && \
