@@ -86,7 +86,7 @@ RUN echo "install packages missing from ubi8-minimal" && \
     conda clean --all --force-pkgs-dirs --yes && \
     source activate vad && \
     pip3 install --no-cache-dir jep==3.9.1 && \
-    conda remove --force cryptography=41.0.7 \ # INFOSEC-2110 - this version has a CVE, but gets installed to /miniconda/pkgs/ during miniconda install
+    conda remove --force cryptography=41.0.7 && \
     dnf clean all && microdnf remove dnf && \
     microdnf clean all && \
     [ ! -d /var/cache/yum ] || rm -rf /var/cache/yum && \
