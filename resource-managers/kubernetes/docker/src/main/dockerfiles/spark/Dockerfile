@@ -85,9 +85,9 @@ RUN echo "install packages missing from ubi8-minimal" && \
     conda install -c conda-forge -n vad -y backports.zoneinfo=0.2.1 && \
     conda install -c conda-forge -n vad -y scikit-learn=1.1.1 && \
     conda install -c conda-forge -n vad -y pyarrow=14.0.2 && \
-    conda clean --all --force-pkgs-dirs --yes && \
     source activate vad && \
     pip3 install --no-cache-dir jep==3.9.1 && \
+    conda clean --all --force-pkgs-dirs --yes && \
     dnf clean all && microdnf remove dnf && \
     microdnf clean all && \
     [ ! -d /var/cache/yum ] || rm -rf /var/cache/yum && \
