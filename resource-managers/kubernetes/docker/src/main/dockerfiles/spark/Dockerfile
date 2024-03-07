@@ -51,6 +51,7 @@ ENV CONDA_HOME /miniconda
 ENV CONDA_ENV vad
 
 RUN echo "install packages missing from ubi8-minimal" && \
+    set -ex && \
     microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils python3-devel && \
     echo "standard Spark install but adapted for microdnf from ubi8-minimal" && \
     ln -s /lib /lib64 && \
@@ -83,7 +84,7 @@ RUN echo "install packages missing from ubi8-minimal" && \
     conda install -c conda-forge -n vad -y backports=1.1 && \
     conda install -c conda-forge -n vad -y backports.zoneinfo=0.2.1 && \
     conda install -c conda-forge -n vad -y scikit-learn=1.1.1 && \
-    conda install -c conda-forge -n vad -y pyarrow=14.0.1 && \
+    conda install -c conda-forge -n vad -y pyarrow=14.0.2 && \
     conda clean --all --force-pkgs-dirs --yes && \
     source activate vad && \
     pip3 install --no-cache-dir jep==3.9.1 && \
