@@ -55,7 +55,7 @@ RUN echo "install packages missing from ubi8-minimal" && \
     microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils python3-devel && \
     echo "standard Spark install but adapted for microdnf from ubi8-minimal" && \
     ln -s /lib /lib64 && \
-    microdnf install --nodocs -y glibc pam krb5-workstation nss && \
+    microdnf install --nodocs -y glibc pam krb5-workstation nss libtiff && \
     mkdir -p /opt/spark && \
     mkdir -p /opt/spark/examples && \
     mkdir -p /opt/spark/work-dir && \
