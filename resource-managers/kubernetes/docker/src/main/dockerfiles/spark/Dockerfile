@@ -79,7 +79,7 @@ RUN echo "install packages missing from ubi8-minimal" && \
     conda install -c conda-forge -n vad -y pystan=2.19.1.1 && \
     conda install -c conda-forge -n vad -y holidays=0.18 && \
     conda install -c conda-forge -n vad -y prophet=1.0.1 && \
-    conda install -c conda-forge -n vad -y scipy=1.7.3 && \
+    conda install -c conda-forge -n vad -y scipy=1.10.0 && \
     conda install -c conda-forge -n vad -y statsmodels=0.13.5 && \
     conda install -c conda-forge -n vad -y seaborn=0.12.2 && \
     conda install -c conda-forge -n vad -y backports=1.1 && \
