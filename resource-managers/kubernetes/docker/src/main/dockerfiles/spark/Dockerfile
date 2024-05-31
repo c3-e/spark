@@ -75,7 +75,8 @@ RUN echo "install packages missing from ubi8-minimal" && \
     conda install -c conda-forge -n vad -y pillow=10.2.0 && \
     conda install -c conda-forge -n vad -y setuptools=68.2.2 && \
     conda install -c conda-forge -n vad -y pandas=1.3.3 && \
-    conda install -c conda-forge -n vad -y numpy=1.21.2 && \
+    conda install -c conda-forge -n vad -y numpy=1.21.6 && \
+    conda install -c conda-forge -n vad -y pystan=3.7.0 && \
     conda install -c conda-forge -n vad -y prophet=1.1.5 && \
     conda install -c conda-forge -n vad -y scipy=1.13.1 && \
     conda install -c conda-forge -n vad -y statsmodels=0.13.5 && \
