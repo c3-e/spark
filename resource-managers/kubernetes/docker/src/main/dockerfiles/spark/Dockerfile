@@ -16,7 +16,7 @@
 #
 
 # C3 customization
-FROM registry.c3.ai/ubi/ubi8-minimal:8.9.1137.1
+FROM registry.c3.ai/ubi/ubi8-minimal:8.10.896.2
 # end C3 customization
 
 # Before building the docker image, first build and make a Spark distribution following
