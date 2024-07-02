@@ -142,6 +142,7 @@
     <derby.version>10.14.2.0</derby.version>
     <parquet.version>1.13.1</parquet.version>
     <orc.version>1.9.1</orc.version>
+    <aircompressor.version>0.27</aircompressor.version>
     <orc.classifier>shaded-protobuf</orc.classifier>
     <jetty.version>9.4.52.v20230823</jetty.version>
     <jakartaservlet.version>4.0.3</jakartaservlet.version>
@@ -2576,6 +2577,11 @@
             <artifactId>kryo-shaded</artifactId>
           </exclusion>
         </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>io.airlift</groupId>
+        <artifactId>aircompressor</artifactId>
+        <version>${aircompressor.version}</version>
       </dependency>
       <dependency>
         <groupId>org.apache.parquet</groupId>
