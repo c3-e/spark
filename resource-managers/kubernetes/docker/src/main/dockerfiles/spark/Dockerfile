@@ -72,21 +72,11 @@ RUN echo "install packages missing from ubi8-minimal" && \
     echo "source activate vad" >> /root/.bashrc && \
     conda install -c conda-forge cryptography=42.0.5 --yes && \
     yes | conda create -n vad python=3.9 && \
-    conda install -c conda-forge -n vad -y pillow=10.2.0 && \
-    conda install -c conda-forge -n vad -y setuptools=68.2.2 && \
-    conda install -c conda-forge -n vad -y pandas=1.3.3 && \
-    conda install -c conda-forge -n vad -y numpy=1.21.6 && \
-    conda install -c conda-forge -n vad -y pystan=3.7.0 && \
     conda install -c conda-forge -n vad -y prophet=1.1.5 && \
-    conda install -c conda-forge -n vad -y scipy=1.13.1 && \
-    conda install -c conda-forge -n vad -y statsmodels=0.13.5 && \
-    conda install -c conda-forge -n vad -y seaborn=0.12.2 && \
-    conda install -c conda-forge -n vad -y backports=1.1 && \
-    conda install -c conda-forge -n vad -y backports.zoneinfo=0.2.1 && \
-    conda install -c conda-forge -n vad -y scikit-learn=1.1.1 && \
-    conda install -c conda-forge -n vad -y pyarrow=14.0.2 && \
+    conda install -c conda-forge -n vad -y pyarrow=16.1.0 && \
+    conda install -c conda-forge -n vad -y pystan=3.2.0 && \
     source activate vad && \
-    pip3 install --no-cache-dir jep==3.9.1 && \
+    pip3 install --no-cache-dir jep==4.2.0 && \
     conda clean --all --force-pkgs-dirs --yes && \
     dnf clean all && microdnf remove dnf && \
     microdnf clean all && \
