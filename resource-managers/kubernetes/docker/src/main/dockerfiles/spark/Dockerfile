@@ -75,6 +75,8 @@ RUN echo "install packages missing from ubi8-minimal" && \
     conda install -c conda-forge -n vad -y prophet=1.1.5 && \
     conda install -c conda-forge -n vad -y pyarrow=16.1.0 && \
     conda install -c conda-forge -n vad -y pystan=3.2.0 && \
+    conda install -c conda-forge -n vad -y scipy=1.13.1 && \
+    conda install -c conda-forge -n vad -y statsmodels=0.14.2 && \
     source activate vad && \
     pip3 install --no-cache-dir jep==4.2.0 && \
     conda clean --all --force-pkgs-dirs --yes && \
