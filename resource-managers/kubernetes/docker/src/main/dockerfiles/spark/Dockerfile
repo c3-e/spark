@@ -86,6 +86,8 @@ RUN echo "install packages missing from ubi8-minimal" && \
     [ ! -d /var/cache/yum ] || rm -rf /var/cache/yum && \
     [ ! -d /var/cache/dnf ] || rm -rf /var/cache/dnf && \
     rm -r /usr/share/doc/
+# When updating `conda install` commands above, see <c3vad>/internal/buildImage/README.md
+# because conda environment used for running unit tests - must be kept in sync
 
 ENV LD_LIBRARY_PATH /miniconda/envs/vad/lib:/miniconda/envs/vad/lib/python3.9/site-packages/jep
 ENV LD_PRELOAD /miniconda/envs/vad/lib/libpython3.9.so
