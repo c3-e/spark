@@ -29,20 +29,14 @@ FROM registry.c3.ai/ubi/ubi8-minimal:8.10.896.2
 # C3 customization
 # https://catalog.redhat.com/software/containers/ubi8/openjdk-8/5dd6a48dbed8bd164a09589a?gti-tabs=unauthenticated&container-tabs=dockerfile
 # microdnf doesn't support installing local rpms, so we have to install dnf in order to install the Corretto RPM with dependencies
-# before building, update CORRETTO_VERSION to the version resolved when you call
-# wget https://corretto.aws/downloads/latest/amazon-corretto-11-x64-linux-jdk.rpm
-ENV CORRETTO_VERSION=11.0.21.9
-ENV CORRETTO_RPM=java-11-amazon-corretto-devel-${CORRETTO_VERSION}-1.x86_64.rpm
+ENV CORRETTO_RPM=amazon-corretto-17-x64-linux-jdk.rpm
 RUN set -ex && \
     microdnf install --nodocs -y dnf wget && \
-    wget https://corretto.aws/downloads/resources/${CORRETTO_VERSION}.1/${CORRETTO_RPM} && \
+    wget https://corretto.aws/downloads/latest/${CORRETTO_RPM} && \
     dnf install --nodocs -y ${CORRETTO_RPM} && \
-    mkdir /usr/java && \
-    ln -s -f /usr/lib/jvm/java-11-amazon-corretto /usr/java/latest && \
-    ln -s -f /usr/java/latest /usr/java/default && \
     rm -f ${CORRETTO_RPM}
 
-ENV JAVA_HOME /usr/java/default
+ENV JAVA_HOME /usr/lib/jvm/java
 ENV LANG en_US.UTF-8
 EXPOSE 8080 8443
 
