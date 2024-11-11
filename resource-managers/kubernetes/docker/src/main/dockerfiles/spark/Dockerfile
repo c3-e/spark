@@ -66,9 +66,9 @@ RUN echo "install packages missing from ubi8-minimal" && \
     echo "source activate vad" >> /root/.bashrc && \
     conda install -c conda-forge cryptography=42.0.5 --yes && \
     yes | conda create -n vad python=3.9 && \
+    conda install -c conda-forge -n vad -y pandas=1.5.3 && \
     conda install -c conda-forge -n vad -y prophet=1.1.5 && \
     conda install -c conda-forge -n vad -y pyarrow=16.1.0 && \
-    conda install -c conda-forge -n vad -y pystan=3.2.0 && \
     conda install -c conda-forge -n vad -y scipy=1.13.1 && \
     conda install -c conda-forge -n vad -y statsmodels=0.14.2 && \
     conda install -c conda-forge -n vad -y seaborn=0.12.2 && \
