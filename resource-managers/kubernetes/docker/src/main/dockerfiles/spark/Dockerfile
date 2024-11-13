@@ -45,8 +45,9 @@ ENV CONDA_HOME /miniconda
 ENV CONDA_ENV vad
 
 RUN echo "install packages missing from ubi8-minimal" && \
-    set -ex && \
-    microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils python3-devel && \
+    set -e && \
+    set -x
+RUN microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils python3-devel && \
     echo "standard Spark install but adapted for microdnf from ubi8-minimal" && \
     ln -s /lib /lib64 && \
     microdnf install --nodocs -y glibc pam krb5-workstation nss libtiff && \
@@ -64,7 +65,7 @@ RUN echo "install packages missing from ubi8-minimal" && \
     rm Miniconda3-py39_24.1.2-0-Linux-x86_64.sh && \
     echo 'export PATH=$PATH:/miniconda/condabin:/miniconda/bin' >> /root/.bashrc && \
     echo "source activate vad" >> /root/.bashrc && \
-    conda install -c conda-forge cryptography=42.0.5 --yes && \
+    conda install -c conda-forge -y cryptography=43.0.3 && \
     yes | conda create -n vad python=3.9 && \
     conda install -c conda-forge -n vad -y pandas=1.5.3 && \
     conda install -c conda-forge -n vad -y pillow=10.4.0 && \
@@ -73,8 +74,9 @@ RUN echo "install packages missing from ubi8-minimal" && \
     conda install -c conda-forge -n vad -y scipy=1.13.1 && \
     conda install -c conda-forge -n vad -y statsmodels=0.14.2 && \
     conda install -c conda-forge -n vad -y seaborn=0.12.2 && \
-    source activate vad && \
-    pip3 install --no-cache-dir jep==4.2.0 && \
+    source activate vad
+ENV JAVA_TOOL_OPTIONS -Dfile.encoding=UTF-8
+RUN pip3 install --no-cache-dir jep==4.2.0 && \
     conda clean --all --force-pkgs-dirs --yes && \
     dnf clean all && microdnf remove dnf && \
     microdnf clean all && \
