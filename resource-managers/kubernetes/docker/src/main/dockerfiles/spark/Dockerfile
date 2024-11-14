@@ -71,12 +71,12 @@ RUN microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils p
     conda create -n vad python=3.9 -y && \
     conda activate vad && \
     conda install -c conda-forge -y \
-      pandas=1.5.3 && \
-      pillow=10.4.0 && \
-      prophet=1.1.5 && \
-      pyarrow=16.1.0 && \
-      scipy=1.13.1 && \
-      statsmodels=0.14.2 && \
+      pandas=1.5.3 \
+      pillow=10.4.0 \
+      prophet=1.1.5 \
+      pyarrow=16.1.0 \
+      scipy=1.13.1 \
+      statsmodels=0.14.2 \
       seaborn=0.12.2 && \
     pip install --no-cache-dir jep==4.2.0 && \
     conda clean -a -y --force-pkgs-dirs && \
