@@ -38,6 +38,7 @@ RUN set -ex && \
 
 ENV JAVA_HOME /usr/lib/jvm/java
 ENV LANG en_US.UTF-8
+ENV JAVA_TOOL_OPTIONS -Dfile.encoding=UTF-8
 EXPOSE 8080 8443
 
 ENV PATH=$PATH:/miniconda/condabin:/miniconda/bin
@@ -63,21 +64,22 @@ RUN microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils p
     wget https://repo.anaconda.com/miniconda/Miniconda3-py39_24.1.2-0-Linux-x86_64.sh && \
     bash Miniconda3-py39_24.1.2-0-Linux-x86_64.sh -b -p /miniconda && \
     rm Miniconda3-py39_24.1.2-0-Linux-x86_64.sh && \
+    /miniconda/bin/conda init bash && \
     echo 'export PATH=$PATH:/miniconda/condabin:/miniconda/bin' >> /root/.bashrc && \
-    echo "source activate vad" >> /root/.bashrc && \
+    . /root/.bashrc && \
     conda install -c conda-forge -y cryptography=43.0.3 && \
-    yes | conda create -n vad python=3.9 && \
-    conda install -c conda-forge -n vad -y pandas=1.5.3 && \
-    conda install -c conda-forge -n vad -y pillow=10.4.0 && \
-    conda install -c conda-forge -n vad -y prophet=1.1.5 && \
-    conda install -c conda-forge -n vad -y pyarrow=16.1.0 && \
-    conda install -c conda-forge -n vad -y scipy=1.13.1 && \
-    conda install -c conda-forge -n vad -y statsmodels=0.14.2 && \
-    conda install -c conda-forge -n vad -y seaborn=0.12.2 && \
-    conda activate vad
-ENV JAVA_TOOL_OPTIONS -Dfile.encoding=UTF-8
-RUN pip install --no-cache-dir jep==4.2.0 && \
-    conda clean --all --force-pkgs-dirs --yes && \
+    conda create -n vad python=3.9 -y && \
+    conda activate vad && \
+    conda install -c conda-forge -y \
+      pandas=1.5.3 && \
+      pillow=10.4.0 && \
+      prophet=1.1.5 && \
+      pyarrow=16.1.0 && \
+      scipy=1.13.1 && \
+      statsmodels=0.14.2 && \
+      seaborn=0.12.2 && \
+    pip install --no-cache-dir jep==4.2.0 && \
+    conda clean -a -y --force-pkgs-dirs && \
     dnf clean all && microdnf remove dnf && \
     microdnf clean all && \
     [ ! -d /var/cache/yum ] || rm -rf /var/cache/yum && \
