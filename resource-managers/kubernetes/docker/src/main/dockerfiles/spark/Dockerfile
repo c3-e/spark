@@ -74,9 +74,9 @@ RUN microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils p
     conda install -c conda-forge -n vad -y scipy=1.13.1 && \
     conda install -c conda-forge -n vad -y statsmodels=0.14.2 && \
     conda install -c conda-forge -n vad -y seaborn=0.12.2 && \
-    source activate vad
+    conda activate vad
 ENV JAVA_TOOL_OPTIONS -Dfile.encoding=UTF-8
-RUN pip3 install --no-cache-dir jep==4.2.0 && \
+RUN pip install --no-cache-dir jep==4.2.0 && \
     conda clean --all --force-pkgs-dirs --yes && \
     dnf clean all && microdnf remove dnf && \
     microdnf clean all && \
