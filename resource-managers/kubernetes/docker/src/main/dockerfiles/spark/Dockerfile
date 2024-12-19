@@ -29,7 +29,7 @@ FROM registry.c3.ai/ubi/ubi8-minimal:8.10.1086.1
 # C3 customization
 # https://catalog.redhat.com/software/containers/ubi8/openjdk-8/5dd6a48dbed8bd164a09589a?gti-tabs=unauthenticated&container-tabs=dockerfile
 # microdnf doesn't support installing local rpms, so we have to install dnf in order to install the Corretto RPM with dependencies
-ENV CORRETTO_RPM=amazon-corretto-17-x64-linux-jdk.rpm
+ENV CORRETTO_RPM=amazon-corretto-11-x64-linux-jdk.rpm
 RUN set -ex && \
     microdnf install --nodocs -y dnf wget && \
     wget https://corretto.aws/downloads/latest/${CORRETTO_RPM} && \
