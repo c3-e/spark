@@ -74,7 +74,7 @@ RUN microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils p
       pandas=1.5.3 \
       pillow=10.4.0 \
       prophet=1.1.5 \
-      pyarrow=16.1.0 \
+      pyarrow=18.1.0 \
       scipy=1.13.1 \
       statsmodels=0.14.2 \
       seaborn=0.12.2 && \
