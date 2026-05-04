@@ -94,6 +94,9 @@ private[spark] class SparkUI private (
 
   /** Initialize all components of the server. */
   def initialize(): Unit = {
+    if (basePath.nonEmpty) {
+      logInfo(s"Initializing SparkUI with basePath='$basePath'")
+    }
     val jobsTab = new JobsTab(this, store)
     attachTab(jobsTab)
     val stagesTab = new StagesTab(this, store)
@@ -103,17 +106,18 @@ private[spark] class SparkUI private (
     attachTab(new ExecutorsTab(this))
     addStaticHandler(SparkUI.STATIC_RESOURCE_DIR)
     attachHandler(createRedirectHandler("/", "/jobs/", basePath = basePath))
-    attachHandler(ApiRootResource.getServletHandler(this))
+    attachHandler(ApiRootResource.getServletHandler(this, basePath))
     if (sc.map(_.conf.get(UI_PROMETHEUS_ENABLED)).getOrElse(false)) {
       attachHandler(PrometheusResource.getServletHandler(this))
     }
 
     // These should be POST only, but, the YARN AM proxy won't proxy POSTs
     attachHandler(createRedirectHandler(
-      "/jobs/job/kill", "/jobs/", jobsTab.handleKillRequest, httpMethods = Set("GET", "POST")))
+      "/jobs/job/kill", "/jobs/", jobsTab.handleKillRequest,
+      basePath = basePath, httpMethods = Set("GET", "POST")))
     attachHandler(createRedirectHandler(
       "/stages/stage/kill", "/stages/", stagesTab.handleKillRequest,
-      httpMethods = Set("GET", "POST")))
+      basePath = basePath, httpMethods = Set("GET", "POST")))
   }
 
   initialize()

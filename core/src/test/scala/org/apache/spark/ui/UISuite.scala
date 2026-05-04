@@ -448,6 +448,217 @@ class UISuite extends SparkFunSuite {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // proxyBase tests
+  // ---------------------------------------------------------------------------
+
+  test("redirect handler with basePath produces correct relative Location header") {
+    val basePath = "/myproxy/sparkui"
+    val (conf, securityMgr, sslOptions) = sslDisabledConf()
+    val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
+    try {
+      val redirect = JettyUtils.createRedirectHandler("/", "/jobs/", basePath = basePath)
+      serverInfo.addHandler(redirect, securityMgr)
+
+      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+
+      // GET basePath/ should redirect to basePath/jobs/
+      TestUtils.withHttpConnection(new URL(s"$serverAddr$basePath/")) { conn =>
+        assert(conn.getResponseCode() === HttpServletResponse.SC_FOUND)
+        val location = Option(conn.getHeaderFields().get("Location"))
+          .map(_.get(0)).orNull
+        assert(location === s"$basePath/jobs/",
+          s"Root redirect should use basePath prefix, got: $location")
+      }
+    } finally {
+      stopServer(serverInfo)
+    }
+  }
+
+  test("redirect handler without basePath produces bare Location header") {
+    val (conf, securityMgr, sslOptions) = sslDisabledConf()
+    val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
+    try {
+      val redirect = JettyUtils.createRedirectHandler("/", "/jobs/")
+      serverInfo.addHandler(redirect, securityMgr)
+
+      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+
+      TestUtils.withHttpConnection(new URL(s"$serverAddr/")) { conn =>
+        assert(conn.getResponseCode() === HttpServletResponse.SC_FOUND)
+        val location = Option(conn.getHeaderFields().get("Location"))
+          .map(_.get(0)).orNull
+        assert(location === "/jobs/",
+          s"Without basePath, Location should be bare /jobs/, got: $location")
+      }
+    } finally {
+      stopServer(serverInfo)
+    }
+  }
+
+  test("servlet handler with basePath is accessible at prefixed path") {
+    val basePath = "/myproxy/sparkui"
+    val (conf, securityMgr, sslOptions) = sslDisabledConf()
+    val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
+    try {
+      val (servlet, ctx) = newContext(s"$basePath/test")
+      serverInfo.addHandler(ctx, securityMgr)
+
+      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+
+      // Accessible at prefixed path
+      assert(TestUtils.httpResponseCode(
+        new URL(s"$serverAddr$basePath/test/root")) === HttpServletResponse.SC_OK)
+
+      // Not accessible at bare path
+      assert(TestUtils.httpResponseCode(
+        new URL(s"$serverAddr/test/root")) === HttpServletResponse.SC_NOT_FOUND)
+    } finally {
+      stopServer(serverInfo)
+    }
+  }
+
+  test("createServletHandler sets PROXY_BASE_PATH_ATTRIBUTE when basePath is non-empty") {
+    val basePath = "/proxy/app123"
+    val servlet = new HttpServlet {
+      override def doGet(req: HttpServletRequest, res: HttpServletResponse): Unit = {
+        val attr = req.getServletContext.getAttribute(JettyUtils.PROXY_BASE_PATH_ATTRIBUTE)
+        res.setContentType("text/plain")
+        res.getWriter.write(String.valueOf(attr))
+      }
+    }
+    val handler = JettyUtils.createServletHandler("/test", servlet, basePath)
+
+    val (conf, securityMgr, sslOptions) = sslDisabledConf()
+    val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
+    try {
+      serverInfo.addHandler(handler, securityMgr)
+      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+      val body = TestUtils.httpResponseMessage(
+        new URL(s"$serverAddr$basePath/test/"))
+      assert(body === basePath,
+        s"PROXY_BASE_PATH_ATTRIBUTE should be '$basePath', got: $body")
+    } finally {
+      stopServer(serverInfo)
+    }
+  }
+
+  test("redirect handler with basePath + ProxyRedirectHandler rewrites Location correctly") {
+    val basePath = "/myproxy/sparkui"
+    val proxyRoot = "https://external.example.com"
+    val (conf, securityMgr, sslOptions) = sslDisabledConf()
+    conf.set(UI.PROXY_REDIRECT_URI, proxyRoot)
+
+    val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
+    try {
+      val redirect = JettyUtils.createRedirectHandler("/", "/jobs/", basePath = basePath)
+      serverInfo.addHandler(redirect, securityMgr)
+
+      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+
+      // spark.ui.proxyBase must be set for ProxyRedirectHandler to discover the basePath
+      val oldProp = sys.props.get("spark.ui.proxyBase")
+      try {
+        System.setProperty("spark.ui.proxyBase", basePath)
+
+        TestUtils.withHttpConnection(new URL(s"$serverAddr$basePath/")) { conn =>
+          assert(conn.getResponseCode() === HttpServletResponse.SC_FOUND)
+          val location = Option(conn.getHeaderFields().get("Location"))
+            .map(_.get(0)).orNull
+          assert(location === s"$proxyRoot$basePath/jobs/",
+            s"ProxyRedirectHandler should prepend proxyUri+basePath, got: $location")
+        }
+      } finally {
+        oldProp match {
+          case Some(v) => System.setProperty("spark.ui.proxyBase", v)
+          case None => System.clearProperty("spark.ui.proxyBase")
+        }
+      }
+    } finally {
+      stopServer(serverInfo)
+    }
+  }
+
+  test("static handler with basePath is accessible at prefixed path") {
+    val basePath = "/myproxy/sparkui"
+    val (conf, securityMgr, sslOptions) = sslDisabledConf()
+    val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
+    try {
+      val handler = JettyUtils.createStaticHandler(
+        SparkUI.STATIC_RESOURCE_DIR, "/static", basePath)
+      serverInfo.addHandler(handler, securityMgr)
+
+      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+
+      // bootstrap.min.css exists in static resources
+      assert(TestUtils.httpResponseCode(
+        new URL(s"$serverAddr$basePath/static/bootstrap.min.css")) === HttpServletResponse.SC_OK)
+
+      // Should not be accessible at bare /static
+      assert(TestUtils.httpResponseCode(
+        new URL(s"$serverAddr/static/bootstrap.min.css")) === HttpServletResponse.SC_NOT_FOUND)
+    } finally {
+      stopServer(serverInfo)
+    }
+  }
+
+  test("multiple redirect handlers with basePath each resolve their own effectiveBasePath") {
+    val basePath = "/myproxy/sparkui"
+    val (conf, securityMgr, sslOptions) = sslDisabledConf()
+    val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
+    try {
+      val rootRedirect = JettyUtils.createRedirectHandler("/", "/jobs/", basePath = basePath)
+      val killRedirect = JettyUtils.createRedirectHandler(
+        "/jobs/job/kill", "/jobs/", basePath = basePath, httpMethods = Set("GET", "POST"))
+      serverInfo.addHandler(rootRedirect, securityMgr)
+      serverInfo.addHandler(killRedirect, securityMgr)
+
+      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+
+      // Root redirect
+      TestUtils.withHttpConnection(new URL(s"$serverAddr$basePath/")) { conn =>
+        assert(conn.getResponseCode() === HttpServletResponse.SC_FOUND)
+        val location = Option(conn.getHeaderFields().get("Location"))
+          .map(_.get(0)).orNull
+        assert(location === s"$basePath/jobs/")
+      }
+
+      // Kill redirect
+      TestUtils.withHttpConnection(
+          new URL(s"$serverAddr$basePath/jobs/job/kill/")) { conn =>
+        assert(conn.getResponseCode() === HttpServletResponse.SC_FOUND)
+        val location = Option(conn.getHeaderFields().get("Location"))
+          .map(_.get(0)).orNull
+        assert(location === s"$basePath/jobs/")
+      }
+    } finally {
+      stopServer(serverInfo)
+    }
+  }
+
+  test("redirect handler at bare path returns 404 when basePath is configured") {
+    val basePath = "/myproxy/sparkui"
+    val (conf, securityMgr, sslOptions) = sslDisabledConf()
+    val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
+    try {
+      val redirect = JettyUtils.createRedirectHandler("/src", "/dst", basePath = basePath)
+      serverInfo.addHandler(redirect, securityMgr)
+
+      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+
+      // Prefixed path works
+      TestUtils.withHttpConnection(new URL(s"$serverAddr$basePath/src/")) { conn =>
+        assert(conn.getResponseCode() === HttpServletResponse.SC_FOUND)
+      }
+
+      // Bare path should 404
+      assert(TestUtils.httpResponseCode(
+        new URL(s"$serverAddr/src/")) === HttpServletResponse.SC_NOT_FOUND)
+    } finally {
+      stopServer(serverInfo)
+    }
+  }
+
   /**
    * Create a new context handler for the given path, with a single servlet that responds to
    * requests in `$path/root`.
