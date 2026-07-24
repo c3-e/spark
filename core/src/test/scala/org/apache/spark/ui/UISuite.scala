@@ -448,6 +448,88 @@ class UISuite extends SparkFunSuite {
     }
   }
 
+  test("PLAT-144996: BasePathHandler strips spark.ui.proxyBase before dispatch") {
+    val (conf, securityMgr, sslOptions) = sslDisabledConf()
+    conf.set("spark.ui.proxyBase", "/my-cluster")
+
+    val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
+    try {
+      val servlet = new InspectingServlet()
+      val ctx = new ServletContextHandler()
+      ctx.setContextPath("/ctx")
+      ctx.addServlet(new ServletHolder(servlet), "/root")
+      serverInfo.addHandler(ctx, securityMgr)
+      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+
+      // External-style URL (full prefixed path) reaches the /ctx handler.
+      assert(TestUtils.httpResponseCode(new URL(s"$serverAddr/my-cluster/ctx/root")) ===
+        HttpServletResponse.SC_OK)
+
+      // After rewrite, the context handler sees its own mount point, not the prefix.
+      assert(servlet.observedContextPath === "/ctx")
+      assert(servlet.observedRequestUri === "/ctx/root")
+      // UIUtils.uiRoot must re-surface the configured basePath for link generation.
+      assert(servlet.observedUiRoot === "/my-cluster")
+      // The request attribute is the mechanism BasePathHandler uses to publish it.
+      assert(servlet.observedBasePathAttr === "/my-cluster")
+    } finally {
+      stopServer(serverInfo)
+      sys.props -= "spark.ui.proxyBase"
+    }
+  }
+
+  test("PLAT-144996: BasePathHandler is a no-op when spark.ui.proxyBase is not configured") {
+    val (conf, securityMgr, sslOptions) = sslDisabledConf()
+
+    val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
+    try {
+      val servlet = new InspectingServlet()
+      val ctx = new ServletContextHandler()
+      ctx.setContextPath("/ctx")
+      ctx.addServlet(new ServletHolder(servlet), "/root")
+      serverInfo.addHandler(ctx, securityMgr)
+      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+
+      // A prefixed URL should 404 -- no rewrite should be happening.
+      assert(TestUtils.httpResponseCode(new URL(s"$serverAddr/my-cluster/ctx/root")) ===
+        HttpServletResponse.SC_NOT_FOUND)
+
+      // A direct URL still reaches the handler.
+      assert(TestUtils.httpResponseCode(new URL(s"$serverAddr/ctx/root")) ===
+        HttpServletResponse.SC_OK)
+      assert(servlet.observedBasePathAttr === null)
+    } finally {
+      stopServer(serverInfo)
+    }
+  }
+
+  test("PLAT-144996: createRedirectHandler under a basePath keeps prefix via ProxyRedirectHandler") {
+    // When an application redirect is issued (e.g. "/" -> "/jobs/"), the ProxyRedirectHandler
+    // uses UIUtils.uiRoot(req) -- which now reads the request attribute set by BasePathHandler --
+    // to re-prepend both the proxy host and the configured basePath on the Location header.
+    val proxyRoot = "https://proxy.example.com:443"
+    val (conf, securityMgr, sslOptions) = sslDisabledConf()
+    conf.set("spark.ui.proxyBase", "/my-cluster")
+    conf.set(UI.PROXY_REDIRECT_URI, proxyRoot)
+
+    val serverInfo = JettyUtils.startJettyServer("0.0.0.0", 0, sslOptions, conf)
+    try {
+      val redirect = JettyUtils.createRedirectHandler("/src", "/dst")
+      serverInfo.addHandler(redirect, securityMgr)
+      val serverAddr = s"http://$localhost:${serverInfo.boundPort}"
+
+      TestUtils.withHttpConnection(new URL(s"$serverAddr/my-cluster/src/")) { conn =>
+        assert(conn.getResponseCode === HttpServletResponse.SC_FOUND)
+        val location = Option(conn.getHeaderFields.get("Location")).map(_.get(0)).orNull
+        // Redirect target must include both the proxy root and the configured basePath.
+        assert(location === s"$proxyRoot/my-cluster/dst")
+      }
+    } finally {
+      stopServer(serverInfo)
+      sys.props -= "spark.ui.proxyBase"
+    }
+  }
+
   /**
    * Create a new context handler for the given path, with a single servlet that responds to
    * requests in `$path/root`.
@@ -478,6 +560,27 @@ class UISuite extends SparkFunSuite {
     override def doGet(req: HttpServletRequest, res: HttpServletResponse): Unit = {
       lastRequest = req
       res.sendError(HttpServletResponse.SC_OK)
+    }
+
+  }
+
+  /**
+   * Test servlet that captures key request properties synchronously inside doGet,
+   * avoiding races with Jetty recycling the request object after the response completes.
+   */
+  private class InspectingServlet extends HttpServlet {
+
+    @volatile var observedContextPath: String = _
+    @volatile var observedRequestUri: String = _
+    @volatile var observedUiRoot: String = _
+    @volatile var observedBasePathAttr: AnyRef = _
+
+    override def doGet(req: HttpServletRequest, res: HttpServletResponse): Unit = {
+      observedContextPath = req.getContextPath
+      observedRequestUri = req.getRequestURI
+      observedUiRoot = UIUtils.uiRoot(req)
+      observedBasePathAttr = req.getAttribute(BasePathHandler.BASE_PATH_ATTR)
+      res.setStatus(HttpServletResponse.SC_OK)
     }
 
   }
