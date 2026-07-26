@@ -500,8 +500,18 @@ class SparkContext(config: SparkConf) extends Logging {
 
     _ui =
       if (conf.get(UI_ENABLED)) {
-        Some(SparkUI.create(Some(this), _statusStore, _conf, _env.securityManager, appName, "",
-          startTime))
+        val rawBasePath = _conf.getOption("spark.ui.proxyBase").getOrElse("")
+        val basePath = if (rawBasePath.nonEmpty) {
+          val normalized = "/" + rawBasePath.stripPrefix("/").stripSuffix("/")
+          logInfo(s"Spark UI proxyBase configured: " +
+            s"raw='$rawBasePath', normalized='$normalized'")
+          System.setProperty("spark.ui.proxyBase", normalized)
+          normalized
+        } else {
+          ""
+        }
+        Some(SparkUI.create(Some(this), _statusStore, _conf, _env.securityManager, appName,
+          basePath, startTime))
       } else {
         // For tests, do not enable the UI
         None
@@ -617,7 +627,11 @@ class SparkContext(config: SparkConf) extends Logging {
       _conf.set(ShuffleDataIOUtils.SHUFFLE_SPARK_CONF_PREFIX + k, v)
     }
 
-    if (_conf.get(UI_REVERSE_PROXY)) {
+    if (_conf.get(UI_REVERSE_PROXY) &&
+        _conf.getOption("spark.ui.proxyBase").isEmpty) {
+      // Only apply YARN-style reverse proxy URL when no explicit proxyBase is configured.
+      // If spark.ui.proxyBase is set, SparkUI.create already mounted handlers at the
+      // correct prefixed paths -- clobbering it here would break link generation in HTML.
       val proxyUrl = _conf.get(UI_REVERSE_PROXY_URL).getOrElse("").stripSuffix("/")
       System.setProperty("spark.ui.proxyBase", proxyUrl + "/proxy/" + _applicationId)
     }

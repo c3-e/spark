@@ -17,7 +17,7 @@
 
 package org.apache.spark.ui
 
-import java.net.{URI, URL, URLDecoder}
+import java.net.{URI, URLDecoder}
 import java.util.EnumSet
 import javax.servlet.DispatcherType
 import javax.servlet.http._
@@ -104,6 +104,8 @@ private[spark] object JettyUtils extends Logging {
     createServletHandler(path, createServlet(servletParams, conf), basePath)
   }
 
+  val PROXY_BASE_PATH_ATTRIBUTE = "spark.ui.proxyBase.path"
+
   /** Create a context handler that responds to a request with the given path prefix */
   def createServletHandler(
       path: String,
@@ -117,6 +119,9 @@ private[spark] object JettyUtils extends Logging {
     val contextHandler = new ServletContextHandler
     val holder = new ServletHolder(servlet)
     contextHandler.setContextPath(prefixedPath)
+    if (basePath.nonEmpty) {
+      contextHandler.setAttribute(PROXY_BASE_PATH_ATTRIBUTE, basePath)
+    }
     contextHandler.addServlet(holder, "/")
     contextHandler
   }
@@ -128,7 +133,6 @@ private[spark] object JettyUtils extends Logging {
       beforeRedirect: HttpServletRequest => Unit = x => (),
       basePath: String = "",
       httpMethods: Set[String] = Set("GET")): ServletContextHandler = {
-    val prefixedDestPath = basePath + destPath
     val servlet = new HttpServlet {
       override def doGet(request: HttpServletRequest, response: HttpServletResponse): Unit = {
         if (httpMethods.contains("GET")) {
@@ -146,9 +150,29 @@ private[spark] object JettyUtils extends Logging {
       }
       private def doRequest(request: HttpServletRequest, response: HttpServletResponse): Unit = {
         beforeRedirect(request)
-        // Make sure we don't end up with "//" in the middle
-        val newUrl = new URL(new URL(request.getRequestURL.toString), prefixedDestPath).toString
-        response.sendRedirect(newUrl)
+        // Derive the basePath dynamically from the matched context path at request time.
+        // request.getContextPath() is set by Jetty to the handler's mounted context path,
+        // which already includes the basePath (e.g. "/sparkrb/.../sparkui").
+        // Stripping srcPath from it gives us the effective basePath, regardless of whether
+        // spark.ui.proxyBase was configured.
+        val contextPath = request.getContextPath
+        val effectiveBasePath = if (srcPath == "/") {
+          contextPath
+        } else {
+          contextPath.stripSuffix(srcPath)
+        }
+        val prefixedDestPath = (effectiveBasePath + destPath).replaceAll("//+", "/")
+        // Set Location header directly instead of calling response.sendRedirect().
+        // sendRedirect() in the Servlet spec always converts the path to an absolute URL using
+        // request.getServerName()/getServerPort() — the internal Spark address, not the external
+        // proxy URL. This causes the browser to receive e.g. http://10.x.x.x:4040/myapp/jobs/
+        // which it cannot reach. By setting the header ourselves we send the raw path and let
+        // the browser resolve it against the external proxy origin it actually used.
+        // RFC 7231 allows relative references in the Location header and all modern browsers
+        // handle them correctly.
+        response.setStatus(HttpServletResponse.SC_FOUND)
+        response.setHeader("Location", prefixedDestPath)
+        logDebug(s"Redirect: ${request.getRequestURI} -> $prefixedDestPath")
       }
       // SPARK-5983 ensure TRACE is not supported
       protected override def doTrace(req: HttpServletRequest, res: HttpServletResponse): Unit = {
@@ -159,7 +183,10 @@ private[spark] object JettyUtils extends Logging {
   }
 
   /** Create a handler for serving files from a static directory */
-  def createStaticHandler(resourceBase: String, path: String): ServletContextHandler = {
+  def createStaticHandler(
+      resourceBase: String,
+      path: String,
+      basePath: String = ""): ServletContextHandler = {
     val contextHandler = new ServletContextHandler
     contextHandler.setInitParameter("org.eclipse.jetty.servlet.Default.gzip", "false")
     val staticHandler = new DefaultServlet
@@ -170,7 +197,15 @@ private[spark] object JettyUtils extends Logging {
       case None =>
         throw new Exception("Could not find resource path for Web UI: " + resourceBase)
     }
-    contextHandler.setContextPath(path)
+    val prefixedPath = if (basePath.nonEmpty) {
+      (basePath + path).stripSuffix("/")
+    } else {
+      path
+    }
+    contextHandler.setContextPath(prefixedPath)
+    if (basePath.nonEmpty) {
+      contextHandler.setAttribute(PROXY_BASE_PATH_ATTRIBUTE, basePath)
+    }
     contextHandler.addServlet(holder, "/")
     contextHandler
   }
@@ -570,7 +605,7 @@ private[spark] case class ServerInfo(
  * a servlet context without the trailing slash (e.g. "/jobs") - Jetty will send a redirect to the
  * same URL, but with a trailing slash.
  */
-private class ProxyRedirectHandler(_proxyUri: String) extends HandlerWrapper {
+private class ProxyRedirectHandler(_proxyUri: String) extends HandlerWrapper with Logging {
 
   private val proxyUri = _proxyUri.stripSuffix("/")
 
@@ -590,14 +625,36 @@ private class ProxyRedirectHandler(_proxyUri: String) extends HandlerWrapper {
     override def sendRedirect(location: String): Unit = {
       val newTarget = if (location != null) {
         val target = new URI(location)
-        // The target path should already be encoded, so don't re-encode it, just the
-        // proxy address part.
-        val proxyBase = UIUtils.uiRoot(req)
-        val proxyPrefix = if (proxyBase.nonEmpty) s"$proxyUri$proxyBase" else proxyUri
-        s"${res.encodeURL(proxyPrefix)}${target.getPath()}"
+        val targetPath = target.getPath()
+        // UIUtils.uiRoot is the authoritative source for the configured base path:
+        // it checks spark.ui.proxyBase sys prop, APPLICATION_WEB_PROXY_BASE env var,
+        // X-Forwarded-Context header, and servlet context attribute -- in that order.
+        // req.getContextPath is only set after a context is matched, so it can be empty
+        // for Jetty's own pre-dispatch trailing-slash redirects. Use uiRoot first.
+        val uiRootBase = UIUtils.uiRoot(req)
+        val contextBasePath = if (uiRootBase.nonEmpty) {
+          uiRootBase
+        } else {
+          Option(req.getContextPath).filter(_.nonEmpty).getOrElse("")
+        }
+        val result = if (contextBasePath.nonEmpty && targetPath.startsWith(contextBasePath)) {
+          // Redirect target already contains the basePath -- just prepend the proxy host
+          s"${res.encodeURL(proxyUri)}$targetPath"
+        } else {
+          // Jetty generated a short redirect (e.g. /jobs/) missing the basePath --
+          // prepend proxyUri + basePath
+          val proxyPrefix = if (contextBasePath.nonEmpty) {
+            s"$proxyUri$contextBasePath"
+          } else {
+            proxyUri
+          }
+          s"${res.encodeURL(proxyPrefix)}$targetPath"
+        }
+        result
       } else {
         null
       }
+      logDebug(s"ProxyRedirect: '$location' -> '$newTarget'")
       super.sendRedirect(newTarget)
     }
   }
