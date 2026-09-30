@@ -16,7 +16,7 @@
 #
 
 # C3 customization
-FROM registry.c3.ai/ubi/ubi8-minimal:8.10.1783573312.1
+FROM registry.c3.ai/ubi/ubi8-minimal:8.10.1788329306.1
 # end C3 customization
 
 # Before building the docker image, first build and make a Spark distribution following
@@ -87,6 +87,44 @@ RUN microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils p
     rm -r /usr/share/doc/
 # When updating `conda install` commands above, see <c3vad>/internal/buildImage/README.md
 # because conda environment used for running unit tests - must be kept in sync
+
+# PLAT-157516 / PLAT-157517: patch OS packages.
+# - Upgrade expat, libxml2 and glib2 to the fixed builds (INFOSEC-12589/12204/12206/12244).
+# - Remove unused packages: the bootloader chain grubby/grub2/os-prober/dracut/libkcapi
+#   (INFOSEC-12632/12633), unbound (INFOSEC-12609/12610), nmap-ncat/libpcap (no fix,
+#   INFOSEC-12207) and vim (no fix, INFOSEC-12205; same as c3vad INFOSEC-10218).
+# Nothing outside each chain requires these, so plain `rpm -e` is used.
+RUN set -e; \
+    upgrade=""; \
+    for pkg in expat libxml2 glib2; do \
+        if rpm -q "$pkg" >/dev/null 2>&1; then upgrade="$upgrade $pkg"; fi; \
+    done; \
+    if [ -n "$upgrade" ]; then microdnf update -y --nodocs $upgrade; fi; \
+    removed_pkgs="grubby grub2-tools grub2-tools-minimal grub2-common os-prober dracut \
+        libkcapi-hmaccalc libkcapi python3-unbound unbound-libs nmap-ncat libpcap \
+        vim-enhanced vim-common vim-minimal vim-filesystem"; \
+    remove=""; \
+    for pkg in $removed_pkgs; do \
+        if rpm -q "$pkg" >/dev/null 2>&1; then remove="$remove $pkg"; fi; \
+    done; \
+    if [ -n "$remove" ]; then rpm -e $remove; fi; \
+    rpm --rebuilddb; \
+    microdnf clean all; \
+    rm -rf /var/cache/yum /var/cache/dnf; \
+    failed=0; \
+    for pkg in $removed_pkgs; do \
+        if rpm -q "$pkg" >/dev/null 2>&1; then echo "ERROR: $pkg is still installed"; failed=1; fi; \
+    done; \
+    for spec in expat:2.5.0-4.el8_10 libxml2:2.9.7-21.el8_10.9 glib2:2.56.4-178.el8_10; do \
+        pkg="${spec%%:*}"; want="${spec#*:}"; \
+        if rpm -q "$pkg" >/dev/null 2>&1; then \
+            have="$(rpm -q --qf '%{VERSION}-%{RELEASE}' "$pkg")"; \
+            lowest="$(printf '%s\n%s\n' "$want" "$have" | sort -V | head -n1)"; \
+            if [ "$lowest" != "$want" ]; then echo "ERROR: $pkg $have is below $want"; failed=1; fi; \
+        fi; \
+    done; \
+    if [ "$failed" -ne 0 ]; then exit 1; fi; \
+    rpm -qa expat libxml2 glib2
 
 ENV LD_LIBRARY_PATH /miniconda/envs/vad/lib:/miniconda/envs/vad/lib/python3.9/site-packages/jep
 ENV LD_PRELOAD /miniconda/envs/vad/lib/libpython3.9.so
