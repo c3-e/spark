@@ -209,18 +209,30 @@ private[spark] object UIUtils extends Logging {
   def uiRoot(request: HttpServletRequest): String = {
     // Knox uses X-Forwarded-Context to notify the application the base path
     val knoxBasePath = Option(request.getHeader("X-Forwarded-Context"))
+    // Check servlet context attribute set by JettyUtils when basePath is configured
+    val servletContextBasePath = Option(request.getServletContext)
+      .flatMap(ctx => Option(ctx.getAttribute(JettyUtils.PROXY_BASE_PATH_ATTRIBUTE)))
+      .map(_.toString)
     // SPARK-11484 - Use the proxyBase set by the AM, if not found then use env.
-    sys.props.get("spark.ui.proxyBase")
+    val root = sys.props.get("spark.ui.proxyBase")
       .orElse(sys.env.get("APPLICATION_WEB_PROXY_BASE"))
       .orElse(knoxBasePath)
+      .orElse(servletContextBasePath)
       .getOrElse("")
+    root
   }
 
   def prependBaseUri(
       request: HttpServletRequest,
       basePath: String = "",
       resource: String = ""): String = {
-    uiRoot(request) + basePath + resource
+    val root = uiRoot(request)
+    val result = if (root.nonEmpty && basePath.startsWith(root)) {
+      basePath + resource
+    } else {
+      root + basePath + resource
+    }
+    result
   }
 
   def commonHeaderNodes(request: HttpServletRequest): Seq[Node] = {
@@ -287,10 +299,17 @@ private[spark] object UIUtils extends Logging {
     }
     val helpButton: Seq[Node] = helpText.map(tooltip(_, "top")).getOrElse(Seq.empty)
 
+    val root = uiRoot(request)
+    val jsAppBasePath = if (root.nonEmpty && activeTab.basePath.startsWith(root)) {
+      ""
+    } else {
+      activeTab.basePath
+    }
+
     <html>
       <head>
         {commonHeaderNodes(request)}
-        <script>setAppBasePath('{activeTab.basePath}')</script>
+        <script>setAppBasePath('{jsAppBasePath}')</script>
         {if (showVisualization) vizHeaderNodes(request) else Seq.empty}
         {if (useDataTables) dataTablesHeaderNodes(request) else Seq.empty}
         <link rel="shortcut icon"

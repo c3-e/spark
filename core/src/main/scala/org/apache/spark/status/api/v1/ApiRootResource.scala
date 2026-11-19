@@ -28,7 +28,7 @@ import org.glassfish.jersey.server.ServerProperties
 import org.glassfish.jersey.servlet.ServletContainer
 
 import org.apache.spark.SecurityManager
-import org.apache.spark.ui.{SparkUI, UIUtils}
+import org.apache.spark.ui.{JettyUtils, SparkUI, UIUtils}
 
 /**
  * Main entry point for serving spark application metrics as json, using JAX-RS.
@@ -57,9 +57,17 @@ private[v1] class ApiRootResource extends ApiRequestContext {
 
 private[spark] object ApiRootResource {
 
-  def getServletHandler(uiRoot: UIRoot): ServletContextHandler = {
+  def getServletHandler(uiRoot: UIRoot, basePath: String = ""): ServletContextHandler = {
     val jerseyContext = new ServletContextHandler(ServletContextHandler.NO_SESSIONS)
-    jerseyContext.setContextPath("/api")
+    val contextPath = if (basePath.nonEmpty) {
+      (basePath + "/api").stripSuffix("/")
+    } else {
+      "/api"
+    }
+    jerseyContext.setContextPath(contextPath)
+    if (basePath.nonEmpty) {
+      jerseyContext.setAttribute(JettyUtils.PROXY_BASE_PATH_ATTRIBUTE, basePath)
+    }
     val holder: ServletHolder = new ServletHolder(classOf[ServletContainer])
     holder.setInitParameter(ServerProperties.PROVIDER_PACKAGES, "org.apache.spark.status.api.v1")
     UIRootFromServletContext.setUiRoot(jerseyContext, uiRoot)
