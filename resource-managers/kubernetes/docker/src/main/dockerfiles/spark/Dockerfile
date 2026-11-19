@@ -84,13 +84,16 @@ RUN microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils p
       seaborn=0.12.2 \
       matplotlib-base=3.9.4 \
       brotli-python=1.2.1 \
-      certifi=2026.10.23 && \
+      certifi=2026.10.23 \
+      python-dateutil=2.9.0.post0 \
+      holidays=0.79 && \
     python -m pip install --no-cache-dir pip==26.3 && \
     rm -f /miniconda/envs/vad/conda-meta/pip-[0-9]*.json && \
     pip install --no-cache-dir jep==4.2.0 && \
     /miniconda/bin/python -c 'import sys; assert sys.version_info[:3] == (3, 13, 18), sys.version' && \
     python -c 'import sys; assert sys.version_info[:3] == (3, 11, 18), sys.version' && \
     python -c 'import pandas, PIL, prophet, pyarrow, scipy, statsmodels, seaborn; assert PIL.__version__ == "13.0.0", PIL.__version__' && \
+    python -c 'import dateutil; assert dateutil.__version__ == "2.9.0.post0", dateutil.__version__' && \
     ls /miniconda/envs/vad/lib/python3.11/site-packages/jep/jep.cpython-311-*-linux-gnu.so && \
     test -f /miniconda/envs/vad/lib/python3.11/site-packages/jep/libjep.so && \
     test -f /miniconda/envs/vad/lib/libpython3.11.so && \
