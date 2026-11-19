@@ -61,35 +61,77 @@ RUN microdnf install --nodocs -y nss_wrapper prometheus-jmx-exporter findutils p
     echo "auth required pam_wheel.so use_uid" >> /etc/pam.d/su && \
     chgrp root /etc/passwd && chmod ug+rw /etc/passwd && \
     echo "C3 conda installation code" && \
-    wget https://repo.anaconda.com/miniconda/Miniconda3-py39_24.1.2-0-Linux-x86_64.sh && \
-    bash Miniconda3-py39_24.1.2-0-Linux-x86_64.sh -b -p /miniconda && \
-    rm Miniconda3-py39_24.1.2-0-Linux-x86_64.sh && \
+    wget https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh && \
+    bash Miniforge3-26.3.2-3-Linux-x86_64.sh -b -p /miniconda && \
+    rm Miniforge3-26.3.2-3-Linux-x86_64.sh && \
     /miniconda/bin/conda init bash && \
     echo 'export PATH=$PATH:/miniconda/condabin:/miniconda/bin' >> /root/.bashrc && \
     . /root/.bashrc && \
-    conda install -c conda-forge -y cryptography=43.0.3 && \
-    conda create -n vad python=3.9 -y && \
+    conda install --override-channels -c conda-forge -y python=3.13.18 setuptools=81.0.0 msgpack-python=1.2.4 \
+      urllib3=2.8.0 brotli-python=1.2.1 certifi=2026.10.23 conda-rattler-solver=26.10.1 py-rattler=0.28.1 \
+      httpx2=2.16.0 && \
+    /miniconda/bin/python -m pip install --no-cache-dir pip==26.3 && \
+    rm -f /miniconda/conda-meta/pip-[0-9]*.json && \
+    conda create --override-channels -c conda-forge -n vad python=3.11.18 -y && \
     conda activate vad && \
-    conda install -c conda-forge -y \
+    conda install --override-channels -c conda-forge -y \
       pandas=1.5.3 \
-      pillow=10.4.0 \
+      pillow=13.0.0 \
       prophet=1.1.5 \
       pyarrow=18.1.0 \
       scipy=1.13.1 \
       statsmodels=0.14.2 \
-      seaborn=0.12.2 && \
+      seaborn=0.12.2 \
+      matplotlib-base=3.9.4 \
+      brotli-python=1.2.1 \
+      certifi=2026.10.23 && \
+    python -m pip install --no-cache-dir pip==26.3 && \
+    rm -f /miniconda/envs/vad/conda-meta/pip-[0-9]*.json && \
     pip install --no-cache-dir jep==4.2.0 && \
+    /miniconda/bin/python -c 'import sys; assert sys.version_info[:3] == (3, 13, 18), sys.version' && \
+    python -c 'import sys; assert sys.version_info[:3] == (3, 11, 18), sys.version' && \
+    python -c 'import pandas, PIL, prophet, pyarrow, scipy, statsmodels, seaborn; assert PIL.__version__ == "13.0.0", PIL.__version__' && \
+    ls /miniconda/envs/vad/lib/python3.11/site-packages/jep/jep.cpython-311-*-linux-gnu.so && \
+    test -f /miniconda/envs/vad/lib/python3.11/site-packages/jep/libjep.so && \
+    test -f /miniconda/envs/vad/lib/libpython3.11.so && \
+    conda list --explicit -n vad > /opt/spark/conda-spec.txt && \
+    pip freeze --all > /opt/spark/pip-spec.txt && \
+    test -s /opt/spark/conda-spec.txt && test -s /opt/spark/pip-spec.txt && \
+    /miniconda/bin/python -m pip --version | grep -q '^pip 26\.3 ' && \
+    python -m pip --version | grep -q '^pip 26\.3 ' && \
+    ! ls /miniconda/conda-meta/pip-[0-9]*.json /miniconda/envs/vad/conda-meta/pip-[0-9]*.json 2>/dev/null && \
     conda clean -a -y --force-pkgs-dirs && \
-    dnf clean all && microdnf remove dnf && \
+    dnf clean all && \
     microdnf clean all && \
-    [ ! -d /var/cache/yum ] || rm -rf /var/cache/yum && \
-    [ ! -d /var/cache/dnf ] || rm -rf /var/cache/dnf && \
+    rm -rf /var/cache/yum /var/cache/dnf && \
     rm -r /usr/share/doc/
-# When updating `conda install` commands above, see <c3vad>/internal/buildImage/README.md
-# because conda environment used for running unit tests - must be kept in sync
+# NOTE: never put `[ ... ] || cmd` in the && chain above: `&&` and `||` have equal precedence, so a
+# failure anywhere earlier short-circuits to the `||` branch, which succeeds and hides the failure.
+# The old `[ ! -d /var/cache/yum ] || ...` lines hid that `microdnf remove dnf` always failed (dnf is a
+# protected package in ubi8-minimal), so dnf was never actually removed; that step is dropped, as in v8.12.
+#
+# Installer: Miniforge (conda-forge only, no Anaconda ToS prompt), replacing the EOL Miniconda
+# py39_24.1.2 installer. The base (/miniconda) env is conda's own tooling and is pinned as in c3vad
+# support/v8.12 internal/sparkImage/Dockerfile (python 3.13.18 + the setuptools/msgpack/urllib3/brotli/certifi/rattler/httpx2 CVE
+# pins); pip 26.3 comes from PyPI in both envs and its stale conda-meta record is removed. No conda
+# install/update may run in an env after its pip upgrade (conda would reinstall conda-forge's pip).
+#
+# vad env: Python 3.11 (was 3.9). Python 3.9 is EOL and its binary carries CVE-2025-4517 /
+# CVE-2026-19445, and pillow 13.0.0 (CVE-2026-112393/-112398/-112403/-112900) needs python >= 3.11.
+# 3.11 rather than 3.13 (as on v8.11+) because this branch stays on Spark 3.5 / pandas 1.5:
+#   - PySpark 3.5 supports python <= 3.11
+#   - pandas 1.5.3 has no conda-forge build newer than py311
+#   - jep 4.2.0 supports python <= 3.12; keep it in lockstep with c3vad build.sbt and Jenkinsfile
+# jep can't be imported from standalone python (it must be embedded in Java), so the build checks its
+# native modules and the libpython3.11.so that LD_PRELOAD points at instead.
+# The other vad pins are unchanged from the py3.9 image, except brotli-python/certifi (Critical
+# GHSA-9v8h-qqgm-4m35 / GHSA-6q48-6c7w-9gw2) and matplotlib-base, pinned to the version the py3.9 image
+# resolved so plotting output doesn't drift.
+# When changing the vad env, regenerate <c3vad>/internal/buildImage/conda-spec.txt (unit-test env),
+# see <c3vad>/internal/buildImage/README.md. /opt/spark/conda-spec.txt is the image's own record.
 
-ENV LD_LIBRARY_PATH /miniconda/envs/vad/lib:/miniconda/envs/vad/lib/python3.9/site-packages/jep
-ENV LD_PRELOAD /miniconda/envs/vad/lib/libpython3.9.so
+ENV LD_LIBRARY_PATH /miniconda/envs/vad/lib:/miniconda/envs/vad/lib/python3.11/site-packages/jep
+ENV LD_PRELOAD /miniconda/envs/vad/lib/libpython3.11.so
 
 # tini is installed here (not included in ubi8-minimal)
 ENV TINI_VERSION v0.19.0
