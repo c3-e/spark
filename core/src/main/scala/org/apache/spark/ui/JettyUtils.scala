@@ -262,14 +262,31 @@ private[spark] object JettyUtils extends Logging {
     server.addBean(errorHandler)
 
     val collection = new ContextHandlerCollection
+
+    // If a UI base path is configured (Spark sitting behind a reverse proxy that
+    // forwards the external URL unchanged, e.g. "/my-spark-cluster/jobs/"), wrap the
+    // context collection in a BasePathHandler that strips the prefix before dispatch.
+    // This keeps all downstream handlers (mounted at "/jobs", "/stages", "/api", ...)
+    // oblivious to the base path -- the only code that still needs to know about it
+    // is link generation in UIUtils, which reads it from a request attribute.
+    val innerHandler: org.eclipse.jetty.server.Handler =
+      conf.getOption("spark.ui.proxyBase").map(_.trim).filter(_.nonEmpty) match {
+        case Some(bp) =>
+          val bph = new BasePathHandler(bp)
+          bph.setHandler(collection)
+          bph
+        case None =>
+          collection
+      }
+
     conf.get(PROXY_REDIRECT_URI) match {
       case Some(proxyUri) =>
         val proxyHandler = new ProxyRedirectHandler(proxyUri)
-        proxyHandler.setHandler(collection)
+        proxyHandler.setHandler(innerHandler)
         server.setHandler(proxyHandler)
 
       case _ =>
-        server.setHandler(collection)
+        server.setHandler(innerHandler)
     }
 
     // Executor used to create daemon threads for the Jetty connectors.

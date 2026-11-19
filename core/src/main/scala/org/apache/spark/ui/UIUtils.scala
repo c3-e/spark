@@ -209,10 +209,16 @@ private[spark] object UIUtils extends Logging {
   def uiRoot(request: HttpServletRequest): String = {
     // Knox uses X-Forwarded-Context to notify the application the base path
     val knoxBasePath = Option(request.getHeader("X-Forwarded-Context"))
+    // BasePathHandler publishes the configured Spark UI base path as a request
+    // attribute after stripping it off the incoming URI; read it here so that
+    // link generation re-prepends the same prefix on outbound URLs.
+    val rewriteBasePath = Option(request.getAttribute(BasePathHandler.BASE_PATH_ATTR))
+      .map(_.toString)
     // SPARK-11484 - Use the proxyBase set by the AM, if not found then use env.
     sys.props.get("spark.ui.proxyBase")
       .orElse(sys.env.get("APPLICATION_WEB_PROXY_BASE"))
       .orElse(knoxBasePath)
+      .orElse(rewriteBasePath)
       .getOrElse("")
   }
 
